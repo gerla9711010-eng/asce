@@ -1,0 +1,137 @@
+{
+  "name": "AI 文案生成（Claude）",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "notionPageId", "type": "string" },
+            { "name": "style", "type": "string" }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "Sub-workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "get",
+        "pageId": "={{ $json.notionPageId }}",
+        "simple": false
+      },
+      "id": "get-page",
+      "name": "Notion: Get Page",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [-960, 0],
+      "credentials": {
+        "notionApi": {
+          "id": "REPLACE_WITH_NOTION_CREDENTIAL_ID",
+          "name": "n8n 廣告系統"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull fields out of the Notion page and choose a style preset.\nconst input = $('Sub-workflow Trigger').first().json;\nconst page  = $json;\nconst props = page.properties || {};\nfunction txt(name) { return props[name]?.rich_text?.[0]?.plain_text || ''; }\nfunction title(name) { return props[name]?.title?.[0]?.plain_text || ''; }\nfunction num(name) { return props[name]?.number ?? null; }\nfunction sel(name) { return props[name]?.select?.name || ''; }\nfunction chk(name) { return Boolean(props[name]?.checkbox); }\n\nconst data = {\n  案名: title('案名'),\n  社區名稱: txt('社區名稱'),\n  地址: txt('地址'),\n  總價: txt('總價'),\n  單價: txt('單價'),\n  格局: txt('格局'),\n  樓層: txt('樓層'),\n  屋齡: num('屋齡'),\n  主建物坪數: num('主建物坪數'),\n  公設坪數: num('公設坪數'),\n  建物坪數: num('建物坪數'),\n  土地坪數: num('土地坪數'),\n  附屬建物: txt('附屬建物'),\n  特色說明: txt('特色說明'),\n  建物類型: sel('建物類型'),\n  車位類型: sel('車位類型'),\n  有無車位: chk('有無車位')\n};\n\nlet style = input.style || sel('文案風格') || 'AI判斷';\nif (!['首購溫馨', '投資自用', '急售吸睛', 'AI判斷'].includes(style)) style = 'AI判斷';\n\nconst styleHint = {\n  '首購溫馨': '溫馨、生活感、適合首購族；強調採光、生活機能、家的感覺。',\n  '投資自用': '理性、聚焦投報率與保值；強調地段、學區、租金行情。',\n  '急售吸睛': '節奏明快、重點直球；用「降價」「屋主急售」「市場稀缺」之類強鉤子。',\n  'AI判斷': '依物件特性自動挑選最合適的調性。'\n}[style];\n\nconst current文案版本 = num('文案版本') ?? 0;\n\nconst userPrompt = [\n  '你是台灣不動產廣告文案高手，幫永慶博愛凱璿加盟店寫一則臉書社團貼文文案。',\n  '',\n  `風格：${style}（${styleHint}）`,\n  '',\n  '物件資料：',\n  ...Object.entries(data)\n    .filter(([, v]) => v !== '' && v !== null && v !== undefined && v !== false)\n    .map(([k, v]) => `- ${k}：${v}`),\n  '',\n  '輸出要求：',\n  '1) 200~280 字，含 emoji，分行清楚。',\n  '2) 開頭一句鉤子，結尾留聯絡引導（不要寫電話／姓名，由人工補）。',\n  '3) 不要編造資料；資料缺的欄位略過即可。',\n  '4) 直接輸出文案本體，不要前後加說明或標題。'\n].join('\\n');\n\nreturn [{\n  json: {\n    pageId: page.id,\n    style,\n    nextVersion: current文案版本 + 1,\n    userPrompt\n  }\n}];\n"
+      },
+      "id": "build-prompt",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-720, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 800,\n  \"messages\": [\n    { \"role\": \"user\", \"content\": {{ JSON.stringify($json.userPrompt) }} }\n  ]\n}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "anthropic",
+      "name": "Anthropic Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-480, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic x-api-key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract text from Anthropic response and pass version forward.\nconst meta = $('Build Prompt').first().json;\nconst resp = $json;\nconst text = (resp?.content || [])\n  .filter(c => c.type === 'text')\n  .map(c => c.text)\n  .join('\\n')\n  .trim();\nif (!text) throw new Error('Claude 回傳為空：' + JSON.stringify(resp).slice(0, 400));\nreturn [{\n  json: {\n    pageId: meta.pageId,\n    style: meta.style,\n    nextVersion: meta.nextVersion,\n    copy: text\n  }\n}];\n"
+      },
+      "id": "extract",
+      "name": "Extract Copy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-240, 0]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": "={{ $json.pageId }}",
+        "propertiesUi": {
+          "propertyValues": [
+            { "key": "產生的文案|rich_text", "textContent": "={{ $json.copy }}" },
+            { "key": "文案版本|number", "numberValue": "={{ $json.nextVersion }}" },
+            { "key": "文案風格|select", "selectValue": "={{ $json.style }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-page",
+      "name": "Notion: Update 產生的文案",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [0, 0],
+      "credentials": {
+        "notionApi": {
+          "id": "REPLACE_WITH_NOTION_CREDENTIAL_ID",
+          "name": "n8n 廣告系統"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Extract Copy').first().json;\nconst page = $json;\nreturn [{\n  json: {\n    pageId: meta.pageId,\n    notionPageUrl: page?.url || page?.public_url || '',\n    style: meta.style,\n    version: meta.nextVersion,\n    copy: meta.copy\n  }\n}];\n"
+      },
+      "id": "result",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0]
+    }
+  ],
+  "connections": {
+    "Sub-workflow Trigger":   { "main": [[{ "node": "Notion: Get Page",          "type": "main", "index": 0 }]] },
+    "Notion: Get Page":       { "main": [[{ "node": "Build Prompt",              "type": "main", "index": 0 }]] },
+    "Build Prompt":           { "main": [[{ "node": "Anthropic Claude",          "type": "main", "index": 0 }]] },
+    "Anthropic Claude":       { "main": [[{ "node": "Extract Copy",              "type": "main", "index": 0 }]] },
+    "Extract Copy":           { "main": [[{ "node": "Notion: Update 產生的文案", "type": "main", "index": 0 }]] },
+    "Notion: Update 產生的文案":{ "main": [[{ "node": "Result",                  "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "staticData": null,
+  "meta": { "instanceId": "asce-yungching" },
+  "tags": ["廣告系統", "Notion", "AI"]
+}
