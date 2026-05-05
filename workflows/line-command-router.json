@@ -1,0 +1,118 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "766bd943-f56c-4f78-b727-20e0d107d26a",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "4e18c917-e9cd-43d7-b2b6-3ab52c08a091",
+      "name": "LINE Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-656, 208],
+      "webhookId": "766bd943-f56c-4f78-b727-20e0d107d26a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 解析 LINE 訊息，取第一個 event 的 text\nconst body = $input.first().json.body || $input.first().json;\nconst events = body.events || [];\n\nif (events.length === 0) {\n  return [{ json: { command: 'noop', text: '', replyToken: null, rawBody: body } }];\n}\n\nconst event = events[0];\nconst text = (event.message && event.message.text) ? event.message.text.trim() : '';\nconst replyToken = event.replyToken || null;\n\nlet command = 'unknown';\nif (text.startsWith('建檔')) command = 'create';\nelse if (text.startsWith('已撤除')) command = 'remove';\nelse if (text === '天氣') command = 'weather';\n\nreturn [{ json: { command, text, replyToken, rawBody: body } }];"
+      },
+      "id": "fb843294-3b70-47c4-9de0-e9618bb9309e",
+      "name": "解析 LINE 指令",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-448, 208]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c1", "leftValue": "={{ $json.command }}", "rightValue": "create", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "建檔" },
+            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c2", "leftValue": "={{ $json.command }}", "rightValue": "remove", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "已撤除" }
+          ]
+        },
+        "options": { "fallbackOutput": "extra", "renameFallbackOutput": "其他" }
+      },
+      "id": "2e79a655-1bc1-47d4-8601-466a4d6b6355",
+      "name": "Switch 指令分流",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [-272, 192]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://primary-production-68428.up.railway.app/webhook/yc-property-create",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
+        "options": {}
+      },
+      "id": "5892da4b-b3e4-4cdd-be70-cdf14be7294f",
+      "name": "轉發到 Workflow 1 建檔",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { replyToken: $('解析 LINE 指令').first().json.replyToken, message: '❓ 無效指令\\n可用指令：\\n• 建檔 [永慶網址]\\n• 已撤除 YCxxx' } }];"
+      },
+      "id": "cc7fd522-66f8-423c-8c07-71bcedf14832",
+      "name": "未知指令處理",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 512]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.message }] }) }}",
+        "options": {}
+      },
+      "id": "271e663c-66f1-4f26-be70-ebfa57ae6bc3",
+      "name": "LINE 回覆（fallback）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [352, 208],
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://primary-production-68428.up.railway.app/webhook/yc-property-remove",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [320, 560],
+      "id": "d49856a2-ae18-451e-b80d-3e17bf12c75b",
+      "name": "轉發到撤除回報器"
+    }
+  ],
+  "connections": {
+    "LINE Webhook":      { "main": [[{ "node": "解析 LINE 指令", "type": "main", "index": 0 }]] },
+    "解析 LINE 指令":    { "main": [[{ "node": "Switch 指令分流", "type": "main", "index": 0 }]] },
+    "Switch 指令分流": {
+      "main": [
+        [{ "node": "轉發到 Workflow 1 建檔", "type": "main", "index": 0 }],
+        [{ "node": "轉發到撤除回報器",      "type": "main", "index": 0 }],
+        [{ "node": "未知指令處理",          "type": "main", "index": 0 }]
+      ]
+    },
+    "未知指令處理":      { "main": [[{ "node": "LINE 回覆（fallback）", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+}
