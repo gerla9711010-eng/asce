@@ -1,0 +1,258 @@
+{
+  "name": "廣告物件建檔（防重複）",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "url", "type": "string" },
+            { "name": "lineUserId", "type": "string" },
+            { "name": "replyToken", "type": "string" }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "Sub-workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize 永慶 URL and extract case ID.\n// Accepts both YC-prefixed and digit-only forms; produces a canonical URL\n// that we use as the dedup key against Notion's 來源連結 column.\nconst raw = String($json.url || '').trim();\nif (!raw) {\n  throw new Error('缺少永慶網址');\n}\n\n// Strip query string / hash, force https, lowercase host.\nlet u;\ntry {\n  u = new URL(raw);\n} catch (e) {\n  throw new Error('網址格式錯誤：' + raw);\n}\nu.hash = '';\nu.search = '';\nu.protocol = 'https:';\nu.hostname = u.hostname.toLowerCase();\n\n// Match /house/<caseId> — caseId is digits, optionally prefixed with YC.\nconst m = u.pathname.match(/\\/house\\/(YC)?(\\d+)/i);\nif (!m) {\n  throw new Error('無法從網址解析案件編號：' + raw);\n}\nconst caseId = 'YC' + m[2];                       // canonical YC-prefixed form\nconst pathCaseSegment = (m[1] ? 'YC' : '') + m[2]; // preserve original prefix in URL\nu.pathname = `/house/${pathCaseSegment}`;\nif (u.pathname.endsWith('/')) u.pathname = u.pathname.slice(0, -1);\n\nreturn [{\n  json: {\n    sourceUrl: u.toString(),\n    caseId,\n    lineUserId: $json.lineUserId || '',\n    replyToken: $json.replyToken || ''\n  }\n}];\n"
+      },
+      "id": "normalize",
+      "name": "Normalize URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-960, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.sourceUrl}}",
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true } },
+          "response": { "response": { "responseFormat": "text" } },
+          "timeout": 15000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "User-Agent", "value": "Mozilla/5.0 (compatible; n8n-yungching/1.0)" },
+            { "name": "Accept-Language", "value": "zh-TW,zh;q=0.9" }
+          ]
+        }
+      },
+      "id": "fetch-html",
+      "name": "Fetch 永慶 HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-720, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse 永慶物件頁 HTML.\n//\n// 永慶 SSR pages embed structured data inside a <script id=\"__NEXT_DATA__\">\n// JSON blob. Selectors below are intentionally tolerant: we try the JSON\n// blob first, then fall back to lightweight regex/cheerio-style scraping on\n// visible markup. If 永慶 changes their template, only this node should need\n// updating.\nconst html = String($json.data || $json.body || '');\nconst input = $('Normalize URL').first().json;\n\nfunction text(re) {\n  const m = html.match(re);\n  return m ? m[1].replace(/<[^>]+>/g, '').replace(/\\s+/g, ' ').trim() : '';\n}\nfunction num(s) {\n  if (!s) return null;\n  const m = String(s).match(/-?\\d+(?:\\.\\d+)?/);\n  return m ? Number(m[0]) : null;\n}\n\n// 1. Try __NEXT_DATA__ JSON.\nlet data = null;\nconst nd = html.match(/<script[^>]*id=\"__NEXT_DATA__\"[^>]*>([\\s\\S]*?)<\\/script>/);\nif (nd) {\n  try {\n    const parsed = JSON.parse(nd[1]);\n    data = parsed?.props?.pageProps?.detail\n        || parsed?.props?.pageProps?.house\n        || parsed?.props?.pageProps?.data\n        || null;\n  } catch (e) { /* fall through to regex */ }\n}\n\nlet name        = data?.caseName        || data?.communityName  || text(/<h1[^>]*>([\\s\\S]*?)<\\/h1>/);\nlet community   = data?.communityName   || '';\nlet address     = data?.address         || data?.fullAddress    || text(/地[\\s　]*址[^<]*<[^>]*>([^<]+)/);\nlet totalPrice  = data?.totalPriceDisplay || data?.totalPrice    || text(/總[\\s　]*價[^<]*<[^>]*>([^<]+)/);\nlet unitPrice   = data?.unitPriceDisplay  || data?.unitPrice     || text(/單[\\s　]*價[^<]*<[^>]*>([^<]+)/);\nlet layout      = data?.layout            || text(/格[\\s　]*局[^<]*<[^>]*>([^<]+)/);\nlet floor       = data?.floor             || text(/樓[\\s　]*層[^<]*<[^>]*>([^<]+)/);\nlet age         = num(data?.houseAge)     ?? num(text(/屋[\\s　]*齡[^<]*<[^>]*>([^<]+)/));\nlet mainArea    = num(data?.mainBuildingArea) ?? num(text(/主建物[^<]*<[^>]*>([^<]+)/));\nlet publicArea  = num(data?.publicArea)       ?? num(text(/公[\\s　]*設[^<]*<[^>]*>([^<]+)/));\nlet buildArea   = num(data?.buildingArea)     ?? num(text(/建[\\s　]*坪[^<]*<[^>]*>([^<]+)/));\nlet landArea    = num(data?.landArea)         ?? num(text(/土地[^<]*<[^>]*>([^<]+)/));\nlet attached    = data?.attachedBuilding      || text(/附屬建物[^<]*<[^>]*>([^<]+)/);\nlet description = data?.description           || text(/<meta name=\"description\" content=\"([^\"]+)\"/);\n\n// Building type heuristic (must map to a select option).\nconst typeMap = ['公寓', '華廈', '電梯大樓', '透天', '套房', '店面'];\nlet buildingType = data?.buildingType || '';\nif (!buildingType) {\n  for (const t of typeMap) {\n    if (html.includes(t)) { buildingType = t; break; }\n  }\n}\nif (!typeMap.includes(buildingType)) buildingType = '其他';\n\n// Parking — checkbox + select.\nconst hasParking = /有車位|平面車位|機械車位|坡道車位/.test(html);\nlet parkingType = '無';\nif (/坡道平面/.test(html)) parkingType = '坡道平面';\nelse if (/機械/.test(html))   parkingType = '機械';\nelse if (/法定/.test(html))   parkingType = '法定';\n\n// Photos: collect og:image + first N gallery URLs (Notion file column wants URLs).\nconst photos = new Set();\nconst og = html.match(/<meta property=\"og:image\" content=\"([^\"]+)\"/);\nif (og) photos.add(og[1]);\nconst imgRe = /https:\\/\\/[\\w./%-]*yungching[\\w./%-]*\\.(?:jpe?g|png|webp)/gi;\nlet im;\nwhile ((im = imgRe.exec(html)) && photos.size < 8) photos.add(im[0]);\n\nreturn [{\n  json: {\n    sourceUrl: input.sourceUrl,\n    caseId: input.caseId,\n    lineUserId: input.lineUserId,\n    replyToken: input.replyToken,\n    parsed: {\n      案名: name || input.caseId,\n      社區名稱: community,\n      地址: address,\n      總價: totalPrice,\n      單價: unitPrice,\n      格局: layout,\n      樓層: floor,\n      屋齡: age,\n      主建物坪數: mainArea,\n      公設坪數: publicArea,\n      建物坪數: buildArea,\n      土地坪數: landArea,\n      附屬建物: attached,\n      特色說明: description,\n      建物類型: buildingType,\n      有無車位: hasParking,\n      車位類型: parkingType,\n      物件照片: Array.from(photos)\n    }\n  }\n}];\n"
+      },
+      "id": "parse",
+      "name": "Parse Property HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-480, 0]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "value": "07ee845168b64f8a9b5682e5069c733b",
+          "mode": "id"
+        },
+        "returnAll": false,
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "anyFilter",
+        "filters": {
+          "conditions": [
+            {
+              "key": "來源連結|url",
+              "condition": "equals",
+              "urlValue": "={{ $json.sourceUrl }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notion-lookup",
+      "name": "Notion: Lookup by 來源連結",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [-240, 0],
+      "credentials": {
+        "notionApi": {
+          "id": "REPLACE_WITH_NOTION_CREDENTIAL_ID",
+          "name": "n8n 廣告系統"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Notion node returns 0..1 page item. Pass through the parsed property\n// alongside an `existingPageId` (or null) so downstream branches stay simple.\nconst parsed = $('Parse Property HTML').first().json;\nconst hits   = $input.all();\nconst existing = hits.length > 0 && hits[0].json && hits[0].json.id ? hits[0].json : null;\nreturn [{\n  json: {\n    ...parsed,\n    existingPageId: existing ? existing.id : null,\n    existingVersion: existing?.properties?.['文案版本']?.number ?? 0\n  }\n}];\n"
+      },
+      "id": "merge-lookup",
+      "name": "Attach Lookup Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.existingPageId }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-existing",
+      "name": "IF existing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": "={{ $json.existingPageId }}",
+        "propertiesUi": {
+          "propertyValues": [
+            { "key": "案名|title",       "title":      "={{ $json.parsed['案名'] }}" },
+            { "key": "案件編號|rich_text","textContent":"={{ $json.caseId }}" },
+            { "key": "社區名稱|rich_text","textContent":"={{ $json.parsed['社區名稱'] }}" },
+            { "key": "地址|rich_text",   "textContent":"={{ $json.parsed['地址'] }}" },
+            { "key": "總價|rich_text",   "textContent":"={{ $json.parsed['總價'] }}" },
+            { "key": "單價|rich_text",   "textContent":"={{ $json.parsed['單價'] }}" },
+            { "key": "格局|rich_text",   "textContent":"={{ $json.parsed['格局'] }}" },
+            { "key": "樓層|rich_text",   "textContent":"={{ $json.parsed['樓層'] }}" },
+            { "key": "附屬建物|rich_text","textContent":"={{ $json.parsed['附屬建物'] }}" },
+            { "key": "特色說明|rich_text","textContent":"={{ $json.parsed['特色說明'] }}" },
+            { "key": "屋齡|number",      "numberValue":"={{ $json.parsed['屋齡'] }}" },
+            { "key": "主建物坪數|number","numberValue":"={{ $json.parsed['主建物坪數'] }}" },
+            { "key": "公設坪數|number",  "numberValue":"={{ $json.parsed['公設坪數'] }}" },
+            { "key": "建物坪數|number",  "numberValue":"={{ $json.parsed['建物坪數'] }}" },
+            { "key": "土地坪數|number",  "numberValue":"={{ $json.parsed['土地坪數'] }}" },
+            { "key": "建物類型|select",  "selectValue":"={{ $json.parsed['建物類型'] }}" },
+            { "key": "車位類型|select",  "selectValue":"={{ $json.parsed['車位類型'] }}" },
+            { "key": "有無車位|checkbox","checkboxValue":"={{ $json.parsed['有無車位'] }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notion-update",
+      "name": "Notion: Update Page",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [480, -160],
+      "credentials": {
+        "notionApi": {
+          "id": "REPLACE_WITH_NOTION_CREDENTIAL_ID",
+          "name": "n8n 廣告系統"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": {
+          "__rl": true,
+          "value": "07ee845168b64f8a9b5682e5069c733b",
+          "mode": "id"
+        },
+        "title": "={{ $json.parsed['案名'] }}",
+        "propertiesUi": {
+          "propertyValues": [
+            { "key": "來源連結|url",     "urlValue":   "={{ $json.sourceUrl }}" },
+            { "key": "案件編號|rich_text","textContent":"={{ $json.caseId }}" },
+            { "key": "社區名稱|rich_text","textContent":"={{ $json.parsed['社區名稱'] }}" },
+            { "key": "地址|rich_text",   "textContent":"={{ $json.parsed['地址'] }}" },
+            { "key": "總價|rich_text",   "textContent":"={{ $json.parsed['總價'] }}" },
+            { "key": "單價|rich_text",   "textContent":"={{ $json.parsed['單價'] }}" },
+            { "key": "格局|rich_text",   "textContent":"={{ $json.parsed['格局'] }}" },
+            { "key": "樓層|rich_text",   "textContent":"={{ $json.parsed['樓層'] }}" },
+            { "key": "附屬建物|rich_text","textContent":"={{ $json.parsed['附屬建物'] }}" },
+            { "key": "特色說明|rich_text","textContent":"={{ $json.parsed['特色說明'] }}" },
+            { "key": "屋齡|number",      "numberValue":"={{ $json.parsed['屋齡'] }}" },
+            { "key": "主建物坪數|number","numberValue":"={{ $json.parsed['主建物坪數'] }}" },
+            { "key": "公設坪數|number",  "numberValue":"={{ $json.parsed['公設坪數'] }}" },
+            { "key": "建物坪數|number",  "numberValue":"={{ $json.parsed['建物坪數'] }}" },
+            { "key": "土地坪數|number",  "numberValue":"={{ $json.parsed['土地坪數'] }}" },
+            { "key": "建物類型|select",  "selectValue":"={{ $json.parsed['建物類型'] }}" },
+            { "key": "車位類型|select",  "selectValue":"={{ $json.parsed['車位類型'] }}" },
+            { "key": "有無車位|checkbox","checkboxValue":"={{ $json.parsed['有無車位'] }}" },
+            { "key": "狀態|select",      "selectValue":"草稿" },
+            { "key": "文案版本|number",  "numberValue": 0 }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notion-create",
+      "name": "Notion: Create Page",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [480, 160],
+      "credentials": {
+        "notionApi": {
+          "id": "REPLACE_WITH_NOTION_CREDENTIAL_ID",
+          "name": "n8n 廣告系統"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "merge",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [720, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build a short LINE-style reply string. Caller (LINE 指令分流) is\n// responsible for actually pushing/replying via the LINE API.\nconst page = $json;\nconst attached = $('Attach Lookup Result').first().json;\nconst action = attached.existingPageId ? '更新' : '新增';\nconst name   = attached.parsed?.['案名'] || attached.caseId;\nconst price  = attached.parsed?.['總價'] || '';\nconst layout = attached.parsed?.['格局'] || '';\nconst pageUrl = page?.url || page?.public_url || '';\nconst lines = [\n  `✅ 已${action}：${name}`,\n  price && `總價：${price}`,\n  layout && `格局：${layout}`,\n  `案件編號：${attached.caseId}`,\n  pageUrl && `Notion：${pageUrl}`\n].filter(Boolean);\nreturn [{\n  json: {\n    action,\n    notionPageId: page?.id || null,\n    notionPageUrl: pageUrl,\n    caseId: attached.caseId,\n    sourceUrl: attached.sourceUrl,\n    replyText: lines.join('\\n'),\n    replyToken: attached.replyToken,\n    lineUserId: attached.lineUserId\n  }\n}];\n"
+      },
+      "id": "build-reply",
+      "name": "Build LINE Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 0]
+    }
+  ],
+  "connections": {
+    "Sub-workflow Trigger":      { "main": [[{ "node": "Normalize URL",            "type": "main", "index": 0 }]] },
+    "Normalize URL":             { "main": [[{ "node": "Fetch 永慶 HTML",          "type": "main", "index": 0 }]] },
+    "Fetch 永慶 HTML":           { "main": [[{ "node": "Parse Property HTML",      "type": "main", "index": 0 }]] },
+    "Parse Property HTML":       { "main": [[{ "node": "Notion: Lookup by 來源連結","type": "main", "index": 0 }]] },
+    "Notion: Lookup by 來源連結":{ "main": [[{ "node": "Attach Lookup Result",     "type": "main", "index": 0 }]] },
+    "Attach Lookup Result":      { "main": [[{ "node": "IF existing?",             "type": "main", "index": 0 }]] },
+    "IF existing?": {
+      "main": [
+        [{ "node": "Notion: Update Page", "type": "main", "index": 0 }],
+        [{ "node": "Notion: Create Page", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notion: Update Page":       { "main": [[{ "node": "Merge", "type": "main", "index": 0 }]] },
+    "Notion: Create Page":       { "main": [[{ "node": "Merge", "type": "main", "index": 1 }]] },
+    "Merge":                     { "main": [[{ "node": "Build LINE Reply", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "staticData": null,
+  "meta": { "instanceId": "asce-yungching" },
+  "tags": ["廣告系統", "Notion", "LINE"]
+}
