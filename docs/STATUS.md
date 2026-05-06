@@ -3,7 +3,7 @@
 > 這份是**唯一交接單**。Notion 那份請封存或刪掉，不再維護。
 > 規則：未完成的事寫在這裡；workflow 真相 = `workflows/*.json`（從 n8n 匯出）。
 
-最後更新：2026-05-05
+最後更新：2026-05-06
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -43,7 +43,7 @@ LINE 指令分流 (Switch by command)
    └── 其他    →            未知指令處理 → LINE 回覆
 ```
 
-- **物件建檔器**：抓永慶 HTML → 清理 → **Gemini 2.5 Flash Lite** 解析 + 生成文案 → 寫 Notion → LINE 回覆。
+- **物件建檔器**：抓永慶 HTML → 清理 → **Gemini 2.5 Flash Lite** 解析 + 生成文案 → 查 Notion 判重（來源連結）→ 新建或 PATCH 更新 → LINE 回覆。
 - **撤除回報器**：抓 YC 編號 → Notion query by 案件編號 → PATCH `已撤除確認 + 下架偵測時間` → LINE 回覆。
 - 兩條子流程都靠**內部 webhook 轉發**串接（不是 Execute Workflow）。
 
@@ -63,39 +63,31 @@ LINE 指令分流 (Switch by command)
 
 ---
 
-## 未完成項目
+## 已完成項目
 
-### 🔴 高優先：物件建檔器加「防重複」
-**問題**：同一網址貼第 2 次會在 Notion 開新一筆。
-**作法**：在「解析 AI 輸出」和「寫入 Notion」之間插 3 個節點：
-1. **HTTP Request — 查 Notion 是否已存在**
-   - POST `https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query`
-   - Credential: `Notion API Token`
-   - Body: `{"filter":{"property":"來源連結","url":{"equals":"{{ $json.targetUrl }}"}},"page_size":1}`
-2. **Code — 取出 existingPageId**
-   ```js
-   const ai = $('解析 AI 輸出').first().json;
-   const existing = ($json.results || [])[0] || null;
-   return [{ json: { ...ai,
-     existingPageId: existing?.id || null,
-     existingVersion: existing?.properties?.['文案版本']?.number ?? 0,
-     action: existing ? '更新' : '建檔'
-   }}];
-   ```
-3. **IF — `{{ $json.existingPageId }}` is not empty**
-   - **True** → 新增一個 **HTTP PATCH** `https://api.notion.com/v1/pages/{{ $json.existingPageId }}`（同 credential），body 帶 properties；不要動「來源連結」「狀態」；`文案版本` 設 `existingVersion + 1`。
-   - **False** → 接到原本的「寫入 Notion」（不動）。
-4. 兩條都接到「組 LINE 回覆訊息」；訊息開頭改用 `{{ $('Code').first().json.action }}` 區分「建檔完成 / 更新完成」。
+### ✅ 物件建檔器 v2：防重複 + 安全清理（2026-05-06）
+在「解析 AI 輸出」和「寫入 Notion」之間插入三節點防重複邏輯：
+- 查 Notion 是否已存在（HTTP POST query by 來源連結）
+- 取出 existingPageId（Code）
+- IF 是否重複 → True: HTTP PATCH 更新；False: n8n Notion 節點新建
+
+同步完成安全清理：
+- Gemini API key 改走 HTTP Header Auth credential（`GEMINI_CREDENTIAL_ID`，需在 n8n 建立，Header 名稱：`x-goog-api-key`）
+- LINE 回覆改用既有 `LINE Channel Access Token` credential（id `OmFzUGgZ1xIpAAP5`）
+
+> 2026-05-06 實測通過：同網址第二次走 PATCH 更新分支，文案版本+1 正常。
+
+**⚠️ 匯入前注意**：Gemini credential 請先在 n8n 建立（Settings → Credentials → HTTP Header Auth），Header 名：`x-goog-api-key`，值：Gemini API key；建立後把 id 填回 `yc-property-create.json` 的 `GEMINI_CREDENTIAL_ID`。
+
+---
+
+## 未完成項目
 
 ### 🟡 中優先：廣告下架偵測（每日 cron）
 - Schedule Trigger 09:00（Asia/Taipei）
 - HTTP query Notion 找 `已撤除確認 = false` 且 `狀態 ≠ 下架` 的物件
 - 對每筆 GET `來源連結`（`neverError: true`）；status ≥ 400 或頁面含「已下架／物件不存在／已成交」就 PATCH `狀態 = 下架`、`下架偵測時間 = now`
 - 結尾用 LINE Push（需要薛力瑜的 LINE userId）發摘要
-
-### 🟡 中優先：安全清理
-- **Gemini API key** 寫死在物件建檔器「Gemini AI 解析 + 產文案」節點 URL：改成 Header Auth credential。
-- **LINE token** 寫死在物件建檔器「LINE 回覆」Authorization header：改用既有 `LINE Channel Access Token` credential（指令分流和撤除回報器已經這樣用了，照抄）。
 
 ### 🟢 低優先 / 想到再做
 - AI 文案重產（獨立 sub-workflow，輸入 `notionPageId` + 想要的 `文案風格`，更新 `產生的文案` 並 `文案版本 +1`）。
