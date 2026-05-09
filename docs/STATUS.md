@@ -3,7 +3,7 @@
 > 這份是**唯一交接單**。Notion 那份請封存或刪掉，不再維護。
 > 規則：未完成的事寫在這裡；workflow 真相 = `workflows/*.json`（從 n8n 匯出）。
 
-最後更新：2026-05-05
+最後更新：2026-05-09
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -19,6 +19,7 @@
 | Notion 首頁 | 永慶博愛凱璿（page id `32ad184ddd7080c8ba7cf732d0747211`）|
 | Notion 廣告資料庫 | `07ee845168b64f8a9b5682e5069c733b`（data source `bcf8f493-4aac-45bf-8223-9b49f29aff63`）|
 | Google OAuth 專案 | xueliyu-realestate（client id `937623665731-5on2s6ecqplbh59fb35e4n3sqa50i66i.apps.googleusercontent.com`）|
+| 薛力瑜 LINE userId | `Ufab42c56b2eb9b9a9ff18c367b85a6dd`（用於 cron Push） |
 
 ## n8n Credentials（重要：兩個 Notion credential 不一樣）
 
@@ -87,11 +88,11 @@ LINE 指令分流 (Switch by command)
    - **False** → 接到原本的「寫入 Notion」（不動）。
 4. 兩條都接到「組 LINE 回覆訊息」；訊息開頭改用 `{{ $('Code').first().json.action }}` 區分「建檔完成 / 更新完成」。
 
-### 🟡 中優先：廣告下架偵測（每日 cron）
-- Schedule Trigger 09:00（Asia/Taipei）
-- HTTP query Notion 找 `已撤除確認 = false` 且 `狀態 ≠ 下架` 的物件
-- 對每筆 GET `來源連結`（`neverError: true`）；status ≥ 400 或頁面含「已下架／物件不存在／已成交」就 PATCH `狀態 = 下架`、`下架偵測時間 = now`
-- 結尾用 LINE Push（需要薛力瑜的 LINE userId）發摘要
+### ✅ 廣告下架偵測（每日 cron）— 已建置，待 LINE 額度重置後驗證
+- workflow 邏輯已跑通（2026-05-09 測試：檢查 3 筆，全部在線，摘要組成正確）
+- **唯一問題**：LINE 免費方案月額度（200 則）已用完，Push 節點 429 失敗；6/1 自動重置
+- Push userId 已記錄：`Ufab42c56b2eb9b9a9ff18c367b85a6dd`
+- 記得從 n8n 匯出 JSON 蓋到 `workflows/yc-removal-detector.json`
 
 ### 🟡 中優先：安全清理
 - **Gemini API key** 寫死在物件建檔器「Gemini AI 解析 + 產文案」節點 URL：改成 Header Auth credential。
