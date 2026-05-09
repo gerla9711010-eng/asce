@@ -66,27 +66,9 @@ LINE 指令分流 (Switch by command)
 
 ## 未完成項目
 
-### 🔴 高優先：物件建檔器加「防重複」
-**問題**：同一網址貼第 2 次會在 Notion 開新一筆。
-**作法**：在「解析 AI 輸出」和「寫入 Notion」之間插 3 個節點：
-1. **HTTP Request — 查 Notion 是否已存在**
-   - POST `https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query`
-   - Credential: `Notion API Token`
-   - Body: `{"filter":{"property":"來源連結","url":{"equals":"{{ $json.targetUrl }}"}},"page_size":1}`
-2. **Code — 取出 existingPageId**
-   ```js
-   const ai = $('解析 AI 輸出').first().json;
-   const existing = ($json.results || [])[0] || null;
-   return [{ json: { ...ai,
-     existingPageId: existing?.id || null,
-     existingVersion: existing?.properties?.['文案版本']?.number ?? 0,
-     action: existing ? '更新' : '建檔'
-   }}];
-   ```
-3. **IF — `{{ $json.existingPageId }}` is not empty**
-   - **True** → 新增一個 **HTTP PATCH** `https://api.notion.com/v1/pages/{{ $json.existingPageId }}`（同 credential），body 帶 properties；不要動「來源連結」「狀態」；`文案版本` 設 `existingVersion + 1`。
-   - **False** → 接到原本的「寫入 Notion」（不動）。
-4. 兩條都接到「組 LINE 回覆訊息」；訊息開頭改用 `{{ $('Code').first().json.action }}` 區分「建檔完成 / 更新完成」。
+### ✅ 物件建檔器加「防重複」— 已完成
+- 同網址第 2 次貼會更新既有 Notion 頁，`文案版本` +1，不再開新一筆
+- 記得從 n8n 匯出 JSON 蓋到 `workflows/yc-property-create.json`
 
 ### ✅ 廣告下架偵測（每日 cron）— 已建置，待 LINE 額度重置後驗證
 - workflow 邏輯已跑通（2026-05-09 測試：檢查 3 筆，全部在線，摘要組成正確）
