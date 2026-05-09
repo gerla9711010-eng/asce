@@ -1,135 +1,228 @@
 {
-  "_note": "物件建檔器（含防重複 + 憑證安全）。同一來源連結第二次貼入走更新路徑；Gemini/LINE 均使用 credential，不再寫死金鑰。",
+  "_note": "物件建檔器（含防重複 + 安全清理）。Gemini 用 httpHeaderAuth credential「Gemini API Key」(id zTIA89pDJJs0Ad29)；LINE 用「LINE Channel Access Token」(id OmFzUGgZ1xIpAAP5)。",
+  "name": "物件建檔器",
   "nodes": [
     {
-      "parameters": { "httpMethod": "POST", "path": "yc-property-create", "responseMode": "lastNode", "options": {} },
-      "id": "bcc9010e-e1ad-493c-a181-d7cf8697a9f9",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "yc-property-create",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "2d254de3-07cf-4dd2-985c-91bf4bdf7a10",
       "name": "LINE Webhook (測試用)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-96, -80],
+      "position": [
+        -2000,
+        208
+      ],
       "webhookId": "yc-property-create"
     },
     {
       "parameters": {
         "jsCode": "const event = $input.first().json.events?.[0] || $input.first().json.body?.events?.[0];\nconst messageText = event?.message?.text || '';\nconst replyToken = event?.replyToken || '';\nconst userId = event?.source?.userId || '';\n\nconst urlMatch = messageText.match(/(https?:\\/\\/[^\\s]+)/);\nconst targetUrl = urlMatch ? urlMatch[1] : '';\n\nconst ycMatch = targetUrl.match(/([A-Z]{2}\\d{6,})/i) || targetUrl.match(/\\/(\\d+)(?:[\\/?#]|$)/);\nconst caseId = ycMatch ? ycMatch[1].toUpperCase() : '';\n\nif (!targetUrl) {\n  throw new Error(`找不到網址。原始訊息：「${messageText}」長度=${messageText.length}`);\n}\n\nreturn [{ json: { targetUrl, caseId, replyToken, userId, rawMessage: messageText } }];"
       },
-      "id": "7bb2e9a5-c74c-4519-9d15-eee203785660",
+      "id": "bb4f975a-27f3-46dd-9293-a7981a1a6150",
       "name": "解析 LINE 指令",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [128, -80]
+      "position": [
+        -1776,
+        208
+      ]
     },
     {
       "parameters": {
         "url": "={{ $json.targetUrl }}",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "User-Agent", "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
-          { "name": "Accept", "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
-          { "name": "Accept-Language", "value": "zh-TW,zh;q=0.9,en;q=0.8" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "zh-TW,zh;q=0.9,en;q=0.8"
+            }
+          ]
+        },
         "options": {
-          "redirect": { "redirect": { "maxRedirects": 5 } },
-          "response": { "response": { "responseFormat": "text" } },
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 5
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
           "timeout": 15000
         }
       },
-      "id": "d4bed78c-3062-4d75-a289-20e85a2135ce",
+      "id": "c8f71217-d74a-4127-abf4-f4ca45f78739",
       "name": "抓取永慶 HTML",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [352, -80]
+      "position": [
+        -1552,
+        208
+      ]
     },
     {
       "parameters": {
         "jsCode": "let html = $input.first().json.data || $input.first().json.body || '';\nhtml = html.replace(/<script[\\s\\S]*?<\\/script>/gi, '');\nhtml = html.replace(/<style[\\s\\S]*?<\\/style>/gi, '');\nhtml = html.replace(/<!--[\\s\\S]*?-->/g, '');\nhtml = html.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, '');\nconst bodyMatch = html.match(/<body[\\s\\S]*?<\\/body>/i);\nlet content = bodyMatch ? bodyMatch[0] : html;\ncontent = content.replace(/\\s+/g, ' ').trim();\nif (content.length > 80000) content = content.substring(0, 80000);\nreturn [{ json: { ...$('解析 LINE 指令').first().json, cleanedHtml: content, htmlLength: content.length } }];"
       },
-      "id": "7c635384-d3bd-41bd-a6f8-23f636e344f0",
+      "id": "0bdc6a38-698e-4bea-871d-05ae9321d0e8",
       "name": "清理 HTML",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [576, -80]
+      "position": [
+        -1328,
+        208
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "content-type", "value": "application/json" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是房地產資料解析專家。請從以下永慶房屋的 HTML 中萃取物件資訊，並產生臉書社團文案。\n\n【解析規則】\n- 必須回傳完整的 JSON 物件，包含下方所有欄位\n- 不可只回傳文案字串，必須是物件格式 {\"案名\":\"...\",\"總價\":\"...\",\"產生的文案\":\"...\"}\n- 不要任何前後說明文字、不要 Markdown code block\n- 找不到的欄位填 null(數字欄位)或空字串(文字欄位)\n- 坪數一律轉成數字(單位:坪),不含單位\n- 屋齡轉成數字(單位:年)\n- 總價含「萬」單位字串(例:'338 萬')\n- 文案風格判斷:1 房或主建物 < 15 坪 → 投資自用;其他 → 首購溫馨\n\n【文案規則】\n- 開頭一句吸睛標題(含 emoji)\n- 中段 4-6 個重點,前 2-3 個用 ✨ 開頭,後面用「・」開頭\n- 結尾留簡短行動呼籲\n- 全文 200-350 字\n\n【輸出 JSON 格式】\n{\"案名\":\"\",\"案件編號\":\"\",\"社區名稱\":\"\",\"地址\":\"\",\"建物類型\":\"電梯大樓|華廈|公寓|透天|套房|店面|其他\",\"格局\":\"\",\"樓層\":\"\",\"屋齡\":0,\"總價\":\"\",\"單價\":\"\",\"建物坪數\":0,\"主建物坪數\":0,\"公設坪數\":0,\"附屬建物\":\"\",\"土地坪數\":0,\"有無車位\":false,\"車位類型\":\"坡道平面|機械|法定|無\",\"特色說明\":\"\",\"文案風格\":\"首購溫馨|投資自用\",\"產生的文案\":\"\"}\n\n【已知資訊】\n來源網址:${$json.targetUrl}\n推測案件編號:${$json.caseId}\n\n重要:你的回應必須是 JSON 物件 {} 開頭,絕對不能直接回傳字串!\n【HTML 內容】\n${$json.cleanedHtml}` }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 4096, responseMimeType: \"application/json\" }\n}) }}",
-        "options": { "timeout": 60000 }
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是房地產資料解析專家。請從以下永慶房屋的 HTML 中萃取物件資訊，並產生臉書社團文案。\n\n【解析規則】\n- 必須回傳完整的 JSON 物件，包含下方所有欄位\n- 不可只回傳文案字串，必須是物件格式 {\"案名\":\"...\",\"總價\":\"...\",\"產生的文案\":\"...\"}\n- 不要任何前後說明文字、不要 Markdown code block\n- 找不到的欄位填 null(數字欄位)或空字串(文字欄位)\n- 坪數一律轉成數字(單位:坪),不含單位\n- 屋齡轉成數字(單位:年)\n- 總價含「萬」單位字串(例:'338 萬')\n- 文案風格判斷:1 房或主建物 < 15 坪 → 投資自用;其他 → 首購溫馨\n\n【文案規則】\n- 開頭直接點出格局、地點、總價，不用標語或 emoji\n- 條列 4-6 項關鍵事實（坪數/屋齡/樓層/車位/特色），每項用「・」開頭\n- 語氣直白簡潔，禁止「完美」「絕美」「夢想」「別猶豫」「立即」「把握」「搶先」「親身體驗」等誇大或催促詞\n- 結尾一句說明看屋請私訊或來電即可，不需要 CTA 口號\n- 全文控制在 100 字以內\n\n【輸出 JSON 格式】\n{\"案名\":\"\",\"案件編號\":\"\",\"社區名稱\":\"\",\"地址\":\"\",\"建物類型\":\"電梯大樓|華廈|公寓|透天|套房|店面|其他\",\"格局\":\"\",\"樓層\":\"\",\"屋齡\":0,\"總價\":\"\",\"單價\":\"\",\"建物坪數\":0,\"主建物坪數\":0,\"公設坪數\":0,\"附屬建物\":\"\",\"土地坪數\":0,\"有無車位\":false,\"車位類型\":\"坡道平面|機械|法定|無\",\"特色說明\":\"\",\"文案風格\":\"首購溫馨|投資自用\",\"產生的文案\":\"\"}\n\n【已知資訊】\n來源網址:${$json.targetUrl}\n推測案件編號:${$json.caseId}\n\n重要:你的回應必須是 JSON 物件 {} 開頭,絕對不能直接回傳字串!\n【HTML 內容】\n${$json.cleanedHtml}` }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 4096, responseMimeType: \"application/json\" }\n}) }}",
+        "options": {
+          "timeout": 60000
+        }
       },
-      "id": "4b85c264-ed56-4c9b-a85b-e0fe8f0db472",
+      "id": "3458fb78-e352-4b22-ae7d-816e0ab12ed1",
       "name": "Gemini AI 解析 + 產文案",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [784, -80],
+      "position": [
+        -1120,
+        208
+      ],
       "retryOnFail": true,
       "waitBetweenTries": 5000,
-      "credentials": { "httpHeaderAuth": { "id": "GEMINI_CREDENTIAL_ID", "name": "Gemini API Key" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "zTIA89pDJJs0Ad29",
+          "name": "Gemini API Key"
+        }
+      }
     },
     {
       "parameters": {
         "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); }\ncatch (e) { throw new Error('AI 回傳 JSON 解析失敗: ' + e.message + ' 原始: ' + aiText.substring(0, 500)); }\nconst inputData = $('清理 HTML').first().json;\nreturn [{ json: { ...parsed, targetUrl: inputData.targetUrl, replyToken: inputData.replyToken, userId: inputData.userId, 案件編號: (() => { const raw = String(parsed.案件編號 || inputData.caseId || '').trim(); return raw.startsWith('YC') ? raw : 'YC' + raw; })() } }];"
       },
-      "id": "bfe14152-4492-43d8-8d0c-d77949e0adf8",
+      "id": "b729d649-55c1-4715-b94a-d5a9c41356b8",
       "name": "解析 AI 輸出",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1008, -80]
+      "position": [
+        -896,
+        208
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Notion-Version", "value": "2022-06-28" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"filter\": { \"property\": \"來源連結\", \"url\": { \"equals\": \"{{ $json.targetUrl }}\" } },\n  \"page_size\": 1\n}",
+        "jsonBody": "={{ JSON.stringify({ filter: { property: '來源連結', url: { equals: $json.targetUrl } }, page_size: 1 }) }}",
         "options": {}
       },
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "id": "df1f5872-1e07-42ad-b9b4-e88692478d8a",
       "name": "查 Notion 是否已存在",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1232, -80],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        -672,
+        208
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
         "jsCode": "const ai = $('解析 AI 輸出').first().json;\nconst existing = ($json.results || [])[0] || null;\nreturn [{ json: { ...ai,\n  existingPageId: existing?.id || null,\n  existingVersion: existing?.properties?.['文案版本']?.number ?? 0,\n  action: existing ? '更新' : '建檔'\n}}];"
       },
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "id": "ad25b985-b7df-485f-859f-f751e2ff1ac3",
       "name": "取出 existingPageId",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1456, -80]
+      "position": [
+        -448,
+        208
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 },
-          "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "更新", "operator": { "type": "string", "operation": "equals" } }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "更新",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
       },
-      "id": "c3d4e5f6-a7b8-9012-cdef-012345678902",
-      "name": "IF 是否重複",
+      "id": "2fdd2444-b3a6-45ec-8d16-c99830cc4351",
+      "name": "判斷是否已存在",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1680, -80]
+      "position": [
+        -224,
+        208
+      ]
     },
     {
       "parameters": {
@@ -138,69 +231,168 @@
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Notion-Version", "value": "2022-06-28" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ properties: { '案名': { title: [{ text: { content: $json['案名'] || '' } }] }, '案件編號': { rich_text: [{ text: { content: $json['案件編號'] || '' } }] }, '社區名稱': { rich_text: [{ text: { content: $json['社區名稱'] || '' } }] }, '地址': { rich_text: [{ text: { content: $json['地址'] || '' } }] }, '建物類型': { select: $json['建物類型'] ? { name: $json['建物類型'] } : null }, '格局': { rich_text: [{ text: { content: $json['格局'] || '' } }] }, '樓層': { rich_text: [{ text: { content: $json['樓層'] || '' } }] }, '屋齡': { number: $json['屋齡'] != null ? Number($json['屋齡']) : null }, '總價': { rich_text: [{ text: { content: String($json['總價'] || '') } }] }, '單價': { rich_text: [{ text: { content: String($json['單價'] || '') } }] }, '建物坪數': { number: $json['建物坪數'] != null ? Number($json['建物坪數']) : null }, '主建物坪數': { number: $json['主建物坪數'] != null ? Number($json['主建物坪數']) : null }, '公設坪數': { number: $json['公設坪數'] != null ? Number($json['公設坪數']) : null }, '附屬建物': { rich_text: [{ text: { content: $json['附屬建物'] || '' } }] }, '土地坪數': { number: $json['土地坪數'] != null ? Number($json['土地坪數']) : null }, '有無車位': { checkbox: !!$json['有無車位'] }, '車位類型': { select: $json['車位類型'] ? { name: $json['車位類型'] } : null }, '特色說明': { rich_text: [{ text: { content: $json['特色說明'] || '' } }] }, '文案風格': { select: $json['文案風格'] ? { name: $json['文案風格'] } : null }, '產生的文案': { rich_text: [{ text: { content: $json['產生的文案'] || '' } }] }, '文案版本': { number: ($json['existingVersion'] || 0) + 1 } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ properties: { '案名': { title: [{ text: { content: String($json['案名'] || '') } }] }, '案件編號': { rich_text: [{ text: { content: String($json['案件編號'] || '') } }] }, '社區名稱': { rich_text: [{ text: { content: String($json['社區名稱'] || '') } }] }, '地址': { rich_text: [{ text: { content: String($json['地址'] || '') } }] }, '建物類型': { select: $json['建物類型'] ? { name: $json['建物類型'] } : null }, '格局': { rich_text: [{ text: { content: String($json['格局'] || '') } }] }, '樓層': { rich_text: [{ text: { content: String($json['樓層'] || '') } }] }, '屋齡': { number: $json['屋齡'] != null ? $json['屋齡'] : null }, '總價': { rich_text: [{ text: { content: String($json['總價'] || '') } }] }, '單價': { rich_text: [{ text: { content: String($json['單價'] || '') } }] }, '建物坪數': { number: $json['建物坪數'] != null ? $json['建物坪數'] : null }, '主建物坪數': { number: $json['主建物坪數'] != null ? $json['主建物坪數'] : null }, '公設坪數': { number: $json['公設坪數'] != null ? $json['公設坪數'] : null }, '附屬建物': { rich_text: [{ text: { content: String($json['附屬建物'] || '') } }] }, '土地坪數': { number: $json['土地坪數'] != null ? $json['土地坪數'] : null }, '有無車位': { checkbox: !!$json['有無車位'] }, '車位類型': { select: $json['車位類型'] ? { name: $json['車位類型'] } : null }, '特色說明': { rich_text: [{ text: { content: String($json['特色說明'] || '') } }] }, '文案風格': { select: $json['文案風格'] ? { name: $json['文案風格'] } : null }, '產生的文案': { rich_text: [{ text: { content: String($json['產生的文案'] || '') } }] }, '文案版本': { number: ($json.existingVersion || 0) + 1 } } }) }}",
         "options": {}
       },
-      "id": "d4e5f6a7-b8c9-0123-def0-123456789003",
-      "name": "更新 Notion",
+      "id": "aab6ce8e-32d6-4cf3-af6b-cc281be96d01",
+      "name": "PATCH 更新已存在",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1904, -200],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
         "resource": "databasePage",
-        "databaseId": { "__rl": true, "value": "07ee845168b64f8a9b5682e5069c733b", "mode": "id" },
+        "databaseId": {
+          "__rl": true,
+          "value": "07ee845168b64f8a9b5682e5069c733b",
+          "mode": "id"
+        },
         "title": "={{ $json['案名'] }}",
-        "propertiesUi": { "propertyValues": [
-          { "key": "案件編號|rich_text", "textContent": "={{ $json['案件編號'] }}" },
-          { "key": "社區名稱|rich_text", "textContent": "={{ $json['社區名稱'] }}" },
-          { "key": "地址|rich_text",     "textContent": "={{ $json['地址'] }}" },
-          { "key": "建物類型|select",    "selectValue": "={{ $json['建物類型'] }}" },
-          { "key": "格局|rich_text",     "textContent": "={{ $json['格局'] }}" },
-          { "key": "樓層|rich_text",     "textContent": "={{ $json['樓層'] }}" },
-          { "key": "屋齡|number",        "numberValue": "={{ $json['屋齡'] }}" },
-          { "key": "總價|rich_text",     "textContent": "={{ $json['總價'] }}" },
-          { "key": "單價|rich_text",     "textContent": "={{ $json['單價'] }}" },
-          { "key": "建物坪數|number",    "numberValue": "={{ $json['建物坪數'] }}" },
-          { "key": "主建物坪數|number",  "numberValue": "={{ $json['主建物坪數'] }}" },
-          { "key": "公設坪數|number",    "numberValue": "={{ $json['公設坪數'] }}" },
-          { "key": "附屬建物|rich_text", "textContent": "={{ $json['附屬建物'] }}" },
-          { "key": "土地坪數|number",    "numberValue": "={{ $json['土地坪數'] }}" },
-          { "key": "有無車位|checkbox",  "checkboxValue": "={{ $json['有無車位'] }}" },
-          { "key": "車位類型|select",    "selectValue": "={{ $json['車位類型'] }}" },
-          { "key": "特色說明|rich_text", "textContent": "={{ $json['特色說明'] }}" },
-          { "key": "文案風格|select",    "selectValue": "={{ $json['文案風格'] }}" },
-          { "key": "產生的文案|rich_text","textContent":"={{ $json['產生的文案'] }}" },
-          { "key": "來源連結|url",       "urlValue":    "={{ $json['targetUrl'] }}" },
-          { "key": "狀態|select",        "selectValue": "草稿" },
-          { "key": "文案版本|number",    "numberValue": 1 }
-        ] },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "案件編號|rich_text",
+              "textContent": "={{ $json['案件編號'] }}"
+            },
+            {
+              "key": "社區名稱|rich_text",
+              "textContent": "={{ $json['社區名稱'] }}"
+            },
+            {
+              "key": "地址|rich_text",
+              "textContent": "={{ $json['地址'] }}"
+            },
+            {
+              "key": "建物類型|select",
+              "selectValue": "={{ $json['建物類型'] }}"
+            },
+            {
+              "key": "格局|rich_text",
+              "textContent": "={{ $json['格局'] }}"
+            },
+            {
+              "key": "樓層|rich_text",
+              "textContent": "={{ $json['樓層'] }}"
+            },
+            {
+              "key": "屋齡|number",
+              "numberValue": "={{ $json['屋齡'] }}"
+            },
+            {
+              "key": "總價|rich_text",
+              "textContent": "={{ $json['總價'] }}"
+            },
+            {
+              "key": "單價|rich_text",
+              "textContent": "={{ $json['單價'] }}"
+            },
+            {
+              "key": "建物坪數|number",
+              "numberValue": "={{ $json['建物坪數'] }}"
+            },
+            {
+              "key": "主建物坪數|number",
+              "numberValue": "={{ $json['主建物坪數'] }}"
+            },
+            {
+              "key": "公設坪數|number",
+              "numberValue": "={{ $json['公設坪數'] }}"
+            },
+            {
+              "key": "附屬建物|rich_text",
+              "textContent": "={{ $json['附屬建物'] }}"
+            },
+            {
+              "key": "土地坪數|number",
+              "numberValue": "={{ $json['土地坪數'] }}"
+            },
+            {
+              "key": "有無車位|checkbox",
+              "checkboxValue": "={{ $json['有無車位'] }}"
+            },
+            {
+              "key": "車位類型|select",
+              "selectValue": "={{ $json['車位類型'] }}"
+            },
+            {
+              "key": "特色說明|rich_text",
+              "textContent": "={{ $json['特色說明'] }}"
+            },
+            {
+              "key": "文案風格|select",
+              "selectValue": "={{ $json['文案風格'] }}"
+            },
+            {
+              "key": "產生的文案|rich_text",
+              "textContent": "={{ $json['產生的文案'] }}"
+            },
+            {
+              "key": "來源連結|url",
+              "urlValue": "={{ $json['targetUrl'] }}"
+            },
+            {
+              "key": "狀態|select",
+              "selectValue": "草稿"
+            },
+            {
+              "key": "文案版本|number",
+              "numberValue": 1
+            }
+          ]
+        },
         "options": {}
       },
-      "id": "71c4ab71-a02b-43d1-b751-20ab554ac3bf",
+      "id": "212f8b63-62ac-4a29-993e-140ee17ec7c3",
       "name": "寫入 Notion",
       "type": "n8n-nodes-base.notion",
       "typeVersion": 2.2,
-      "position": [1904, 60],
-      "credentials": { "notionApi": { "id": "T62CHdfWuY9iXKWk", "name": "Notion account" } }
+      "position": [
+        0,
+        400
+      ],
+      "credentials": {
+        "notionApi": {
+          "id": "T62CHdfWuY9iXKWk",
+          "name": "Notion account"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const notionPage = $input.first().json;\nconst aiData = $('取出 existingPageId').first().json;\nconst action = aiData.action || '建檔';\nconst notionUrl = notionPage.url || `https://www.notion.so/${notionPage.id?.replace(/-/g, '')}`;\nconst caseName = aiData['案名'] || '未命名物件';\nconst caseId = aiData['案件編號'] || '無編號';\nconst totalPrice = aiData['總價'] || '';\nconst layout = aiData['格局'] || '';\nconst copy = aiData['產生的文案'] || '';\nconst icon = action === '更新' ? '🔄' : '✅';\nconst replyText = `${icon} ${action}完成\\n\\n📋 ${caseName}\\n🏷 ${caseId}　💰 ${totalPrice}　🏠 ${layout}\\n\\n🔗 ${notionUrl}\\n\\n━━━ 文案預覽 ━━━\\n${copy}`;\nreturn [{ json: { replyToken: aiData.replyToken, replyText, notionUrl, notionPageId: notionPage.id } }];"
+        "jsCode": "const notionPage = $input.first().json;\nconst aiData = $('解析 AI 輸出').first().json;\nconst existData = $('取出 existingPageId').first().json;\nconst action = existData.action || '建檔';\nconst notionUrl = notionPage.url || `https://www.notion.so/${notionPage.id?.replace(/-/g, '')}`;\nconst caseName = aiData['案名'] || '未命名物件';\nconst caseId = aiData['案件編號'] || '無編號';\nconst totalPrice = aiData['總價'] || '';\nconst layout = aiData['格局'] || '';\nconst copy = aiData['產生的文案'] || '';\nconst replyText = `✅ ${action}完成\\n\\n📋 ${caseName}\\n🏷 ${caseId}　💰 ${totalPrice}　🏠 ${layout}\\n\\n🔗 ${notionUrl}\\n\\n━━━ 文案預覽 ━━━\\n${copy}`;\nreturn [{ json: { replyToken: aiData.replyToken, replyText, notionUrl, notionPageId: notionPage.id } }];"
       },
-      "id": "fa910c4c-f7c5-4dad-8740-12aded097962",
+      "id": "32259b20-1b91-410f-b548-b317977f8d41",
       "name": "組 LINE 回覆訊息",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2128, -80]
+      "position": [
+        224,
+        208
+      ]
     },
     {
       "parameters": {
@@ -208,38 +400,187 @@
         "url": "https://api.line.me/v2/bot/message/reply",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"replyToken\": \"{{ $json.replyToken }}\",\n  \"messages\": [\n    { \"type\": \"text\", \"text\": {{ JSON.stringify($json.replyText) }} }\n  ]\n}",
         "options": {}
       },
-      "id": "0a8accba-4c3f-42a0-bcde-6aa0d1a4b014",
+      "id": "b01d6882-edde-4fb6-a6cb-9294553d3aaa",
       "name": "LINE 回覆",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2352, -80],
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "position": [
+        448,
+        208
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     }
   ],
+  "pinData": {},
   "connections": {
-    "LINE Webhook (測試用)":   { "main": [[{ "node": "解析 LINE 指令",          "type": "main", "index": 0 }]] },
-    "解析 LINE 指令":          { "main": [[{ "node": "抓取永慶 HTML",            "type": "main", "index": 0 }]] },
-    "抓取永慶 HTML":           { "main": [[{ "node": "清理 HTML",                "type": "main", "index": 0 }]] },
-    "清理 HTML":               { "main": [[{ "node": "Gemini AI 解析 + 產文案",  "type": "main", "index": 0 }]] },
-    "Gemini AI 解析 + 產文案": { "main": [[{ "node": "解析 AI 輸出",             "type": "main", "index": 0 }]] },
-    "解析 AI 輸出":            { "main": [[{ "node": "查 Notion 是否已存在",     "type": "main", "index": 0 }]] },
-    "查 Notion 是否已存在":    { "main": [[{ "node": "取出 existingPageId",      "type": "main", "index": 0 }]] },
-    "取出 existingPageId":     { "main": [[{ "node": "IF 是否重複",              "type": "main", "index": 0 }]] },
-    "IF 是否重複": {
+    "LINE Webhook (測試用)": {
       "main": [
-        [{ "node": "更新 Notion", "type": "main", "index": 0 }],
-        [{ "node": "寫入 Notion", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "解析 LINE 指令",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "更新 Notion":             { "main": [[{ "node": "組 LINE 回覆訊息",         "type": "main", "index": 0 }]] },
-    "寫入 Notion":             { "main": [[{ "node": "組 LINE 回覆訊息",         "type": "main", "index": 0 }]] },
-    "組 LINE 回覆訊息":        { "main": [[{ "node": "LINE 回覆",                "type": "main", "index": 0 }]] }
+    "解析 LINE 指令": {
+      "main": [
+        [
+          {
+            "node": "抓取永慶 HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "抓取永慶 HTML": {
+      "main": [
+        [
+          {
+            "node": "清理 HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "清理 HTML": {
+      "main": [
+        [
+          {
+            "node": "Gemini AI 解析 + 產文案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini AI 解析 + 產文案": {
+      "main": [
+        [
+          {
+            "node": "解析 AI 輸出",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析 AI 輸出": {
+      "main": [
+        [
+          {
+            "node": "查 Notion 是否已存在",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查 Notion 是否已存在": {
+      "main": [
+        [
+          {
+            "node": "取出 existingPageId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取出 existingPageId": {
+      "main": [
+        [
+          {
+            "node": "判斷是否已存在",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "判斷是否已存在": {
+      "main": [
+        [
+          {
+            "node": "PATCH 更新已存在",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "寫入 Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PATCH 更新已存在": {
+      "main": [
+        [
+          {
+            "node": "組 LINE 回覆訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "寫入 Notion": {
+      "main": [
+        [
+          {
+            "node": "組 LINE 回覆訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組 LINE 回覆訊息": {
+      "main": [
+        [
+          {
+            "node": "LINE 回覆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "pinData": {},
-  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "278cf3da-10d8-4ef1-9905-d24fe7ae96d3",
+  "meta": {
+    "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69"
+  },
+  "id": "aQayeXb39MTXpBUG",
+  "tags": []
 }
