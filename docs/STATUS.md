@@ -28,6 +28,7 @@
 | `Notion account` | `T62CHdfWuY9iXKWk` | Notion API（n8n native）| 給 n8n Notion 節點用 |
 | `Notion API Token` | `edOz4T0LC6EP41Ug` | HTTP Header Auth | 給 HTTP Request 直接打 Notion API 用 |
 | `LINE Channel Access Token` | `OmFzUGgZ1xIpAAP5` | HTTP Header Auth | LINE Reply / Push |
+| `Gemini API Key` | `zTIA89pDJJs0Ad29` | HTTP Header Auth（`x-goog-api-key`）| 物件建檔器 Gemini 解析節點 |
 
 > 寫新節點時，**走 n8n Notion 節點 → 用前者；走 HTTP Request → 用後者**。混用會踩雷。
 
@@ -42,11 +43,16 @@ LINE 指令分流 (Switch by command)
    ├── create  ─HTTP POST→  物件建檔器 (/yc-property-create)
    ├── remove  ─HTTP POST→  撤除回報器 (/yc-property-remove)
    └── 其他    →            未知指令處理 → LINE 回覆
+
+下架偵測 (yc-removal-detector)
+   ├── 每日 09:00 cron（目前 disabled，等 LINE 額度重置）→ Push 摘要
+   └── 手動觸發 webhook /yc-check-removed → Reply 摘要
 ```
 
-- **物件建檔器**：抓永慶 HTML → 清理 → **Gemini 2.5 Flash Lite** 解析 + 生成文案 → 寫 Notion → LINE 回覆。
+- **物件建檔器**：抓永慶 HTML → 清理 → **Gemini 2.5 Flash Lite** 解析 + 生成文案 → 查 Notion 是否已存在（依「來源連結」判重）→ 有則 PATCH（`文案版本` +1）/ 無則新增 → LINE 回覆「建檔完成 / 更新完成」。
 - **撤除回報器**：抓 YC 編號 → Notion query by 案件編號 → PATCH `已撤除確認 + 下架偵測時間` → LINE 回覆。
-- 兩條子流程都靠**內部 webhook 轉發**串接（不是 Execute Workflow）。
+- **下架偵測**：cron 或手動 webhook → 撈 `已撤除確認=false 且 狀態≠下架` → GET `來源連結` → 依 HTTP ≥400 或頁面關鍵字（已下架/物件不存在/已成交…）標記 → PATCH `狀態=下架 + 下架偵測時間` → 摘要 Push 或 Reply。
+- 兩條 LINE 指令子流程都靠**內部 webhook 轉發**串接（不是 Execute Workflow）。
 
 ## Notion 廣告資料庫欄位（速查）
 
@@ -64,23 +70,23 @@ LINE 指令分流 (Switch by command)
 
 ---
 
-## 未完成項目
+## 進度紀錄
 
-### ✅ 物件建檔器加「防重複」— 已完成
+### ✅ 物件建檔器加「防重複」
 - 同網址第 2 次貼會更新既有 Notion 頁，`文案版本` +1，不再開新一筆
-- 記得從 n8n 匯出 JSON 蓋到 `workflows/yc-property-create.json`
+- workflow 已同步到 `workflows/yc-property-create.json`
 
-### ✅ 廣告下架偵測（每日 cron）— 已建置，待 LINE 額度重置後驗證
-- workflow 邏輯已跑通（2026-05-09 測試：檢查 3 筆，全部在線，摘要組成正確）
-- **唯一問題**：LINE 免費方案月額度（200 則）已用完，Push 節點 429 失敗；6/1 自動重置
-- Push userId 已記錄：`Ufab42c56b2eb9b9a9ff18c367b85a6dd`
-- 記得從 n8n 匯出 JSON 蓋到 `workflows/yc-removal-detector.json`
+### ✅ 廣告下架偵測 — workflow 已建置，cron 暫時 disabled
+- workflow 同步到 `workflows/yc-removal-detector.json`
+- 邏輯已跑通（2026-05-09 測試：檢查 3 筆，全部在線，摘要組成正確）
+- **cron 目前 disabled**：LINE 免費方案月額度（200 則）已用完，Push 節點 429；等 6/1 自動重置後在 n8n 把 `每日 09:00 Asia/Taipei` 節點打開
+- 手動觸發：`POST {n8n}/webhook/yc-check-removed`（會用 reply token 回覆，不吃 push 額度）
+- Push userId：`Ufab42c56b2eb9b9a9ff18c367b85a6dd`
 
-### ✅ 安全清理 — repo 側已完成，待套用到 n8n
-- `workflows/yc-property-create.json` 已移除寫死的 key/token
-- Gemini 節點改用 `httpQueryAuth` credential，名稱需為 **`Gemini API Key`**（n8n → Credentials → Add → HTTP Query Auth，param name = `key`）
-- LINE 回覆節點改用既有 `LINE Channel Access Token` credential（id `OmFzUGgZ1xIpAAP5`）
-- 在 n8n 改好後，匯出 JSON 蓋回 `workflows/yc-property-create.json`（屆時 `GEMINI_CRED_ID` 佔位符會被真實 id 取代）
+### ✅ 安全清理
+- 寫死的 Gemini key 與 LINE token 都已移除
+- Gemini 節點：HTTP Header Auth credential `Gemini API Key`（id `zTIA89pDJJs0Ad29`），透過 `x-goog-api-key` header 帶 key
+- LINE 回覆節點：`LINE Channel Access Token`（id `OmFzUGgZ1xIpAAP5`）
 
 ### 🟢 低優先 / 想到再做
 - AI 文案重產（獨立 sub-workflow，輸入 `notionPageId` + 想要的 `文案風格`，更新 `產生的文案` 並 `文案版本 +1`）。
