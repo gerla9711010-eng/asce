@@ -1,5 +1,14 @@
 # 永慶博愛凱璿 n8n 廣告系統
 
+## ⚠️ 開工前第一步（必做，否則你看到的是舊版本）
+
+```bash
+git fetch origin main && git rebase origin/main
+```
+
+Claude Code 每次開 session 會自動建新 branch，基礎點不一定是最新的 main。
+不做這步，STATUS.md 和 workflows/ 都會是舊的，你會重做別人已經完成的事。
+
 ## 開工前必讀
 1. 讀 `docs/STATUS.md`（系統入口、credentials、接下來要做什麼）
 2. 讀 `workflows/` 目錄（workflow 真相在這裡，不在 Notion）
