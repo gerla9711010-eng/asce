@@ -1,5 +1,5 @@
 {
-  "_note": "目前的物件建檔器（Gemini 解析 + 直接寫 Notion，沒有防重複）。改造方案見 docs/STATUS.md「未完成項目 → 物件建檔器加防重複」。",
+  "_note": "物件建檔器（含防重複：同網址第 2 次 → 更新既有頁，文案版本 +1）。Gemini 用 httpQueryAuth credential「Gemini API Key」；LINE 用 httpHeaderAuth credential「LINE Channel Access Token」。",
   "nodes": [
     {
       "parameters": { "httpMethod": "POST", "path": "yc-property-create", "responseMode": "lastNode", "options": {} },
@@ -55,8 +55,8 @@
       "parameters": {
         "method": "POST",
         "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
-        "sendQuery": true,
-        "queryParameters": { "parameters": [{ "name": "key", "value": "REPLACE_WITH_GEMINI_API_KEY_VIA_CREDENTIAL" }] },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpQueryAuth",
         "sendHeaders": true,
         "headerParameters": { "parameters": [{ "name": "content-type", "value": "application/json" }] },
         "sendBody": true,
@@ -70,7 +70,8 @@
       "typeVersion": 4.2,
       "position": [784, -80],
       "retryOnFail": true,
-      "waitBetweenTries": 5000
+      "waitBetweenTries": 5000,
+      "credentials": { "httpQueryAuth": { "id": "GEMINI_CRED_ID", "name": "Gemini API Key" } }
     },
     {
       "parameters": {
@@ -122,7 +123,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const notionPage = $input.first().json;\nconst aiData = $('解析 AI 輸出').first().json;\nconst notionUrl = notionPage.url || `https://www.notion.so/${notionPage.id?.replace(/-/g, '')}`;\nconst caseName = aiData['案名'] || '未命名物件';\nconst caseId = aiData['案件編號'] || '無編號';\nconst totalPrice = aiData['總價'] || '';\nconst layout = aiData['格局'] || '';\nconst copy = aiData['產生的文案'] || '';\nconst replyText = `✅ 建檔完成\\n\\n📋 ${caseName}\\n🏷 ${caseId}　💰 ${totalPrice}　🏠 ${layout}\\n\\n🔗 ${notionUrl}\\n\\n━━━ 文案預覽 ━━━\\n${copy}`;\nreturn [{ json: { replyToken: aiData.replyToken, replyText, notionUrl, notionPageId: notionPage.id } }];"
+        "jsCode": "const notionPage = $input.first().json;\nconst aiData = $('解析 AI 輸出').first().json;\nconst notionUrl = notionPage.url || `https://www.notion.so/${notionPage.id?.replace(/-/g, '')}`;\nconst caseName = aiData['案名'] || '未命名物件';\nconst caseId = aiData['案件編號'] || '無編號';\nconst totalPrice = aiData['總價'] || '';\nconst layout = aiData['格局'] || '';\nconst copy = aiData['產生的文案'] || '';\nconst action = $json.action || '建檔';\nconst replyText = `✅ ${action}完成\\n\\n📋 ${caseName}\\n🏷 ${caseId}　💰 ${totalPrice}　🏠 ${layout}\\n\\n🔗 ${notionUrl}\\n\\n━━━ 文案預覽 ━━━\\n${copy}`;\nreturn [{ json: { replyToken: aiData.replyToken, replyText, notionUrl, notionPageId: notionPage.id } }];"
       },
       "id": "fa910c4c-f7c5-4dad-8740-12aded097962",
       "name": "組 LINE 回覆訊息",
@@ -132,14 +133,10 @@
     },
     {
       "parameters": {
-        "_note": "TODO: Authorization header 寫死了 LINE token，改成 LINE Channel Access Token credential（id OmFzUGgZ1xIpAAP5）。",
         "method": "POST",
         "url": "https://api.line.me/v2/bot/message/reply",
-        "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Authorization", "value": "Bearer REPLACE_WITH_LINE_TOKEN_VIA_CREDENTIAL" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"replyToken\": \"{{ $json.replyToken }}\",\n  \"messages\": [\n    { \"type\": \"text\", \"text\": {{ JSON.stringify($json.replyText) }} }\n  ]\n}",
@@ -149,7 +146,8 @@
       "name": "LINE 回覆",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1664, -80]
+      "position": [1664, -80],
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
     }
   ],
   "connections": {

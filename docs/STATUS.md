@@ -76,9 +76,11 @@ LINE 指令分流 (Switch by command)
 - Push userId 已記錄：`Ufab42c56b2eb9b9a9ff18c367b85a6dd`
 - 記得從 n8n 匯出 JSON 蓋到 `workflows/yc-removal-detector.json`
 
-### 🟡 中優先：安全清理
-- **Gemini API key** 寫死在物件建檔器「Gemini AI 解析 + 產文案」節點 URL：改成 Header Auth credential。
-- **LINE token** 寫死在物件建檔器「LINE 回覆」Authorization header：改用既有 `LINE Channel Access Token` credential（指令分流和撤除回報器已經這樣用了，照抄）。
+### ✅ 安全清理 — repo 側已完成，待套用到 n8n
+- `workflows/yc-property-create.json` 已移除寫死的 key/token
+- Gemini 節點改用 `httpQueryAuth` credential，名稱需為 **`Gemini API Key`**（n8n → Credentials → Add → HTTP Query Auth，param name = `key`）
+- LINE 回覆節點改用既有 `LINE Channel Access Token` credential（id `OmFzUGgZ1xIpAAP5`）
+- 在 n8n 改好後，匯出 JSON 蓋回 `workflows/yc-property-create.json`（屆時 `GEMINI_CRED_ID` 佔位符會被真實 id 取代）
 
 ### 🟢 低優先 / 想到再做
 - AI 文案重產（獨立 sub-workflow，輸入 `notionPageId` + 想要的 `文案風格`，更新 `產生的文案` 並 `文案版本 +1`）。
