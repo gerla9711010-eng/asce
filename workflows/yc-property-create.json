@@ -1,5 +1,5 @@
 {
-  "_note": "物件建檔器（含防重複 + 安全清理）。Gemini 用 httpHeaderAuth credential「Gemini API Key」(id zTIA89pDJJs0Ad29)；LINE 用「LINE Channel Access Token」(id OmFzUGgZ1xIpAAP5)。",
+  "_note": "物件建檔器（含防重複 + 安全清理 + Google Drive 資料夾比對）。Gemini 用 httpHeaderAuth credential「Gemini API Key」(id zTIA89pDJJs0Ad29)；LINE 用「LINE Channel Access Token」(id OmFzUGgZ1xIpAAP5)；Drive 用 Google Drive OAuth2（在 n8n 內設定，目前未指定 credential ID）。Drive 父資料夾 ID：1pn-tXugI8hlmVZJf2amWs9gnrj9-YhqC。比對規則：案名與子資料夾名都先 regex 砍掉非中英數字元，再雙向 includes 判斷。",
   "name": "物件建檔器",
   "nodes": [
     {
@@ -142,6 +142,63 @@
     },
     {
       "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "'1pn-tXugI8hlmVZJf2amWs9gnrj9-YhqC' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            },
+            {
+              "name": "fields",
+              "value": "files(id,name)"
+            },
+            {
+              "name": "pageSize",
+              "value": "1000"
+            },
+            {
+              "name": "supportsAllDrives",
+              "value": "true"
+            },
+            {
+              "name": "includeItemsFromAllDrives",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "f1a2b3c4-1111-2222-3333-444455556666",
+      "name": "列出 Drive 子資料夾",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -704,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ai = $('解析 AI 輸出').first().json;\nconst caseName = String(ai['案名'] || '');\nconst normalize = s => String(s || '').replace(/[^\\u4e00-\\u9fa5a-zA-Z0-9]/g, '');\nconst target = normalize(caseName);\n\nconst driveResp = $input.first().json;\nconst folders = Array.isArray(driveResp.files) ? driveResp.files : [];\n\nlet matched = [];\nif (target) {\n  for (const f of folders) {\n    const fn = normalize(f.name);\n    if (!fn) continue;\n    if (fn === target || fn.includes(target) || target.includes(fn)) {\n      matched.push(f);\n    }\n  }\n}\n\nlet driveFolderUrl = null;\nlet driveMatchNote = '';\nif (matched.length === 1) {\n  driveFolderUrl = `https://drive.google.com/drive/folders/${matched[0].id}`;\n  driveMatchNote = `📁 資料夾：${matched[0].name}`;\n} else if (matched.length === 0) {\n  driveMatchNote = `⚠️ 找不到資料夾（案名「${caseName}」，掃了 ${folders.length} 個）`;\n} else {\n  driveFolderUrl = `https://drive.google.com/drive/folders/${matched[0].id}`;\n  driveMatchNote = `⚠️ ${matched.length} 筆相符（取第一筆「${matched[0].name}」）：${matched.map(m => m.name).join('、')}`;\n}\n\nreturn [{ json: { ...ai, driveFolderUrl, driveMatchNote, driveFolderCount: folders.length } }];"
+      },
+      "id": "a7b8c9d0-5555-6666-7777-888899990000",
+      "name": "比對資料夾",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        208
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
         "authentication": "genericCredentialType",
@@ -169,7 +226,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -672,
+        -320,
         208
       ],
       "credentials": {
@@ -181,14 +238,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const ai = $('解析 AI 輸出').first().json;\nconst existing = ($json.results || [])[0] || null;\nreturn [{ json: { ...ai,\n  existingPageId: existing?.id || null,\n  existingVersion: existing?.properties?.['文案版本']?.number ?? 0,\n  action: existing ? '更新' : '建檔'\n}}];"
+        "jsCode": "const ai = $('比對資料夾').first().json;\nconst existing = ($json.results || [])[0] || null;\nreturn [{ json: { ...ai,\n  existingPageId: existing?.id || null,\n  existingVersion: existing?.properties?.['文案版本']?.number ?? 0,\n  action: existing ? '更新' : '建檔'\n}}];"
       },
       "id": "ad25b985-b7df-485f-859f-f751e2ff1ac3",
       "name": "取出 existingPageId",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -448,
+        -128,
         208
       ]
     },
@@ -220,7 +277,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -224,
+        64,
         208
       ]
     },
@@ -245,7 +302,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ properties: { '案名': { title: [{ text: { content: String($json['案名'] || '') } }] }, '案件編號': { rich_text: [{ text: { content: String($json['案件編號'] || '') } }] }, '社區名稱': { rich_text: [{ text: { content: String($json['社區名稱'] || '') } }] }, '地址': { rich_text: [{ text: { content: String($json['地址'] || '') } }] }, '建物類型': { select: $json['建物類型'] ? { name: $json['建物類型'] } : null }, '格局': { rich_text: [{ text: { content: String($json['格局'] || '') } }] }, '樓層': { rich_text: [{ text: { content: String($json['樓層'] || '') } }] }, '屋齡': { number: $json['屋齡'] != null ? $json['屋齡'] : null }, '總價': { rich_text: [{ text: { content: String($json['總價'] || '') } }] }, '單價': { rich_text: [{ text: { content: String($json['單價'] || '') } }] }, '建物坪數': { number: $json['建物坪數'] != null ? $json['建物坪數'] : null }, '主建物坪數': { number: $json['主建物坪數'] != null ? $json['主建物坪數'] : null }, '公設坪數': { number: $json['公設坪數'] != null ? $json['公設坪數'] : null }, '附屬建物': { rich_text: [{ text: { content: String($json['附屬建物'] || '') } }] }, '土地坪數': { number: $json['土地坪數'] != null ? $json['土地坪數'] : null }, '有無車位': { checkbox: !!$json['有無車位'] }, '車位類型': { select: $json['車位類型'] ? { name: $json['車位類型'] } : null }, '特色說明': { rich_text: [{ text: { content: String($json['特色說明'] || '') } }] }, '文案風格': { select: $json['文案風格'] ? { name: $json['文案風格'] } : null }, '產生的文案': { rich_text: [{ text: { content: String($json['產生的文案'] || '') } }] }, '文案版本': { number: ($json.existingVersion || 0) + 1 } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ properties: Object.assign({ '案名': { title: [{ text: { content: String($json['案名'] || '') } }] }, '案件編號': { rich_text: [{ text: { content: String($json['案件編號'] || '') } }] }, '社區名稱': { rich_text: [{ text: { content: String($json['社區名稱'] || '') } }] }, '地址': { rich_text: [{ text: { content: String($json['地址'] || '') } }] }, '建物類型': { select: $json['建物類型'] ? { name: $json['建物類型'] } : null }, '格局': { rich_text: [{ text: { content: String($json['格局'] || '') } }] }, '樓層': { rich_text: [{ text: { content: String($json['樓層'] || '') } }] }, '屋齡': { number: $json['屋齡'] != null ? $json['屋齡'] : null }, '總價': { rich_text: [{ text: { content: String($json['總價'] || '') } }] }, '單價': { rich_text: [{ text: { content: String($json['單價'] || '') } }] }, '建物坪數': { number: $json['建物坪數'] != null ? $json['建物坪數'] : null }, '主建物坪數': { number: $json['主建物坪數'] != null ? $json['主建物坪數'] : null }, '公設坪數': { number: $json['公設坪數'] != null ? $json['公設坪數'] : null }, '附屬建物': { rich_text: [{ text: { content: String($json['附屬建物'] || '') } }] }, '土地坪數': { number: $json['土地坪數'] != null ? $json['土地坪數'] : null }, '有無車位': { checkbox: !!$json['有無車位'] }, '車位類型': { select: $json['車位類型'] ? { name: $json['車位類型'] } : null }, '特色說明': { rich_text: [{ text: { content: String($json['特色說明'] || '') } }] }, '文案風格': { select: $json['文案風格'] ? { name: $json['文案風格'] } : null }, '產生的文案': { rich_text: [{ text: { content: String($json['產生的文案'] || '') } }] }, '文案版本': { number: ($json.existingVersion || 0) + 1 } }, $json.driveFolderUrl ? { '物件照片': { files: [{ name: 'Google 資料夾', type: 'external', external: { url: $json.driveFolderUrl } }] } } : {}) }) }}",
         "options": {}
       },
       "id": "aab6ce8e-32d6-4cf3-af6b-cc281be96d01",
@@ -253,7 +310,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        0,
+        256,
         0
       ],
       "credentials": {
@@ -265,132 +322,53 @@
     },
     {
       "parameters": {
-        "resource": "databasePage",
-        "databaseId": {
-          "__rl": true,
-          "value": "07ee845168b64f8a9b5682e5069c733b",
-          "mode": "id"
-        },
-        "title": "={{ $json['案名'] }}",
-        "propertiesUi": {
-          "propertyValues": [
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "key": "案件編號|rich_text",
-              "textContent": "={{ $json['案件編號'] }}"
+              "name": "Notion-Version",
+              "value": "2022-06-28"
             },
             {
-              "key": "社區名稱|rich_text",
-              "textContent": "={{ $json['社區名稱'] }}"
-            },
-            {
-              "key": "地址|rich_text",
-              "textContent": "={{ $json['地址'] }}"
-            },
-            {
-              "key": "建物類型|select",
-              "selectValue": "={{ $json['建物類型'] }}"
-            },
-            {
-              "key": "格局|rich_text",
-              "textContent": "={{ $json['格局'] }}"
-            },
-            {
-              "key": "樓層|rich_text",
-              "textContent": "={{ $json['樓層'] }}"
-            },
-            {
-              "key": "屋齡|number",
-              "numberValue": "={{ $json['屋齡'] }}"
-            },
-            {
-              "key": "總價|rich_text",
-              "textContent": "={{ $json['總價'] }}"
-            },
-            {
-              "key": "單價|rich_text",
-              "textContent": "={{ $json['單價'] }}"
-            },
-            {
-              "key": "建物坪數|number",
-              "numberValue": "={{ $json['建物坪數'] }}"
-            },
-            {
-              "key": "主建物坪數|number",
-              "numberValue": "={{ $json['主建物坪數'] }}"
-            },
-            {
-              "key": "公設坪數|number",
-              "numberValue": "={{ $json['公設坪數'] }}"
-            },
-            {
-              "key": "附屬建物|rich_text",
-              "textContent": "={{ $json['附屬建物'] }}"
-            },
-            {
-              "key": "土地坪數|number",
-              "numberValue": "={{ $json['土地坪數'] }}"
-            },
-            {
-              "key": "有無車位|checkbox",
-              "checkboxValue": "={{ $json['有無車位'] }}"
-            },
-            {
-              "key": "車位類型|select",
-              "selectValue": "={{ $json['車位類型'] }}"
-            },
-            {
-              "key": "特色說明|rich_text",
-              "textContent": "={{ $json['特色說明'] }}"
-            },
-            {
-              "key": "文案風格|select",
-              "selectValue": "={{ $json['文案風格'] }}"
-            },
-            {
-              "key": "產生的文案|rich_text",
-              "textContent": "={{ $json['產生的文案'] }}"
-            },
-            {
-              "key": "來源連結|url",
-              "urlValue": "={{ $json['targetUrl'] }}"
-            },
-            {
-              "key": "狀態|select",
-              "selectValue": "草稿"
-            },
-            {
-              "key": "文案版本|number",
-              "numberValue": 1
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ parent: { database_id: '07ee845168b64f8a9b5682e5069c733b' }, properties: Object.assign({ '案名': { title: [{ text: { content: String($json['案名'] || '') } }] }, '案件編號': { rich_text: [{ text: { content: String($json['案件編號'] || '') } }] }, '社區名稱': { rich_text: [{ text: { content: String($json['社區名稱'] || '') } }] }, '地址': { rich_text: [{ text: { content: String($json['地址'] || '') } }] }, '建物類型': { select: $json['建物類型'] ? { name: $json['建物類型'] } : null }, '格局': { rich_text: [{ text: { content: String($json['格局'] || '') } }] }, '樓層': { rich_text: [{ text: { content: String($json['樓層'] || '') } }] }, '屋齡': { number: $json['屋齡'] != null ? $json['屋齡'] : null }, '總價': { rich_text: [{ text: { content: String($json['總價'] || '') } }] }, '單價': { rich_text: [{ text: { content: String($json['單價'] || '') } }] }, '建物坪數': { number: $json['建物坪數'] != null ? $json['建物坪數'] : null }, '主建物坪數': { number: $json['主建物坪數'] != null ? $json['主建物坪數'] : null }, '公設坪數': { number: $json['公設坪數'] != null ? $json['公設坪數'] : null }, '附屬建物': { rich_text: [{ text: { content: String($json['附屬建物'] || '') } }] }, '土地坪數': { number: $json['土地坪數'] != null ? $json['土地坪數'] : null }, '有無車位': { checkbox: !!$json['有無車位'] }, '車位類型': { select: $json['車位類型'] ? { name: $json['車位類型'] } : null }, '特色說明': { rich_text: [{ text: { content: String($json['特色說明'] || '') } }] }, '文案風格': { select: $json['文案風格'] ? { name: $json['文案風格'] } : null }, '產生的文案': { rich_text: [{ text: { content: String($json['產生的文案'] || '') } }] }, '來源連結': { url: $json['targetUrl'] || null }, '狀態': { select: { name: '草稿' } }, '文案版本': { number: 1 } }, $json.driveFolderUrl ? { '物件照片': { files: [{ name: 'Google 資料夾', type: 'external', external: { url: $json.driveFolderUrl } }] } } : {}) }) }}",
         "options": {}
       },
       "id": "212f8b63-62ac-4a29-993e-140ee17ec7c3",
       "name": "寫入 Notion",
-      "type": "n8n-nodes-base.notion",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        0,
+        256,
         400
       ],
       "credentials": {
-        "notionApi": {
-          "id": "T62CHdfWuY9iXKWk",
-          "name": "Notion account"
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "const notionPage = $input.first().json;\nconst aiData = $('解析 AI 輸出').first().json;\nconst existData = $('取出 existingPageId').first().json;\nconst action = existData.action || '建檔';\nconst notionUrl = notionPage.url || `https://www.notion.so/${notionPage.id?.replace(/-/g, '')}`;\nconst caseName = aiData['案名'] || '未命名物件';\nconst caseId = aiData['案件編號'] || '無編號';\nconst totalPrice = aiData['總價'] || '';\nconst layout = aiData['格局'] || '';\nconst copy = aiData['產生的文案'] || '';\nconst replyText = `✅ ${action}完成\\n\\n📋 ${caseName}\\n🏷 ${caseId}　💰 ${totalPrice}　🏠 ${layout}\\n\\n🔗 ${notionUrl}\\n\\n━━━ 文案預覽 ━━━\\n${copy}`;\nreturn [{ json: { replyToken: aiData.replyToken, replyText, notionUrl, notionPageId: notionPage.id } }];"
+        "jsCode": "const notionPage = $input.first().json;\nconst aiData = $('比對資料夾').first().json;\nconst existData = $('取出 existingPageId').first().json;\nconst action = existData.action || '建檔';\nconst notionUrl = notionPage.url || `https://www.notion.so/${String(notionPage.id || '').replace(/-/g, '')}`;\nconst caseName = aiData['案名'] || '未命名物件';\nconst caseId = aiData['案件編號'] || '無編號';\nconst totalPrice = aiData['總價'] || '';\nconst layout = aiData['格局'] || '';\nconst copy = aiData['產生的文案'] || '';\nconst driveLine = aiData.driveFolderUrl ? `${aiData.driveMatchNote}\\n🔗 ${aiData.driveFolderUrl}` : (aiData.driveMatchNote || '');\nconst replyText = `✅ ${action}完成\\n\\n📋 ${caseName}\\n🏷 ${caseId}　💰 ${totalPrice}　🏠 ${layout}\\n\\n🔗 ${notionUrl}${driveLine ? '\\n' + driveLine : ''}\\n\\n━━━ 文案預覽 ━━━\\n${copy}`;\nreturn [{ json: { replyToken: aiData.replyToken, replyText, notionUrl, notionPageId: notionPage.id } }];"
       },
       "id": "32259b20-1b91-410f-b548-b317977f8d41",
       "name": "組 LINE 回覆訊息",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        224,
+        448,
         208
       ]
     },
@@ -419,7 +397,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        448,
+        640,
         208
       ],
       "credentials": {
@@ -488,6 +466,28 @@
       ]
     },
     "解析 AI 輸出": {
+      "main": [
+        [
+          {
+            "node": "列出 Drive 子資料夾",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "列出 Drive 子資料夾": {
+      "main": [
+        [
+          {
+            "node": "比對資料夾",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "比對資料夾": {
       "main": [
         [
           {
