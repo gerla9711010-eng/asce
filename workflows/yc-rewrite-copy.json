@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const event = $input.first().json.events?.[0] || $input.first().json.body?.events?.[0];\nconst messageText = event?.message?.text || '';\nconst replyToken = event?.replyToken || '';\nconst userId = event?.source?.userId || '';\n\n// 格式：生成文案 YC123456 你想要的風格描述（自由打字）\nconst m = messageText.match(/^生成文案\\s+(YC\\w+)\\s+(.+)$/i);\nif (!m) {\n  throw new Error(`指令格式錯誤。應為：生成文案 YC編號 風格描述\\n收到：「${messageText}」`);\n}\nconst caseId = m[1].toUpperCase();\nconst styleText = m[2].trim();\n\nreturn [{ json: { caseId, styleText, replyToken, userId, rawMessage: messageText } }];"
+        "jsCode": "const event = $input.first().json.events?.[0] || $input.first().json.body?.events?.[0];\nconst messageText = event?.message?.text || '';\nconst replyToken = event?.replyToken || '';\nconst userId = event?.source?.userId || '';\n\n// 格式：生成文案 YC123456 風格描述（YC 前空白可省略）\nconst m = messageText.match(/^生成文案[\\s]*([Yy][Cc]\\w+)[\\s\\u3000]+(.+)$/);\nif (!m) {\n  throw new Error(`指令格式錯誤。應為：生成文案 YC編號 風格描述\\n收到：「${messageText}」`);\n}\nconst caseId = m[1].toUpperCase();\nconst styleText = m[2].trim();\n\nreturn [{ json: { caseId, styleText, replyToken, userId, rawMessage: messageText } }];"
       },
       "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b002",
       "name": "解析 LINE 指令",
