@@ -30,6 +30,45 @@
 | `Gemini API Key` | `zTIA89pDJJs0Ad29` | HTTP Header Auth | Gemini（Header `x-goog-api-key`）|
 | `Google Drive account` | `0TSq1oyqs4BHQxWa` | Google Drive OAuth2 | 建檔器列 Drive 子資料夾用 |
 
+## LINE 指令一覽
+
+| 指令格式 | 行為 | 下游 workflow |
+|---|---|---|
+| `建檔 <永慶網址>` | 抓 HTML → AI 解析 → 寫進 Notion（新建或 PATCH，文案版本 +1） | `yc-property-create` |
+| `已撤除 YCxxx` | 標記該物件「已撤除確認 = true」 | `yc-property-remove` |
+| `生成文案 YCxxx <風格描述>` | 用 Notion 既有資料 + 自由風格描述，AI 重產文案（版本 +1） | `yc-rewrite-copy` |
+| `天氣` | 目前 router 認得但沒接下游（佔位） | — |
+
+> 風格描述可以是任意自由文字，例如「精簡」、「投資客口吻強調學區」。`生成文案` 跟 `YC` 之間空白可省略，全形/半形空白都接受。
+
+## Notion DB 欄位（`07ee845168b64f8a9b5682e5069c733b`）
+
+| 欄位名 | 型別 | 備註 |
+|---|---|---|
+| 案名 | title | |
+| 案件編號 | rich_text | 統一 `YC` 開頭大寫，例 `YC1835328` |
+| 社區名稱 | rich_text | |
+| 地址 | rich_text | |
+| 建物類型 | select | `電梯大樓` / `華廈` / `公寓` / `透天` / `套房` / `店面` / `其他` |
+| 格局 | rich_text | |
+| 樓層 | rich_text | |
+| 屋齡 | number | 單位：年 |
+| 總價 | rich_text | 含「萬」字串，例 `338 萬` |
+| 單價 | rich_text | |
+| 建物坪數 / 主建物坪數 / 公設坪數 / 土地坪數 | number | 單位：坪 |
+| 附屬建物 | rich_text | |
+| 有無車位 | checkbox | |
+| 車位類型 | select | `坡道平面` / `機械` / `法定` / `無` |
+| 特色說明 | rich_text | |
+| 文案風格 | select | `首購溫馨` / `投資自用`（重產器**不會**改這欄） |
+| 產生的文案 | rich_text | |
+| 文案版本 | number | 每次更新 +1 |
+| 來源連結 | url | 建檔器用這個判重 |
+| 物件照片 | files | 寫 Drive 資料夾 external URL |
+| 狀態 | select | `草稿` / `下架` …（下架偵測會 PATCH 成 `下架`） |
+| 已撤除確認 | checkbox | 撤除回報器標 true |
+| 下架偵測時間 | date | |
+
 ## 現有架構
 
 ```
