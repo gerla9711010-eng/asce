@@ -55,4 +55,3 @@ LINE 指令分流 (Switch by command)
 ### 🟢 低優先
 - AI 文案重產：sub-workflow，輸入 notionPageId + 文案風格，更新文案並版本 +1
 - LINE 加 `生成文案 YCxxx` 指令觸發重產
-- 物件照片：建檔器抓 og:image 寫進 Notion
