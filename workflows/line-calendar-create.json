@@ -1,0 +1,215 @@
+{
+  "_note": "行事曆建立器：LINE 收到「行事曆 ...」文字或圖片 → Gemini 解析 → Google Calendar primary 建 event → LINE 回覆。失敗會帶原因。",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "line-calendar-create", "options": {} },
+      "id": "a1000001-0001-0001-0001-000000000001",
+      "name": "Webhook 接收",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1280, 0],
+      "webhookId": "line-calendar-create"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 從 LINE body 抽出文字 / 圖片 messageId / replyToken\nconst body = $input.first().json.body || $input.first().json;\nconst event = (body.events || [])[0] || {};\nconst msg = event.message || {};\nconst replyToken = event.replyToken || '';\nconst type = msg.type || 'text';\n\nlet text = '';\nlet imageId = '';\nif (type === 'image') {\n  imageId = msg.id || '';\n} else {\n  // 文字訊息，把指令前綴砍掉\n  const raw = (msg.text || '').trim();\n  text = raw.replace(/^行事曆[\\s:：]*/, '').trim();\n}\n\nconst nowTW = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', year:'numeric', month:'2-digit', day:'2-digit', weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date());\nconst todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }); // YYYY-MM-DD\n\nreturn [{ json: { type, text, imageId, replyToken, todayISO, nowTW, hasInput: !!(text || imageId) } }];"
+      },
+      "id": "a1000001-0001-0001-0001-000000000002",
+      "name": "解析 LINE 輸入",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1072, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{ "id": "isimg", "leftValue": "={{ $json.type }}", "rightValue": "image", "operator": { "type": "string", "operation": "equals" } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000001-0001-0001-0001-000000000003",
+      "name": "是圖片嗎？",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-864, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api-data.line.me/v2/bot/message/{{ $json.imageId }}/content",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": { "response": { "response": { "responseFormat": "file" } }, "timeout": 30000 }
+      },
+      "id": "a1000001-0001-0001-0001-000000000004",
+      "name": "下載 LINE 圖片",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-656, -112],
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 把 binary 轉 base64，準備丟給 Gemini Vision\nconst item = $input.first();\nconst parsed = $('解析 LINE 輸入').first().json;\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst b64 = buf.toString('base64');\nconst mimeType = item.binary?.data?.mimeType || 'image/jpeg';\nreturn [{ json: { ...parsed, imageBase64: b64, imageMime: mimeType } }];"
+      },
+      "id": "a1000001-0001-0001-0001-000000000005",
+      "name": "圖片轉 base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-448, -112]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "content-type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [\n    { inline_data: { mime_type: $json.imageMime, data: $json.imageBase64 } },\n    { text: `你是行事曆助手。請從這張圖片（可能是手寫便條、會議邀請截圖、合約照片等）抽取一個行事曆事件，回傳純 JSON。\\n\\n今天日期：${$json.todayISO}（台北時區）。如果圖片寫「明天」「下週一」這類相對時間，以今天為基準推算。\\n\\nJSON schema：\\n{\\n  \\\"title\\\": \\\"事件標題（必填，從圖片內容簡短歸納，例如：王先生看屋、和A屋主簽約）\\\",\\n  \\\"start\\\": \\\"開始時間 ISO8601 含時區 +08:00，例如 2026-05-20T14:00:00+08:00；若只給日期沒給時間，預設 09:00\\\",\\n  \\\"end\\\":   \\\"結束時間 ISO8601；若沒指定，預設 start+1 小時\\\",\\n  \\\"location\\\": \\\"地點，沒有就空字串\\\",\\n  \\\"description\\\": \\\"補充說明（把原文重點抄進來，例如帶權狀、客戶聯絡方式、注意事項）\\\"\\n}\\n\\n規則：\\n- 找不到時間就把 start/end 都填空字串，下游會擋下\\n- 不要 markdown，不要前後說明，只回 JSON 物件` }\n  ] }],\n  generationConfig: { temperature: 0.2, maxOutputTokens: 1024, responseMimeType: \"application/json\" }\n}) }}",
+        "options": { "timeout": 60000, "response": { "response": { "neverError": true } } }
+      },
+      "id": "a1000001-0001-0001-0001-000000000006",
+      "name": "Gemini 解析（圖片）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-240, -112],
+      "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "content-type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [\n    { text: `你是行事曆助手。請從以下文字抽取一個行事曆事件，回傳純 JSON。\\n\\n今天日期：${$json.todayISO}（台北時區）。\\n\\nJSON schema：\\n{\\n  \\\"title\\\": \\\"事件標題（必填）\\\",\\n  \\\"start\\\": \\\"開始時間 ISO8601 含時區 +08:00\\\",\\n  \\\"end\\\":   \\\"結束時間 ISO8601；若沒指定預設 start+1 小時\\\",\\n  \\\"location\\\": \\\"地點\\\",\\n  \\\"description\\\": \\\"補充說明\\\"\\n}\\n\\n規則：\\n- 「明天」「下週一」等相對時間以今天為基準推算\\n- 沒指定時間就填當天 09:00\\n- 找不到時間就 start/end 留空字串\\n- 不要 markdown 不要前後說明\\n\\n文字：\\n${$json.text}` }\n  ] }],\n  generationConfig: { temperature: 0.2, maxOutputTokens: 1024, responseMimeType: \"application/json\" }\n}) }}",
+        "options": { "timeout": 60000, "response": { "response": { "neverError": true } } }
+      },
+      "id": "a1000001-0001-0001-0001-000000000007",
+      "name": "Gemini 解析（文字）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-448, 112],
+      "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 解析 Gemini 回傳並驗證\nconst parsed = $('解析 LINE 輸入').first().json;\nconst resp = $input.first().json;\n\nif (resp.error) {\n  return [{ json: { ok: false, replyToken: parsed.replyToken, reason: `Gemini 錯誤：${resp.error.message || JSON.stringify(resp.error)}` } }];\n}\nconst aiText = resp.candidates?.[0]?.content?.parts?.[0]?.text || '';\nif (!aiText) {\n  return [{ json: { ok: false, replyToken: parsed.replyToken, reason: 'Gemini 沒回內容（可能 quota 用完或圖片無法辨識）' } }];\n}\nlet ai;\ntry {\n  const clean = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\n  ai = JSON.parse(clean);\n} catch (e) {\n  return [{ json: { ok: false, replyToken: parsed.replyToken, reason: `AI 回傳非 JSON：${aiText.slice(0,120)}` } }];\n}\n\nconst title = String(ai.title || '').trim();\nconst start = String(ai.start || '').trim();\nlet end   = String(ai.end || '').trim();\nconst location = String(ai.location || '').trim();\nconst description = String(ai.description || '').trim();\n\nif (!title) return [{ json: { ok: false, replyToken: parsed.replyToken, reason: '找不到事件標題' } }];\nif (!start) return [{ json: { ok: false, replyToken: parsed.replyToken, reason: '找不到時間（請至少給日期，例：5/20 14:00 或 明天下午2點）' } }];\n\n// 驗證 ISO\nconst d1 = new Date(start);\nif (isNaN(d1.getTime())) return [{ json: { ok: false, replyToken: parsed.replyToken, reason: `開始時間格式錯誤：${start}` } }];\nif (!end) end = new Date(d1.getTime() + 60*60*1000).toISOString().replace('Z','+00:00');\nconst d2 = new Date(end);\nif (isNaN(d2.getTime())) return [{ json: { ok: false, replyToken: parsed.replyToken, reason: `結束時間格式錯誤：${end}` } }];\n\nreturn [{ json: { ok: true, replyToken: parsed.replyToken, title, start, end, location, description } }];"
+      },
+      "id": "a1000001-0001-0001-0001-000000000008",
+      "name": "驗證解析結果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{ "id": "isok", "leftValue": "={{ $json.ok }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000001-0001-0001-0001-000000000009",
+      "name": "解析成功？",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [208, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  summary: $json.title,\n  location: $json.location || undefined,\n  description: $json.description || undefined,\n  start: { dateTime: $json.start, timeZone: 'Asia/Taipei' },\n  end:   { dateTime: $json.end,   timeZone: 'Asia/Taipei' }\n}) }}",
+        "options": { "timeout": 30000, "response": { "response": { "neverError": true } } }
+      },
+      "id": "a1000001-0001-0001-0001-00000000000a",
+      "name": "Google Calendar 建立事件",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [416, -96],
+      "credentials": { "googleCalendarOAuth2Api": { "id": "REPLACE_ME", "name": "Google Calendar account" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 判讀 Calendar API 回應，組訊息\nconst data = $('驗證解析結果').first().json;\nconst resp = $input.first().json;\nconst fmt = iso => {\n  try { return new Intl.DateTimeFormat('zh-TW',{ timeZone:'Asia/Taipei', month:'2-digit', day:'2-digit', weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date(iso)); }\n  catch(e) { return iso; }\n};\n\nif (resp.error || resp.id == null) {\n  const errMsg = resp.error?.message || resp.error?.errors?.[0]?.message || JSON.stringify(resp).slice(0,200);\n  const msg = `❌ 行事曆建立失敗\\n\\n原因：${errMsg}\\n\\n可能原因：\\n• Google Calendar credential 未設定（n8n → 此節點選 credential）\\n• 該 Google 帳號未授權 Calendar scope`;\n  return [{ json: { replyToken: data.replyToken, message: msg } }];\n}\n\nconst link = resp.htmlLink || '';\nconst lines = [\n  '✅ 已建立行事曆',\n  '',\n  `📌 ${data.title}`,\n  `🕒 ${fmt(data.start)} ~ ${fmt(data.end)}`,\n];\nif (data.location)    lines.push(`📍 ${data.location}`);\nif (data.description) lines.push(`📝 ${data.description}`);\nif (link)             lines.push('', link);\nreturn [{ json: { replyToken: data.replyToken, message: lines.join('\\n') } }];"
+      },
+      "id": "a1000001-0001-0001-0001-00000000000b",
+      "name": "組成功/失敗訊息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [624, -96]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nreturn [{ json: { replyToken: data.replyToken, message: `❌ 行事曆建立失敗\\n\\n原因：${data.reason}\\n\\n格式範例：\\n• 行事曆 5/20 14:00 王先生看屋 三民區建工路123號 帶權狀\\n• 行事曆 明天下午3點 簽約 永慶博愛店\\n（也可以直接傳一張字條 / 截圖照片）` } }];"
+      },
+      "id": "a1000001-0001-0001-0001-00000000000c",
+      "name": "組失敗訊息（解析錯）",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [416, 96]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.message }] }) }}",
+        "options": {}
+      },
+      "id": "a1000001-0001-0001-0001-00000000000d",
+      "name": "回覆 LINE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [832, 0],
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+    }
+  ],
+  "connections": {
+    "Webhook 接收":            { "main": [[{ "node": "解析 LINE 輸入",      "type": "main", "index": 0 }]] },
+    "解析 LINE 輸入":          { "main": [[{ "node": "是圖片嗎？",          "type": "main", "index": 0 }]] },
+    "是圖片嗎？": {
+      "main": [
+        [{ "node": "下載 LINE 圖片",  "type": "main", "index": 0 }],
+        [{ "node": "Gemini 解析（文字）", "type": "main", "index": 0 }]
+      ]
+    },
+    "下載 LINE 圖片":          { "main": [[{ "node": "圖片轉 base64",       "type": "main", "index": 0 }]] },
+    "圖片轉 base64":           { "main": [[{ "node": "Gemini 解析（圖片）", "type": "main", "index": 0 }]] },
+    "Gemini 解析（圖片）":     { "main": [[{ "node": "驗證解析結果",        "type": "main", "index": 0 }]] },
+    "Gemini 解析（文字）":     { "main": [[{ "node": "驗證解析結果",        "type": "main", "index": 0 }]] },
+    "驗證解析結果":            { "main": [[{ "node": "解析成功？",          "type": "main", "index": 0 }]] },
+    "解析成功？": {
+      "main": [
+        [{ "node": "Google Calendar 建立事件", "type": "main", "index": 0 }],
+        [{ "node": "組失敗訊息（解析錯）",     "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Calendar 建立事件": { "main": [[{ "node": "組成功/失敗訊息",   "type": "main", "index": 0 }]] },
+    "組成功/失敗訊息":          { "main": [[{ "node": "回覆 LINE",         "type": "main", "index": 0 }]] },
+    "組失敗訊息（解析錯）":     { "main": [[{ "node": "回覆 LINE",         "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+}
