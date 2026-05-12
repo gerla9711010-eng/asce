@@ -43,7 +43,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  filter: { and: [\n    { property: '已撤除確認', checkbox: { equals: false } },\n    { property: '狀態',       select:   { does_not_equal: '已下架' } }\n  ]},\n  page_size: 100\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  filter: { and: [\n    { property: '已撤除確認', checkbox: { equals: false } },\n    { property: '狀態',       select:   { does_not_equal: '下架' } }\n  ]},\n  page_size: 100\n}) }}",
         "options": {}
       },
       "id": "9edf1c35-47c6-4ece-a60e-f47446d46f7c",
@@ -190,7 +190,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ properties: {\n  '狀態':         { select: { name: '已下架' } },\n  '下架偵測時間': { date: { start: $json.detectedAt } }\n} }) }}",
+        "jsonBody": "={{ JSON.stringify({ properties: {\n  '狀態':         { select: { name: '下架' } },\n  '下架偵測時間': { date: { start: $json.detectedAt } }\n} }) }}",
         "options": {}
       },
       "id": "9c758c2e-dc1e-483e-8ae3-27e6674b0971",
