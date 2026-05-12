@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-05-11
+最後更新：2026-05-12
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -28,6 +28,7 @@
 | `Notion API Token` | `edOz4T0LC6EP41Ug` | HTTP Header Auth | HTTP Request 打 Notion API |
 | `LINE Channel Access Token` | `OmFzUGgZ1xIpAAP5` | HTTP Header Auth | LINE Reply / Push |
 | `Gemini API Key` | `zTIA89pDJJs0Ad29` | HTTP Header Auth | Gemini（Header `x-goog-api-key`）|
+| `Google Drive account` | （n8n 自動產生）| Google Drive OAuth2 | 建檔器列 Drive 子資料夾用 |
 
 ## 現有架構
 
@@ -50,13 +51,6 @@ LINE 指令分流 (Switch by command)
 ## 接下來要做
 
 > 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開即可（手動 webhook 不吃 push 額度，現在就能測）。
-
-### 🔴 必做（建檔器 Drive 比對版要在 n8n 套用）
-1. 在 n8n 開新空白 workflow，匯入 `workflows/yc-property-create.json`（**不要在現有 workflow 內 Import，會被覆蓋**）
-2. 開啟「列出 Drive 子資料夾」節點 → 設定 Google Drive OAuth2 credential（目前 n8n 尚未設定過 Drive 帳號，要新建一組）
-3. 確認「寫入 Notion」「PATCH 更新已存在」兩個 HTTP 節點都掛 `Notion API Token` credential（id `edOz4T0LC6EP41Ug`）
-4. 停用舊版「物件建檔器」，啟用新版，把 webhook path 維持 `yc-property-create`
-5. 用 LINE 跑一次測試，確認 `物件照片` 欄位有寫入 Drive 連結；同時看 LINE 回覆是否有 `📁 資料夾：...` 那行
 
 ### 🟢 低優先
 - AI 文案重產：sub-workflow，輸入 notionPageId + 文案風格，更新文案並版本 +1
