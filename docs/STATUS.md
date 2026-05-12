@@ -53,8 +53,3 @@ LINE 指令分流 (Switch by command)
 ## 接下來要做
 
 > 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開即可（手動 webhook 不吃 push 額度，現在就能測）。
-
-### 🟡 待匯入 n8n 並測試
-- `workflows/yc-rewrite-copy.json` 新檔，需要在 n8n 開空白 workflow → Import → Activate
-- `workflows/line-command-router.json` 已加 `生成文案` 分流，n8n 上要重新 Import（記得開新空白 workflow 再蓋）
-- 測試指令格式：`生成文案 YC123456 投資客口吻強調學區與捷運`
