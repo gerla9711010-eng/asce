@@ -36,8 +36,9 @@
 LINE Webhook (/766bd943-…)
    ↓
 LINE 指令分流 (Switch by command)
-   ├── create  → 物件建檔器 (/yc-property-create)
-   └── remove  → 撤除回報器 (/yc-property-remove)
+   ├── create   → 物件建檔器 (/yc-property-create)
+   ├── remove   → 撤除回報器 (/yc-property-remove)
+   └── rewrite  → 文案重產器 (/yc-rewrite-copy)
 
 下架偵測 (yc-removal-detector)
    ├── cron 09:00 Asia/Taipei → LINE Push 摘要
@@ -47,11 +48,13 @@ LINE 指令分流 (Switch by command)
 - **物件建檔器**：抓 HTML → Gemini 解析 + 文案 → 列 Drive 子資料夾 → 案名正規化比對（只留中英數字）→ 查 Notion 判重（來源連結）→ 新建或 PATCH 更新（`文案版本` +1，`物件照片` 寫 Drive 連結）→ LINE 回覆
 - **撤除回報器**：抓 YC 編號 → Notion query → PATCH 已撤除確認 + 下架偵測時間 → LINE 回覆
 - **下架偵測**：撈 `已撤除確認=false 且 狀態≠下架` → GET 來源連結 → HTTP ≥400 或關鍵字（已下架/物件不存在/已成交…）→ PATCH 狀態=下架 → Push/Reply 摘要
+- **文案重產器**：LINE 指令 `生成文案 YC123 風格描述` → 查 Notion（案件編號）→ Gemini 依自由風格重產 → PATCH `產生的文案` + `文案版本` +1 → LINE 回覆完整新文案
 
 ## 接下來要做
 
 > 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開即可（手動 webhook 不吃 push 額度，現在就能測）。
 
-### 🟢 低優先
-- AI 文案重產：sub-workflow，輸入 notionPageId + 文案風格，更新文案並版本 +1
-- LINE 加 `生成文案 YCxxx` 指令觸發重產
+### 🟡 待匯入 n8n 並測試
+- `workflows/yc-rewrite-copy.json` 新檔，需要在 n8n 開空白 workflow → Import → Activate
+- `workflows/line-command-router.json` 已加 `生成文案` 分流，n8n 上要重新 Import（記得開新空白 workflow 再蓋）
+- 測試指令格式：`生成文案 YC123456 投資客口吻強調學區與捷運`
