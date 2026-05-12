@@ -127,7 +127,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); }\ncatch (e) { throw new Error('AI 回傳 JSON 解析失敗: ' + e.message + ' 原始: ' + aiText.substring(0, 500)); }\nconst inputData = $('清理 HTML').first().json;\nreturn [{ json: { ...parsed, targetUrl: inputData.targetUrl, replyToken: inputData.replyToken, userId: inputData.userId, 案件編號: (() => { const raw = String(parsed.案件編號 || inputData.caseId || '').trim(); return raw.startsWith('YC') ? raw : 'YC' + raw; })() } }];"
+        "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); }\ncatch (e) { throw new Error('AI 回傳 JSON 解析失敗: ' + e.message + ' 原始: ' + aiText.substring(0, 500)); }\nconst inputData = $('清理 HTML').first().json;\nreturn [{ json: { ...parsed, targetUrl: inputData.targetUrl, replyToken: inputData.replyToken, userId: inputData.userId, 案件編號: (() => { const raw = String(parsed.案件編號 || inputData.caseId || '').trim().toUpperCase(); if (!raw) return ''; return /^[A-Z]{2}\\d/.test(raw) ? raw : 'YC' + raw; })() } }];"
       },
       "id": "983dabc8-984e-46e4-91a9-24e6e92ec68b",
       "name": "解析 AI 輸出",
