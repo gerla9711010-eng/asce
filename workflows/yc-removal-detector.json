@@ -1,5 +1,4 @@
 {
-  "_note": "下架偵測（cron 09:00 + 手動 webhook /yc-check-removed）。邏輯已測試通過；cron 目前 disabled，等 6/1 LINE 月額度重置後再啟用。Push userId Ufab42c56b2eb9b9a9ff18c367b85a6dd。",
   "nodes": [
     {
       "parameters": {
