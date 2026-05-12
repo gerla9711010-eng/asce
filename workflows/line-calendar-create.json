@@ -78,6 +78,9 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-240, -112],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
     },
     {
@@ -98,6 +101,9 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-448, 112],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
     },
     {
@@ -143,11 +149,12 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [416, -96],
+      "continueOnFail": true,
       "credentials": { "googleCalendarOAuth2Api": { "id": "REPLACE_ME", "name": "Google Calendar account" } }
     },
     {
       "parameters": {
-        "jsCode": "// 判讀 Calendar API 回應，組訊息\nconst data = $('驗證解析結果').first().json;\nconst resp = $input.first().json;\nconst fmt = iso => {\n  try { return new Intl.DateTimeFormat('zh-TW',{ timeZone:'Asia/Taipei', month:'2-digit', day:'2-digit', weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date(iso)); }\n  catch(e) { return iso; }\n};\n\nif (resp.error || resp.id == null) {\n  const errMsg = resp.error?.message || resp.error?.errors?.[0]?.message || JSON.stringify(resp).slice(0,200);\n  const msg = `❌ 行事曆建立失敗\\n\\n原因：${errMsg}\\n\\n可能原因：\\n• Google Calendar credential 未設定（n8n → 此節點選 credential）\\n• 該 Google 帳號未授權 Calendar scope`;\n  return [{ json: { replyToken: data.replyToken, message: msg } }];\n}\n\nconst link = resp.htmlLink || '';\nconst lines = [\n  '✅ 已建立行事曆',\n  '',\n  `📌 ${data.title}`,\n  `🕒 ${fmt(data.start)} ~ ${fmt(data.end)}`,\n];\nif (data.location)    lines.push(`📍 ${data.location}`);\nif (data.description) lines.push(`📝 ${data.description}`);\nif (link)             lines.push('', link);\nreturn [{ json: { replyToken: data.replyToken, message: lines.join('\\n') } }];"
+        "jsCode": "// 判讀 Calendar API 回應，組訊息（含 continueOnFail 接到的錯）\nconst data = $('驗證解析結果').first().json;\nconst resp = $input.first().json;\nconst fmt = iso => {\n  try { return new Intl.DateTimeFormat('zh-TW',{ timeZone:'Asia/Taipei', month:'2-digit', day:'2-digit', weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date(iso)); }\n  catch(e) { return iso; }\n};\n\nconst hasErr = !!resp.error || resp.id == null;\nif (hasErr) {\n  let errMsg = '';\n  if (typeof resp.error === 'string') errMsg = resp.error;\n  else if (resp.error?.message) errMsg = resp.error.message;\n  else if (resp.error?.errors?.[0]?.message) errMsg = resp.error.errors[0].message;\n  else if (resp.message) errMsg = resp.message;\n  else errMsg = JSON.stringify(resp).slice(0,200);\n  const msg = `❌ 行事曆建立失敗\\n\\n原因：${errMsg}\\n\\n可能原因：\\n• Google Calendar credential 未授權（n8n → Credentials → 點開 → 按 Connect / Sign in with Google）\\n• OAuth token 過期，需重新授權\\n• 該 Google 帳號未授權 Calendar scope`;\n  return [{ json: { replyToken: data.replyToken, message: msg } }];\n}\n\nconst link = resp.htmlLink || '';\nconst lines = [\n  '✅ 已建立行事曆',\n  '',\n  `📌 ${data.title}`,\n  `🕒 ${fmt(data.start)} ~ ${fmt(data.end)}`,\n];\nif (data.location)    lines.push(`📍 ${data.location}`);\nif (data.description) lines.push(`📝 ${data.description}`);\nif (link)             lines.push('', link);\nreturn [{ json: { replyToken: data.replyToken, message: lines.join('\\n') } }];"
       },
       "id": "a1000001-0001-0001-0001-00000000000b",
       "name": "組成功/失敗訊息",

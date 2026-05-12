@@ -78,6 +78,9 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-240, -112],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
     },
     {
@@ -98,6 +101,9 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-448, 112],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
     },
     {
