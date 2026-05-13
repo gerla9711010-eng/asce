@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-05-12（新增行事曆/客戶建檔 + 圖片分流）
+最後更新：2026-05-13（新增 yc-ad Claude Code Skill，承接社團廣告 SOP）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -38,7 +38,7 @@
 |---|---|---|
 | `建檔 <永慶網址>` | 抓 HTML → AI 解析 → 寫進 Notion（新建或 PATCH，文案版本 +1） | `yc-property-create` |
 | `已撤除 YCxxx` | 標記該物件「已撤除確認 = true」 | `yc-property-remove` |
-| `生成文案 YCxxx <風格描述>` | 用 Notion 既有資料 + 自由風格描述，AI 重產文案（版本 +1） | `yc-rewrite-copy` |
+| `生成文案 YCxxx <風格描述>` | 用 Notion 既有資料 + 自由風格描述，AI 重產文案（版本 +1） | `yc-rewrite-copy`（**桌面端改用 `/yc-ad` skill**，本指令暫保留） |
 | `行事曆 <自由描述>` | Gemini 解析時間/地點/說明 → 建到 Google primary 行事曆 | `line-calendar-create` |
 | `客戶 <自由描述>` | Gemini 抽姓名/電話/公司/需求 → 寫進 Notion 客戶名單 DB | `line-customer-create` |
 | （純圖片，無前綴） | Gemini Vision 自動分類 → 轉發到行事曆或客戶 | `line-image-dispatcher` |
@@ -67,12 +67,17 @@
 | 有無車位 | checkbox | |
 | 車位類型 | select | `坡道平面` / `機械` / `法定` / `無` |
 | 特色說明 | rich_text | |
-| 文案風格 | select | `首購溫馨` / `投資自用`（重產器**不會**改這欄） |
-| 產生的文案 | rich_text | |
-| 文案版本 | number | 每次更新 +1 |
+| 文案風格 | select | `首購溫馨` / `投資自用` / `急售吸睛` / `AI判斷`（重產器**不會**改這欄） |
+| 產生的文案 | rich_text | 早期單一文案欄（被 `粉專文案`+`社團文案` 取代，新流程不寫這欄） |
+| 粉專文案 | rich_text | yc-ad skill 寫入：粉專詳細版（200-300 字） |
+| 社團文案 | rich_text | yc-ad skill 寫入：社團簡短版（50-80 字） |
+| 粉專貼文連結 | url | yc-ad skill 寫入：使用者發完粉專回報後存進來 |
+| 廣告貼文紀錄 | rich_text | yc-ad skill append：社團名 / 日期，多行 |
+| KEIS同步 | select | `未同步`(預設) / `已同步`，KEIS 上架完成後 yc-ad skill 標 |
+| 文案版本 | number | 每次重產 +1 |
 | 來源連結 | url | 建檔器用這個判重 |
 | 物件照片 | files | 寫 Drive 資料夾 external URL |
-| 狀態 | select | `草稿` / `下架` …（下架偵測會 PATCH 成 `下架`） |
+| 狀態 | select | `草稿` / `已發布` / `下架`（下架偵測 / yc-ad 撤除流程會 PATCH） |
 | 已撤除確認 | checkbox | 撤除回報器標 true |
 | 下架偵測時間 | date | |
 
@@ -96,12 +101,12 @@
 ## 現有架構
 
 ```
-LINE Webhook (/766bd943-…)
+LINE Webhook (/766bd943-…)                  ← 行動 / 手機場景
    ↓
 LINE 指令分流 (Switch by command / message type)
    ├── create   → 物件建檔器       (/yc-property-create)
    ├── remove   → 撤除回報器       (/yc-property-remove)
-   ├── rewrite  → 文案重產器       (/yc-rewrite-copy)
+   ├── rewrite  → 文案重產器       (/yc-rewrite-copy)  ← 將被 yc-ad skill 取代，暫並存
    ├── calendar → 行事曆建立器     (/line-calendar-create)
    ├── customer → 客戶建檔器       (/line-customer-create)
    └── image    → 圖片分流器       (/line-image-dispatcher)
@@ -110,33 +115,58 @@ LINE 指令分流 (Switch by command / message type)
 下架偵測 (yc-removal-detector)
    ├── cron 09:00 Asia/Taipei → LINE Push 摘要
    └── 手動 webhook /yc-check-removed → LINE Reply 摘要
+
+Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
+   /yc-ad 或自然語言「發 YCxxx」「同步 KEIS」等
+       ↓
+   讀 Notion 廣告 DB → 產粉專詳細版 + 社團簡短版 → 寫回 Notion
+       ├── 後續對話：粉專連結回報 → PATCH 粉專貼文連結
+       ├── 後續對話：「同步 KEIS」 → 產 KEIS 操作指令包讓使用者貼給瀏覽器擴充功能執行
+       ├── 後續對話：「發到 X 社團」→ append 廣告貼文紀錄
+       └── 後續對話：「已撤除 YCxxx」→ 標下架 + 附粉專連結提示手動刪 FB
 ```
+
+## KEIS 廣告追蹤平台（凱璿業務系統）
+
+- 網址：`https://keis.kshouse.com.tw/ad-tracker`
+- 性質：加盟店內網系統，**無 API、無 Webhook、無 LINE 通知設定**
+- 偵測邏輯：自家偵測永慶網址失效後自動把廣告移到「已關閉廣告」分頁
+- 整合方式：yc-ad skill 產出操作指令包 → 使用者貼給 Claude 瀏覽器擴充功能（Computer Use / Operator）執行 UI 自動化
+- 關鍵 UI 技巧：「+ 新增廣告」表單有「自動填入」按鈕，貼永慶網址後按一下會自動抓標題/地址/價格，省去欄位 mapping
+- 不靠 KEIS 做下架通知：保留 `yc-removal-detector` 自家 cron，KEIS 純當業務 dashboard
+
+## 各 workflow / skill 行為
 
 - **物件建檔器**：抓 HTML → Gemini 解析 + 文案 → 列 Drive 子資料夾 → 案名正規化比對（只留中英數字）→ 查 Notion 判重（來源連結）→ 新建或 PATCH 更新（`文案版本` +1，`物件照片` 寫 Drive 連結）→ LINE 回覆
 - **撤除回報器**：抓 YC 編號 → Notion query → PATCH 已撤除確認 + 下架偵測時間 → LINE 回覆
 - **下架偵測**：撈 `已撤除確認=false 且 狀態≠下架` → GET 來源連結 → HTTP ≥400 或關鍵字（已下架/物件不存在/已成交…）→ PATCH 狀態=下架 → Push/Reply 摘要
-- **文案重產器**：LINE 指令 `生成文案 YC123 風格描述` → 查 Notion（案件編號）→ Gemini 依自由風格重產 → PATCH `產生的文案` + `文案版本` +1 → LINE 回覆完整新文案
+- **文案重產器**：LINE 指令 `生成文案 YC123 風格描述` → 查 Notion（案件編號）→ Gemini 依自由風格重產 → PATCH `產生的文案` + `文案版本` +1 → LINE 回覆完整新文案。**將被 yc-ad skill 取代**，新流程改用桌面 Claude Code 走 skill；LINE 指令暫保留並存，等 skill 用順手後再砍
 - **行事曆建立器**：`行事曆 ...` 文字或圖片 → Gemini 抽 `{title,start,end,location,description}` → Google Calendar primary 建 event → LINE 回覆（含失敗原因）
 - **客戶建檔器**：`客戶 ...` 文字或圖片（名片）→ Gemini 抽姓名/電話/公司/LINE/來源/狀態/標籤/備註/追蹤日 → Notion 客戶名單 DB 新增 → LINE 回覆（失敗會帶 Notion API 原始錯誤）
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發到行事曆建立器或客戶建檔器（分不出時預設客戶）
+- **yc-ad skill**（`.claude/skills/yc-ad/SKILL.md`）：桌面 Claude Code 用。一個指令 `/yc-ad YCxxx` 或自然語言「發 YCxxx」即啟動全流程：產粉專+社團兩版文案 → 寫 Notion → 對話式接收後續粉專連結 / KEIS 同步指令 / 社團發文紀錄 / 撤除。文案規格詳見 SKILL.md（粉專 200-300 字含 `#YCxxx` hashtag、社團 50-80 字不放連結引導留言區）
+
+## yc-ad skill 使用方式（桌面 Claude Code）
+
+repo 根目錄開 Claude Code 後輸入：
+
+```
+/yc-ad YC1835328
+```
+
+或自然語言：「幫我發 YC1835328 的廣告」。
+
+Skill 會自動：
+1. 用 Notion MCP 查物件（Notion MCP 已配好 `mcp__3176f6b5-9ef6-46d2-817e-d3f5d081fd0f__notion-*`）
+2. 產粉專詳細版 + 社團簡短版兩段文案，寫進 Notion `粉專文案` / `社團文案` / `文案版本` +1
+3. 對話式接後續：
+   - 你回粉專連結 → PATCH `粉專貼文連結` + `狀態` = 已發布
+   - 你說「同步 KEIS」→ 吐操作指令包，貼給 Claude 瀏覽器擴充功能執行 → 回「KEIS 上架成功」→ PATCH `KEIS同步` = 已同步
+   - 你說「發到 X 社團」→ append `廣告貼文紀錄`
+   - 你說「已撤除」→ 標下架 + 附粉專連結提示手動刪 FB
 
 ## 接下來要做
 
-> 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開即可（手動 webhook 不吃 push 額度，現在就能測）。
-
-### 行事曆 / 客戶建檔上線前要做（使用者操作）
-
-1. **在 n8n 匯入 4 個 workflow**（一律「開新空白 workflow → import JSON」，不要蓋舊的）：
-   - `workflows/line-calendar-create.json`
-   - `workflows/line-customer-create.json`
-   - `workflows/line-image-dispatcher.json`
-   - `workflows/line-command-router.json`（**蓋掉**舊的，因為 Switch 多了 3 個出口）
-2. **建 Google Calendar OAuth2 credential**（n8n → Credentials → New → "Google Calendar OAuth2 API"），命名 `Google Calendar account`，授權 calendar scope。
-3. **回到 `line-calendar-create` workflow，把「Google Calendar 建立事件」節點的 credential 改成上面建好的那個**（JSON 裡是 placeholder `REPLACE_ME`）。
-4. **把 Notion 客戶名單 DB 分享給 Notion integration**（Notion DB 頁面右上 ⋯ → Connections → 加你的 integration），不然 Notion API 會回 `object_not_found`。
-5. **4 個 workflow 一律按 Active 開**。
-6. 測試：
-   - 文字：傳 `行事曆 明天下午2點 王先生看屋 三民區建工路123號 帶權狀`
-   - 文字：傳 `客戶 王大明 0912345678 找三民3房預算1500 介紹`
-   - 圖片：傳一張名片照片（應自動進客戶建檔）
-   - 圖片：傳一張寫日期+事件的便條（應自動進行事曆）
+- 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
+- yc-ad skill 跑第一個真實物件後，回頭調 SKILL.md 的文案 prompt 規格（粉專口氣、社團排版變化度）
+- 等 yc-ad skill 用順手後，砍掉 n8n 的 `yc-rewrite-copy` workflow + router 的 `生成文案` 出口
