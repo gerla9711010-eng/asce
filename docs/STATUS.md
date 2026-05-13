@@ -135,6 +135,8 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - 關鍵 UI 技巧：「+ 新增廣告」表單有「自動填入」按鈕，貼永慶網址後按一下會自動抓標題/地址/價格，省去欄位 mapping
 - 不靠 KEIS 做下架通知：保留 `yc-removal-detector` 自家 cron，KEIS 純當業務 dashboard
 
+## 各 workflow / skill 行為
+
 - **物件建檔器**：抓 HTML → Gemini 解析 + 文案 → 列 Drive 子資料夾 → 案名正規化比對（只留中英數字）→ 查 Notion 判重（來源連結）→ 新建或 PATCH 更新（`文案版本` +1，`物件照片` 寫 Drive 連結）→ LINE 回覆
 - **撤除回報器**：抓 YC 編號 → Notion query → PATCH 已撤除確認 + 下架偵測時間 → LINE 回覆
 - **下架偵測**：撈 `已撤除確認=false 且 狀態≠下架` → GET 來源連結 → HTTP ≥400 或關鍵字（已下架/物件不存在/已成交…）→ PATCH 狀態=下架 → Push/Reply 摘要
@@ -144,32 +146,27 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發到行事曆建立器或客戶建檔器（分不出時預設客戶）
 - **yc-ad skill**（`.claude/skills/yc-ad/SKILL.md`）：桌面 Claude Code 用。一個指令 `/yc-ad YCxxx` 或自然語言「發 YCxxx」即啟動全流程：產粉專+社團兩版文案 → 寫 Notion → 對話式接收後續粉專連結 / KEIS 同步指令 / 社團發文紀錄 / 撤除。文案規格詳見 SKILL.md（粉專 200-300 字含 `#YCxxx` hashtag、社團 50-80 字不放連結引導留言區）
 
-## 接下來要做
+## yc-ad skill 使用方式（桌面 Claude Code）
 
-> 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開即可（手動 webhook 不吃 push 額度，現在就能測）。
-
-### yc-ad skill 使用方式
-
-直接在 repo 根目錄開 Claude Code 後輸入：
+repo 根目錄開 Claude Code 後輸入：
 
 ```
 /yc-ad YC1835328
 ```
 
-或自然語言：
-
-```
-幫我發 YC1835328 的廣告
-```
+或自然語言：「幫我發 YC1835328 的廣告」。
 
 Skill 會自動：
-1. 用 Notion MCP 查物件（要 Notion MCP 已配好；本 repo 已用 `mcp__3176f6b5-9ef6-46d2-817e-d3f5d081fd0f__notion-*`）
-2. 產粉專詳細版 + 社團簡短版兩段文案
-3. 寫進 Notion `粉專文案` / `社團文案` / `文案版本` +1
-4. 等使用者回報粉專連結、KEIS 同步、社團發文，逐步推進
+1. 用 Notion MCP 查物件（Notion MCP 已配好 `mcp__3176f6b5-9ef6-46d2-817e-d3f5d081fd0f__notion-*`）
+2. 產粉專詳細版 + 社團簡短版兩段文案，寫進 Notion `粉專文案` / `社團文案` / `文案版本` +1
+3. 對話式接後續：
+   - 你回粉專連結 → PATCH `粉專貼文連結` + `狀態` = 已發布
+   - 你說「同步 KEIS」→ 吐操作指令包，貼給 Claude 瀏覽器擴充功能執行 → 回「KEIS 上架成功」→ PATCH `KEIS同步` = 已同步
+   - 你說「發到 X 社團」→ append `廣告貼文紀錄`
+   - 你說「已撤除」→ 標下架 + 附粉專連結提示手動刪 FB
 
-### KEIS 同步操作
+## 接下來要做
 
-1. yc-ad skill 會吐一段「操作指令包」
-2. 複製 → 貼給 Claude 瀏覽器擴充功能（已驗證可運作）
-3. 擴充功能執行完回報「KEIS 上架成功」→ skill PATCH `KEIS同步` = 已同步
+- 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
+- yc-ad skill 跑第一個真實物件後，回頭調 SKILL.md 的文案 prompt 規格（粉專口氣、社團排版變化度）
+- 等 yc-ad skill 用順手後，砍掉 n8n 的 `yc-rewrite-copy` workflow + router 的 `生成文案` 出口
