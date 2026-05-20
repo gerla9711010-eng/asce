@@ -170,3 +170,5 @@ Skill 會自動：
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
 - yc-ad skill 跑第一個真實物件後，回頭調 SKILL.md 的文案 prompt 規格（粉專口氣、社團排版變化度）
 - 等 yc-ad skill 用順手後，砍掉 n8n 的 `yc-rewrite-copy` workflow + router 的 `生成文案` 出口
+- **KEIS 自動化改用腳本**（Playwright/Selenium + Python）取代 Claude 瀏覽器擴充功能，理由：擴充功能太燒 token。輸入：永慶網址 + FB 貼文連結 + 案件編號 → 自動填表送出。完成後 SKILL.md 4b 改為呼叫腳本（n8n webhook 或 LINE 指令觸發），不再產操作指令包
+- **FB 粉專自動排程（B 路線）**：Graph API + n8n workflow，產文案後直接寫 Notion「排程時間」欄 → cron 到時間自動 PO 文 → 拿回貼文連結 → 標已發布。前置：開 Meta for Developers App、拿粉專長效 Page Access Token、加 Notion「排程時間」欄。本次使用者暫採 A 路線（Meta Business Suite 手動排程），等順手後再做 B
