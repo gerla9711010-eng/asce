@@ -180,4 +180,5 @@ Skill 會自動：
     4. 點 Generate Access Token（新 app 已預設 4 個 pages_* 權限，授權頁應該直接列出來給勾選）
     5. 拿到 User Token 後，User or Page 切「取得頁面存取權杖」→ 選粉專 → 拿 Page Token
     6. Page Token 過 `/oauth/access_token?grant_type=fb_exchange_token` 換永久版（從長效 User Token 換出的 Page Token 預設不過期）
+  - **已知卡點**：Graph API Explorer 跑 Generate Access Token 會跳出 OAuth dialog 顯示「Invalid Scopes: pages_read_user_content」警告，按確定後 dialog 直接關閉沒授權成功。猜測組態 `1001789349267297` 裡的 `pages_manage_engagement` 自動 bundle 了已被棄用的 `pages_read_user_content`。下次先試：編輯組態移除 `pages_manage_engagement`，只留 show_list + manage_posts + read_engagement 三個權限，再跑一次 Generate Access Token
   - 舊 App `1950187462277347`（YC博愛凱璿廣告，事業類型）已棄置，不用
