@@ -172,3 +172,6 @@ Skill 會自動：
 - 等 yc-ad skill 用順手後，砍掉 n8n 的 `yc-rewrite-copy` workflow + router 的 `生成文案` 出口
 - **KEIS 自動化改用腳本**（Playwright/Selenium + Python）取代 Claude 瀏覽器擴充功能，理由：擴充功能太燒 token。輸入：永慶網址 + FB 貼文連結 + 案件編號 → 自動填表送出。完成後 SKILL.md 4b 改為呼叫腳本（n8n webhook 或 LINE 指令觸發），不再產操作指令包
 - **FB 粉專自動排程（B 路線）**：Graph API + n8n workflow，產文案後直接寫 Notion「排程時間」欄 → cron 到時間自動 PO 文 → 拿回貼文連結 → 標已發布。前置：開 Meta for Developers App、拿粉專長效 Page Access Token、加 Notion「排程時間」欄。本次使用者暫採 A 路線（Meta Business Suite 手動排程），等順手後再做 B
+  - **2026-05-20 設定進度**：建了 Meta App `1464556941566881`（YC粉專自動發文，消費者類型），加了「管理粉絲專頁所有內容」use case，建了 FB Login for Business 組態 `1001789349267297`（含 4 個 pages_* 權限）。OAuth URL 跑出來一直跳「Sorry, something went wrong」原因待查
+  - **下次接續**：先試 Graph API Explorer 拿 token（新 app 已有 4 個 pages_* 權限預設可選），URL `https://developers.facebook.com/tools/explorer/` → 選 `YC粉專自動發文` app → Generate Access Token 看權限選單。如果 Explorer 也不行，研究 FBL4B 文件看 OAuth URL 缺什麼參數
+  - 舊 App `1950187462277347`（YC博愛凱璿廣告，事業類型）已棄置，不用
