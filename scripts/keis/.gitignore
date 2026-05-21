@@ -1,5 +1,6 @@
 .env
 .venv/
+profile/
 __pycache__/
 *.pyc
 keis_error_*.png
