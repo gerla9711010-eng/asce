@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-05-13（新增 yc-ad Claude Code Skill，承接社團廣告 SOP）
+最後更新：2026-05-21（KEIS Python 腳本 v1 寫好待測；FB Graph API 暫放棄）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -144,7 +144,7 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - **行事曆建立器**：`行事曆 ...` 文字或圖片 → Gemini 抽 `{title,start,end,location,description}` → Google Calendar primary 建 event → LINE 回覆（含失敗原因）
 - **客戶建檔器**：`客戶 ...` 文字或圖片（名片）→ Gemini 抽姓名/電話/公司/LINE/來源/狀態/標籤/備註/追蹤日 → Notion 客戶名單 DB 新增 → LINE 回覆（失敗會帶 Notion API 原始錯誤）
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發到行事曆建立器或客戶建檔器（分不出時預設客戶）
-- **yc-ad skill**（`.claude/skills/yc-ad/SKILL.md`）：桌面 Claude Code 用。一個指令 `/yc-ad YCxxx` 或自然語言「發 YCxxx」即啟動全流程：產粉專+社團兩版文案 → 寫 Notion → 對話式接收後續粉專連結 / KEIS 同步指令 / 社團發文紀錄 / 撤除。文案規格詳見 SKILL.md（粉專 200-300 字含 `#YCxxx` hashtag、社團 50-80 字不放連結引導留言區）
+- **yc-ad skill**（`.claude/skills/yc-ad/SKILL.md`）：桌面 Claude Code 用。一個指令 `/yc-ad YCxxx` 或自然語言「發 YCxxx」即啟動全流程：產粉專+社團兩版文案 → 寫 Notion → 對話式接收後續粉專連結 / KEIS 同步指令 / 社團發文紀錄 / 撤除。文案規格詳見 SKILL.md：粉專 200-300 字，社團 50-80 字不放連結引導留言區，兩版下方都帶法規必填「凱璿誼峰不動產有限公司 + 字號」footer，聯絡人固定「薛先生 0912877583（同 LINE）+ LINE 連結 `https://line.me/ti/p/kg1pMk4vX8`」，不放 YC 編號 hashtag
 
 ## yc-ad skill 使用方式（桌面 Claude Code）
 
@@ -167,24 +167,15 @@ Skill 會自動：
 
 ## 接下來要做
 
+### 立刻能做
+- **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
-- yc-ad skill 跑第一個真實物件後，回頭調 SKILL.md 的文案 prompt 規格（粉專口氣、社團排版變化度）
+
+### 中期
+- yc-ad skill 跑幾個物件後微調 SKILL.md 文案 prompt（口氣、社團排版變化度）
+- KEIS 腳本驗證能跑後，包成 FastAPI webhook 部到 Railway，串進 yc-ad skill 4b 步驟取代「貼操作指令包」
 - 等 yc-ad skill 用順手後，砍掉 n8n 的 `yc-rewrite-copy` workflow + router 的 `生成文案` 出口
-- **KEIS 自動化改用腳本**（Playwright/Selenium + Python）取代 Claude 瀏覽器擴充功能，理由：擴充功能太燒 token。輸入：永慶網址 + FB 貼文連結 + 案件編號 → 自動填表送出。完成後 SKILL.md 4b 改為呼叫腳本（n8n webhook 或 LINE 指令觸發），不再產操作指令包
-- **FB 粉專自動排程（B 路線）**：Graph API + n8n workflow，產文案後直接寫 Notion「排程時間」欄 → cron 到時間自動 PO 文 → 拿回貼文連結 → 標已發布。前置：開 Meta for Developers App、拿粉專長效 Page Access Token、加 Notion「排程時間」欄。本次使用者暫採 A 路線（Meta Business Suite 手動排程），等順手後再做 B
-  - **2026-05-20 設定進度**：建了 Meta App `1464556941566881`（YC粉專自動發文，消費者類型），加了「管理粉絲專頁所有內容」use case，建了 FB Login for Business 組態 `1001789349267297`（含 4 個 pages_* 權限）。OAuth URL 跑出來一直跳「Sorry, something went wrong」原因待查
-  - **下次接續**：先試 Graph API Explorer 拿 token。**不要再碰 FBL4B 的 config_id OAuth URL**（已驗證會卡 redirect URI domain whitelist 鬼打牆，App Domain 設了 `www.google.com` + redirect_uri `https://www.google.com/` 還是被擋）。改走：
-    1. https://developers.facebook.com/tools/explorer/
-    2. 右上 App 選 `YC粉專自動發文`
-    3. User or Page 保持「使用者存取權杖」
-    4. 點 Generate Access Token（新 app 已預設 4 個 pages_* 權限，授權頁應該直接列出來給勾選）
-    5. 拿到 User Token 後，User or Page 切「取得頁面存取權杖」→ 選粉專 → 拿 Page Token
-    6. Page Token 過 `/oauth/access_token?grant_type=fb_exchange_token` 換永久版（從長效 User Token 換出的 Page Token 預設不過期）
-  - **已知卡點**：Graph API Explorer 跑 Generate Access Token 會跳出 OAuth dialog 顯示「Invalid Scopes: pages_read_user_content」警告，按確定後 dialog 直接關閉沒授權成功。猜測組態 `1001789349267297` 裡的 `pages_manage_engagement` 自動 bundle 了已被棄用的 `pages_read_user_content`。下次先試：編輯組態移除 `pages_manage_engagement`，只留 show_list + manage_posts + read_engagement 三個權限，再跑一次 Generate Access Token
-  - **2026-05-21 第二輪嘗試結論**：
-    - 把舊 app `1464556941566881` 刪掉重建為 `1532682778272952`（YC粉專自動發文2），組態 `2054313972110634` 只含 3 個權限（無 pages_manage_engagement）
-    - 跑 OAuth URL 還是卡 `error_code=1349048`「網址的網域未包含在應用程式的網域中」，即使 App Domain 設了 `www.google.com` + redirect_uri 完全 match 也一樣
-    - 結論：**FBL4B 在開發模式對 redirect URI 的 host whitelist 邏輯有未解問題**。FB 文件也沒提到 localhost 是不是支援、google.com 為何被當外部域名拒絕
-    - **暫時放棄 FB Graph API 自動化路線**，粉專繼續用 Meta Business Suite 手動排程
-    - 之後若要再戰，可考慮：(a) 真實擁有的網域 + HTTPS server 當 redirect_uri；(b) Meta Business Manager System User 路線（完全跳過 OAuth dialog）；(c) 把 app 從 Development mode 翻成 Live mode 看 redirect URI 限制是否放寬
-  - 舊 App `1950187462277347`（YC博愛凱璿廣告，事業類型）已棄置，不用
+
+### 暫不做
+- **FB Graph API 自動排程粉專**：兩輪嘗試（2026-05-20 + 2026-05-21）都卡在 redirect URI host whitelist。詳細 debug 過程看 git log（搜 `FBL4B`）。粉專繼續用 Meta Business Suite 手動排程。要再戰可考慮：(a) 真實擁有的網域 + HTTPS server 當 redirect_uri；(b) Meta Business Manager System User 跳過 OAuth dialog；(c) app 翻 Live mode 看限制是否放寬
+- 留存的 FB Apps（都是棄置狀態，要重戰直接重建）：`1950187462277347`（事業類型）、`1532682778272952`（消費者類型 + FBL4B 組態 `2054313972110634`）
