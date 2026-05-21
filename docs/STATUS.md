@@ -181,4 +181,10 @@ Skill 會自動：
     5. 拿到 User Token 後，User or Page 切「取得頁面存取權杖」→ 選粉專 → 拿 Page Token
     6. Page Token 過 `/oauth/access_token?grant_type=fb_exchange_token` 換永久版（從長效 User Token 換出的 Page Token 預設不過期）
   - **已知卡點**：Graph API Explorer 跑 Generate Access Token 會跳出 OAuth dialog 顯示「Invalid Scopes: pages_read_user_content」警告，按確定後 dialog 直接關閉沒授權成功。猜測組態 `1001789349267297` 裡的 `pages_manage_engagement` 自動 bundle 了已被棄用的 `pages_read_user_content`。下次先試：編輯組態移除 `pages_manage_engagement`，只留 show_list + manage_posts + read_engagement 三個權限，再跑一次 Generate Access Token
+  - **2026-05-21 第二輪嘗試結論**：
+    - 把舊 app `1464556941566881` 刪掉重建為 `1532682778272952`（YC粉專自動發文2），組態 `2054313972110634` 只含 3 個權限（無 pages_manage_engagement）
+    - 跑 OAuth URL 還是卡 `error_code=1349048`「網址的網域未包含在應用程式的網域中」，即使 App Domain 設了 `www.google.com` + redirect_uri 完全 match 也一樣
+    - 結論：**FBL4B 在開發模式對 redirect URI 的 host whitelist 邏輯有未解問題**。FB 文件也沒提到 localhost 是不是支援、google.com 為何被當外部域名拒絕
+    - **暫時放棄 FB Graph API 自動化路線**，粉專繼續用 Meta Business Suite 手動排程
+    - 之後若要再戰，可考慮：(a) 真實擁有的網域 + HTTPS server 當 redirect_uri；(b) Meta Business Manager System User 路線（完全跳過 OAuth dialog）；(c) 把 app 從 Development mode 翻成 Live mode 看 redirect URI 限制是否放寬
   - 舊 App `1950187462277347`（YC博愛凱璿廣告，事業類型）已棄置，不用
