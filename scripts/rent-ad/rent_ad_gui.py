@@ -50,10 +50,13 @@ class RentAdApp:
     EQUIPMENT = ["洗衣機", "電視", "熱水器", "冰箱", "冷氣"]
     OTHER = ["網路", "第四台", "天然瓦斯"]
 
+    ON_BG = "#FFD400"     # 選取 = 黃色填滿
+    OFF_BG = "#E8E8E8"    # 未選取 = 灰色
+
     def __init__(self, root):
         self.root = root
         root.title("租屋廣告 LINE 文案產生器")
-        root.geometry("760x820")
+        root.geometry("780x860")
 
         self.vars = {}   # 存放所有輸入元件的變數
 
@@ -69,7 +72,7 @@ class RentAdApp:
         paned.add(result_wrap, weight=2)
         self._build_result(result_wrap)
 
-    # ── 表單建立 ──────────────────────────────────────
+    # ── 基本版面小工具 ────────────────────────────────
     def _section(self, parent, title):
         lf = ttk.LabelFrame(parent, text=title)
         lf.pack(fill="x", padx=6, pady=5)
@@ -88,42 +91,77 @@ class RentAdApp:
         ttk.Entry(f, textvariable=v, width=width).pack(side="left", fill="x", expand=True)
         return v
 
-    def _radio(self, parent, key, label, options, default=None):
+    # ── 黃色填滿 chip ─────────────────────────────────
+    def _single_chip(self, parent, var, opt, on_change=None):
+        """單選 chip：選取時黃色填滿。再點一次可取消。共用同一個 StringVar。"""
+        lbl = tk.Label(parent, text=opt, padx=10, pady=3, bd=1,
+                       relief="groove", cursor="hand2")
+
+        def refresh(*_):
+            on = (var.get() == opt)
+            lbl.config(bg=self.ON_BG if on else self.OFF_BG,
+                       relief="solid" if on else "groove")
+
+        def click(_):
+            var.set("" if var.get() == opt else opt)
+            if on_change:
+                on_change()
+
+        lbl.bind("<Button-1>", click)
+        var.trace_add("write", refresh)
+        refresh()
+        lbl.pack(side="left", padx=2)
+        return lbl
+
+    def _multi_chip(self, parent, bvar, opt, on_delete=None):
+        """複選 chip：選取時黃色填滿。右鍵可刪除（自訂選項用）。"""
+        lbl = tk.Label(parent, text=opt, padx=10, pady=3, bd=1,
+                       relief="groove", cursor="hand2")
+
+        def refresh(*_):
+            on = bvar.get()
+            lbl.config(bg=self.ON_BG if on else self.OFF_BG,
+                       relief="solid" if on else "groove")
+
+        lbl.bind("<Button-1>", lambda e: bvar.set(not bvar.get()))
+        if on_delete:
+            lbl.bind("<Button-3>", lambda e: on_delete())
+        bvar.trace_add("write", refresh)
+        refresh()
+        lbl.pack(side="left", padx=2)
+        return lbl
+
+    def _chip_single(self, parent, key, label, options, default="", on_change=None):
         f = self._row(parent)
         ttk.Label(f, text=label, width=12, anchor="e").pack(side="left")
-        v = tk.StringVar(value=default if default is not None else "")
+        v = tk.StringVar(value=default)
         self.vars[key] = v
         for opt in options:
-            ttk.Radiobutton(f, text=opt, value=opt, variable=v).pack(side="left", padx=2)
-        return v
+            self._single_chip(f, v, opt, on_change)
+        return f, v
 
     def _checks(self, parent, key, label, options):
-        """可動態新增/刪除選項的勾選群組。
+        """可動態新增/刪除選項的複選群組（黃色 chip）。
         self.vars[key] = {選項文字: BooleanVar}
-        每個選項旁有「✕」可刪除；下方有輸入框+「新增」可加自訂選項。
+        點一下 = 黃色選取；右鍵 = 刪除該選項；下方輸入框可新增自訂選項。
         """
         outer = ttk.Frame(parent)
         outer.pack(fill="x", padx=8, pady=3)
 
-        head = ttk.Frame(outer)
-        head.pack(fill="x")
-        ttk.Label(head, text=label, width=12, anchor="e").pack(side="left")
+        top = ttk.Frame(outer)
+        top.pack(fill="x")
+        ttk.Label(top, text=label, width=12, anchor="e").pack(side="left")
+        box = ttk.Frame(top)            # 放所有 chip 的容器
+        box.pack(side="left", fill="x", expand=True)
 
-        box = ttk.Frame(outer)          # 放所有選項的容器
-        box.pack(fill="x", padx=(12, 0))
-
-        d = {}                           # 選項 -> BooleanVar
+        d = {}
         self.vars[key] = d
 
         def render():
             for w in box.winfo_children():
                 w.destroy()
             for opt in list(d.keys()):
-                cell = ttk.Frame(box)
-                cell.pack(side="left", padx=2)
-                ttk.Checkbutton(cell, text=opt, variable=d[opt]).pack(side="left")
-                ttk.Button(cell, text="✕", width=2,
-                           command=lambda o=opt: remove(o)).pack(side="left")
+                self._multi_chip(box, d[opt], opt, on_delete=lambda o=opt: remove(o))
 
         def remove(opt):
             d.pop(opt, None)
@@ -131,9 +169,7 @@ class RentAdApp:
 
         def add(opt):
             opt = opt.strip()
-            if not opt:
-                return
-            if opt not in d:
+            if opt and opt not in d:
                 d[opt] = tk.BooleanVar(value=False)
             render()
 
@@ -142,9 +178,9 @@ class RentAdApp:
         render()
 
         addbar = ttk.Frame(outer)
-        addbar.pack(fill="x", padx=(12, 0), pady=(2, 0))
+        addbar.pack(fill="x", padx=(96, 0), pady=(2, 0))
         new_var = tk.StringVar()
-        ent = ttk.Entry(addbar, textvariable=new_var, width=14)
+        ent = ttk.Entry(addbar, textvariable=new_var, width=12)
         ent.pack(side="left")
 
         def do_add():
@@ -153,14 +189,17 @@ class RentAdApp:
             ent.focus_set()
 
         ent.bind("<Return>", lambda e: do_add())
-        ttk.Button(addbar, text="新增選項", command=do_add).pack(side="left", padx=4)
+        ttk.Button(addbar, text="＋新增選項", command=do_add).pack(side="left", padx=4)
+        ttk.Label(addbar, text="（點一下=黃色選取，右鍵=刪除選項）",
+                  foreground="#888").pack(side="left", padx=6)
         return d
 
+    # ── 表單建立 ──────────────────────────────────────
     def _build_form(self, p):
         # 廣告/業務資訊
         s = self._section(p, "廣告資訊")
         self._entry(s, "no", "編號(#)", default="0", width=10)
-        self._radio(s, "case_type", "案件類型", ["一般件", "社會住宅"], default="一般件")
+        self._chip_single(s, "case_type", "案件類型", ["一般件", "社會住宅"], default="一般件")
         self._entry(s, "agent", "業務", default="薛力瑜")
         self._entry(s, "phone", "電話", default="0912877583")
         self._entry(s, "line_id", "LINE ID", default="gerla1001259")
@@ -168,7 +207,7 @@ class RentAdApp:
 
         # A 物件資訊
         s = self._section(p, "A. 物件資訊")
-        self._entry(s, "addr", "物件地址", default="臺南市")
+        self._entry(s, "addr", "物件地址", default="")
         self._entry(s, "community", "社區")
         rf = self._row(s)
         ttk.Label(rf, text="樓層", width=12, anchor="e").pack(side="left")
@@ -183,14 +222,14 @@ class RentAdApp:
         ttk.Label(rf, text="租金 $", width=12, anchor="e").pack(side="left")
         self.vars["rent"] = tk.StringVar()
         ttk.Entry(rf, textvariable=self.vars["rent"], width=10).pack(side="left")
-        self.vars["mgmt_fee_inc"] = tk.StringVar(value="含")
-        ttk.Radiobutton(rf, text="含管理費", value="含", variable=self.vars["mgmt_fee_inc"]).pack(side="left", padx=2)
-        ttk.Radiobutton(rf, text="不含", value="不含", variable=self.vars["mgmt_fee_inc"]).pack(side="left", padx=2)
+        self.vars["mgmt_fee_inc"] = tk.StringVar(value="含管理費")
+        self._single_chip(rf, self.vars["mgmt_fee_inc"], "含管理費")
+        self._single_chip(rf, self.vars["mgmt_fee_inc"], "不含")
         ttk.Label(rf, text="管理費 $").pack(side="left", padx=2)
         self.vars["mgmt_fee"] = tk.StringVar()
         ttk.Entry(rf, textvariable=self.vars["mgmt_fee"], width=8).pack(side="left")
 
-        self._radio(s, "building", "建物型態", self.BUILDING_TYPES)
+        self._chip_single(s, "building", "建物型態", self.BUILDING_TYPES)
 
         rf = self._row(s)
         ttk.Label(rf, text="格局", width=12, anchor="e").pack(side="left")
@@ -203,17 +242,57 @@ class RentAdApp:
 
         # B 物件內容
         s = self._section(p, "B. 物件內容")
-        self._entry(s, "moto", "機車位", default="無")
-        self._entry(s, "car", "汽車位", default="無")
+
+        # 機車位：有/無，選「有」自動展開詳細輸入欄
+        mrow = self._row(s)
+        ttk.Label(mrow, text="機車位", width=12, anchor="e").pack(side="left")
+        self.vars["moto"] = tk.StringVar(value="無")
+        self.vars["moto_detail"] = tk.StringVar()
+        moto_box = ttk.Frame(mrow)
+        ttk.Label(moto_box, text="詳細：").pack(side="left")
+        ttk.Entry(moto_box, textvariable=self.vars["moto_detail"], width=22).pack(side="left")
+
+        def moto_change():
+            if self.vars["moto"].get() == "有":
+                moto_box.pack(side="left", padx=8)
+            else:
+                moto_box.pack_forget()
+
+        for opt in ["有", "無"]:
+            self._single_chip(mrow, self.vars["moto"], opt, moto_change)
+        moto_change()
+
+        # 汽車位：有/無，選「有」自動展開（坡道機械／坡道平面 + 詳細）
+        crow = self._row(s)
+        ttk.Label(crow, text="汽車位", width=12, anchor="e").pack(side="left")
+        self.vars["car"] = tk.StringVar(value="無")
+        self.vars["car_type"] = tk.StringVar()
+        self.vars["car_detail"] = tk.StringVar()
+        car_box = ttk.Frame(crow)
+        for opt in ["坡道機械", "坡道平面"]:
+            self._single_chip(car_box, self.vars["car_type"], opt)
+        ttk.Label(car_box, text="詳細：").pack(side="left", padx=(6, 0))
+        ttk.Entry(car_box, textvariable=self.vars["car_detail"], width=18).pack(side="left")
+
+        def car_change():
+            if self.vars["car"].get() == "有":
+                car_box.pack(side="left", padx=8)
+            else:
+                car_box.pack_forget()
+
+        for opt in ["有", "無"]:
+            self._single_chip(crow, self.vars["car"], opt, car_change)
+        car_change()
+
         self._entry(s, "water", "水費", default="台水")
         self._entry(s, "elec", "電費", default="台電")
-        self._radio(s, "pet", "寵物", ["可", "不可"])
+        self._chip_single(s, "pet", "寵物", ["可", "不可"])
         self._entry(s, "pet_note", "寵物條款")
-        self._radio(s, "cook", "開伙", ["可", "不可"])
-        self._radio(s, "cook_fire", "明火/暗火", ["明火", "暗火", ""])
+        self._chip_single(s, "cook", "開伙", ["可", "不可"])
+        self._chip_single(s, "cook_fire", "明火/暗火", ["明火", "暗火"])
 
         # C 物件設備
-        s = self._section(p, "C. 物件設備（勾選才會出現）")
+        s = self._section(p, "C. 物件設備（黃色=有，可自訂增刪）")
         self._checks(s, "furniture", "傢俱", self.FURNITURE)
         self._checks(s, "equipment", "設備", self.EQUIPMENT)
         self._checks(s, "other", "其他", self.OTHER)
@@ -261,7 +340,8 @@ class RentAdApp:
         no = self._g("no")
         L.append(f"🌏廣告資訊#{no}🌏" if no else "🌏廣告資訊🌏")
         L.append("")
-        L.append(f"案件類型：{self._g('case_type')}")
+        if self._g("case_type"):
+            L.append(f"案件類型：{self._g('case_type')}")
         if self._g("agent"):
             L.append(f"業務：{self._g('agent')}")
         if self._g("phone"):
@@ -280,7 +360,8 @@ class RentAdApp:
         community = self._g("community")
         if community:
             addr += f"（社區：{community}）"
-        L.append(f"1.物件地址：{addr}")
+        if addr:
+            L.append(f"1.物件地址：{addr}")
         floor, total = self._g("floor"), self._g("total_floor")
         if floor or total:
             L.append(f"2.樓層：{floor}F／總樓層{total}F")
@@ -288,7 +369,7 @@ class RentAdApp:
         if rent:
             inc = self._g("mgmt_fee_inc")
             fee = self._g("mgmt_fee")
-            if inc == "含":
+            if inc == "含管理費":
                 L.append(f"3.租金：＄{rent}（含管理費）")
             else:
                 line = f"3.租金：＄{rent}（不含管理費"
@@ -310,8 +391,16 @@ class RentAdApp:
 
         # B
         L.append("［B.物件內容］")
-        L.append(f"1.機車位：{self._g('moto') or '無'}")
-        L.append(f"2.汽車位：{self._g('car') or '無'}")
+        if self._g("moto") == "有":
+            md = self._g("moto_detail")
+            L.append(f"1.機車位：{md if md else '有'}")
+        else:
+            L.append("1.機車位：無")
+        if self._g("car") == "有":
+            val = (self._g("car_type") + self._g("car_detail")).strip() or "有"
+            L.append(f"2.汽車位：{val}")
+        else:
+            L.append("2.汽車位：無")
         if self._g("water"):
             L.append(f"3.水費：{self._g('water')}")
         if self._g("elec"):
