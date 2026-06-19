@@ -98,14 +98,62 @@ class RentAdApp:
         return v
 
     def _checks(self, parent, key, label, options):
-        f = self._row(parent)
-        ttk.Label(f, text=label, width=12, anchor="e").pack(side="left")
-        d = {}
-        for opt in options:
-            bv = tk.BooleanVar(value=False)
-            d[opt] = bv
-            ttk.Checkbutton(f, text=opt, variable=bv).pack(side="left", padx=2)
+        """可動態新增/刪除選項的勾選群組。
+        self.vars[key] = {選項文字: BooleanVar}
+        每個選項旁有「✕」可刪除；下方有輸入框+「新增」可加自訂選項。
+        """
+        outer = ttk.Frame(parent)
+        outer.pack(fill="x", padx=8, pady=3)
+
+        head = ttk.Frame(outer)
+        head.pack(fill="x")
+        ttk.Label(head, text=label, width=12, anchor="e").pack(side="left")
+
+        box = ttk.Frame(outer)          # 放所有選項的容器
+        box.pack(fill="x", padx=(12, 0))
+
+        d = {}                           # 選項 -> BooleanVar
         self.vars[key] = d
+
+        def render():
+            for w in box.winfo_children():
+                w.destroy()
+            for opt in list(d.keys()):
+                cell = ttk.Frame(box)
+                cell.pack(side="left", padx=2)
+                ttk.Checkbutton(cell, text=opt, variable=d[opt]).pack(side="left")
+                ttk.Button(cell, text="✕", width=2,
+                           command=lambda o=opt: remove(o)).pack(side="left")
+
+        def remove(opt):
+            d.pop(opt, None)
+            render()
+
+        def add(opt):
+            opt = opt.strip()
+            if not opt:
+                return
+            if opt not in d:
+                d[opt] = tk.BooleanVar(value=False)
+            render()
+
+        for opt in options:
+            d[opt] = tk.BooleanVar(value=False)
+        render()
+
+        addbar = ttk.Frame(outer)
+        addbar.pack(fill="x", padx=(12, 0), pady=(2, 0))
+        new_var = tk.StringVar()
+        ent = ttk.Entry(addbar, textvariable=new_var, width=14)
+        ent.pack(side="left")
+
+        def do_add():
+            add(new_var.get())
+            new_var.set("")
+            ent.focus_set()
+
+        ent.bind("<Return>", lambda e: do_add())
+        ttk.Button(addbar, text="新增選項", command=do_add).pack(side="left", padx=4)
         return d
 
     def _build_form(self, p):
@@ -113,9 +161,9 @@ class RentAdApp:
         s = self._section(p, "廣告資訊")
         self._entry(s, "no", "編號(#)", default="0", width=10)
         self._radio(s, "case_type", "案件類型", ["一般件", "社會住宅"], default="一般件")
-        self._entry(s, "agent", "業務")
-        self._entry(s, "phone", "電話")
-        self._entry(s, "line_id", "LINE ID")
+        self._entry(s, "agent", "業務", default="薛力瑜")
+        self._entry(s, "phone", "電話", default="0912877583")
+        self._entry(s, "line_id", "LINE ID", default="gerla1001259")
         self._entry(s, "want_note", "想看註記", default="")
 
         # A 物件資訊
@@ -157,8 +205,8 @@ class RentAdApp:
         s = self._section(p, "B. 物件內容")
         self._entry(s, "moto", "機車位", default="無")
         self._entry(s, "car", "汽車位", default="無")
-        self._entry(s, "water", "水費")
-        self._entry(s, "elec", "電費")
+        self._entry(s, "water", "水費", default="台水")
+        self._entry(s, "elec", "電費", default="台電")
         self._radio(s, "pet", "寵物", ["可", "不可"])
         self._entry(s, "pet_note", "寵物條款")
         self._radio(s, "cook", "開伙", ["可", "不可"])
