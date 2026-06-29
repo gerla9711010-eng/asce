@@ -1,0 +1,99 @@
+{
+  "name": "KEIS 公買搶單 watcher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "a1111111-1111-4111-8111-111111111111",
+      "name": "每 30 秒",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// KEIS 公買搶單 watcher（每 30 秒觸發，自己卡早上時段）\n// 需要 Railway/n8n 環境變數：KEIS_USERNAME、KEIS_PASSWORD\n// 認證：POST /auth/login 取 JWT（token_type=bearer, 8h），之後帶 Authorization: Bearer\nconst helpers = this.helpers;\nconst BASE = \"https://keis.kshouse.com.tw/api/v1\";\nconst ORIGIN = \"https://keis.kshouse.com.tw\";\n\n// ===== 設定 =====\nconst CITIES = [\"高雄市\"];        // 只搶這些縣市；空陣列=不限\nconst PROPERTY_TYPES = [];        // 物件類型(中文)白名單；空=全收\nconst INQUIRY_TYPE = 1;           // 1=買屋, 2=租屋\nconst WINDOWS = [[\"07:50\", \"09:30\"]]; // 只在這些時段動作（台北時間）\nconst USER_ID = \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\"; // 薛力瑜 LINE userId\n// ================\n\n// 時段檢查（台北時間）\nconst tpe = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));\nconst cur = tpe.getHours() * 60 + tpe.getMinutes();\nconst inWin = WINDOWS.some(([s, e]) => {\n  const [sh, sm] = s.split(':').map(Number);\n  const [eh, em] = e.split(':').map(Number);\n  return cur >= sh * 60 + sm && cur <= eh * 60 + em;\n});\nif (!inWin) return [];\n\n// 每日重置已處理清單；快取 token\nconst sd = $getWorkflowStaticData('global');\nconst today = tpe.toISOString().slice(0, 10);\nif (sd.keis_seen_day !== today) { sd.keis_seen_day = today; sd.keis_seen = []; }\nconst seen = new Set(sd.keis_seen);\n\nasync function login() {\n  return await helpers.httpRequest({\n    method: 'POST',\n    url: `${BASE}/auth/login?device_type=desktop`,\n    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN, referer: `${ORIGIN}/login` },\n    body: `username=${encodeURIComponent($env.KEIS_USERNAME)}&password=${encodeURIComponent($env.KEIS_PASSWORD)}`,\n  });\n}\n\nlet token = sd.keis_token;\nif (!token || Date.now() > (sd.keis_token_exp || 0) - 60000) {\n  const lg = await login();\n  token = lg.access_token;\n  sd.keis_token = token;\n  sd.keis_token_exp = Date.now() + ((lg.expires_in || 28800) * 1000);\n}\nconst AUTH = { authorization: `Bearer ${token}`, origin: ORIGIN, referer: `${ORIGIN}/public-purchase` };\n\n// 撈買屋清單\nconst year = tpe.getFullYear();\nconst qs = new URLSearchParams({\n  page: '1', page_size: '20', inquiry_type: String(INQUIRY_TYPE), only_my_applications: 'false',\n  start_date: `${year}-01-01 00:00:00`, end_date: `${year}-12-31 23:59:59`, target_area: '', property_category: '',\n}).toString();\nconst body = await helpers.httpRequest({ method: 'GET', url: `${BASE}/call-purchase/query?${qs}`, headers: AUTH });\nconst records = body.data || [];\nlet quota = body.new_case_quota_remaining;\nquota = (quota == null) ? 0 : quota;\nif (quota <= 0) return [];\n\n// 篩選 + 由新到舊\nconst fmtB = (r) => { const s = r.budget_start || 0, e = r.budget_end || 0; if (!s && !e) return '-'; if (e && e !== s) return `${s}-${e}萬`; return `${s}萬${e ? '' : '以上'}`; };\nconst cands = records\n  .filter(r => r.status === 'Available'\n    && (CITIES.length === 0 || CITIES.includes(r.target_city))\n    && (PROPERTY_TYPES.length === 0 || PROPERTY_TYPES.includes(r.property_category))\n    && !seen.has(r.summary_id))\n  .sort((a, b) => (b.start_time || '').localeCompare(a.start_time || ''));\nif (cands.length === 0) return [];\n\n// 搶單（受配額夾住）\nconst grabbed = [];\nfor (const r of cands) {\n  if (quota - grabbed.length <= 0) break;\n  seen.add(r.summary_id);\n  try {\n    const ar = await helpers.httpRequest({ method: 'POST', url: `${BASE}/call-purchase/apply/${r.summary_id}`, headers: AUTH });\n    if (ar && ar.success) {\n      const d = ar.data || {};\n      grabbed.push({ summary_id: r.summary_id, name: d.display_name || '', phone: d.phone_number || '', city: r.target_city, category: r.property_category, budget: fmtB(r) });\n    }\n  } catch (e) { /* 被秒搶/配額用完 → 跳過 */ }\n}\nsd.keis_seen = [...seen];\nif (grabbed.length === 0) return [];\n\nconst lines = grabbed.map(g => `・${g.name} ${g.phone}｜${g.city} ${g.category} ${g.budget}`).join('\\n');\nconst text = `🔔 公買搶到 ${grabbed.length} 筆（今日剩餘配額 ${quota - grabbed.length}）\\n\\n${lines}`;\nreturn [{ json: { userId: USER_ID, summaryText: text, grabbed } }];\n"
+      },
+      "id": "b2222222-2222-4222-8222-222222222222",
+      "name": "搶單（登入+撈+搶）",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.summaryText }] }) }}",
+        "options": {}
+      },
+      "id": "c3333333-3333-4333-8333-333333333333",
+      "name": "LINE Push 搶到通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "每 30 秒": {
+      "main": [
+        [
+          {
+            "node": "搶單（登入+撈+搶）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "搶單（登入+撈+搶）": {
+      "main": [
+        [
+          {
+            "node": "LINE Push 搶到通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {}
+}

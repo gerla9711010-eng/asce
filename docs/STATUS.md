@@ -180,6 +180,9 @@ Skill 會自動：
 - **驗證 `scripts/keis/grab.py` 公買搶單**：已從 HAR 逆出乾淨 JSON API（`GET /api/v1/call-purchase/query`、`POST /api/v1/call-purchase/apply/{id}`，session cookie 驗證，跟 publish.py 共用 `profile/`）。流程：`python grab.py --login` 登入一次 →（dry-run）`python grab.py --watch` 看會搶誰 → 確認條件對 → `python grab.py --watch --apply` 正式跑。設定在 grab.py 最上面 CONFIG（目前：只搶高雄市、類型全收、配額滿為止）。
   - **搶快用 `--watch` 常駐模式**：名單每天早上批次釋出（從 app_time 反推 ~08:19 起全店集中搶、前 10 分鐘掃光），所以 watch 只在 `WATCH_WINDOWS`（預設 07:50–09:30）每 ~20s 高頻掃，逮到就秒搶推 LINE；時段外睡到下個窗口；配額滿當天收工；session 過期推 LINE 警示並停。常駐跑法見 README（Windows 工作排程器登入時啟動 / systemd）。
   - **搶到推 LINE 要先在 n8n 建 webhook `keis-grab`**（README 有 payload：`event=grabbed`/`alert`，**還沒建**，使用者可叫 Claude 產 workflow JSON）。
+- **【主力】雲端全自動 n8n workflow `workflows/keis-grab-watch.json`**（不用開電腦，跑在 Railway n8n）：已從登入 HAR 逆出 `POST /api/v1/auth/login?device_type=desktop`（form: username/password → JWT bearer，`expires_in` 8h）。Code 節點自己登入拿 token、快取、撈買屋清單、篩高雄+Available、配額內搶單、推 LINE；每 30 秒觸發自己卡 07:50–09:30 台北時間。
+  - **上線待辦**：① Railway 設環境變數 `KEIS_USERNAME`/`KEIS_PASSWORD`（勿放 git；若有 `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` 要拿掉）② n8n 開新空白 workflow 匯入該 JSON ③ 手動 Execute 一次測（**若 query/apply 回 401 代表不是吃 Bearer 而是 cookie，要改 workflow**）④ 設 Active。
+  - KEIS 密碼偏弱，建議換強的（換了要更新 Railway 環境變數）。
 - **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 上架腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
 
