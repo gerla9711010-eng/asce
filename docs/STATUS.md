@@ -177,7 +177,8 @@ Skill 會自動：
 ## 接下來要做
 
 ### 立刻能做
-- **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
+- **驗證 `scripts/keis/grab.py` 公買搶單**：已從 HAR 逆出乾淨 JSON API（`GET /api/v1/call-purchase/query`、`POST /api/v1/call-purchase/apply/{id}`，session cookie 驗證，跟 publish.py 共用 `profile/`）。流程：`python grab.py --login` 登入一次 → `python grab.py`（dry-run 看會搶誰）→ 確認條件對 → `python grab.py --apply` 實搶。設定在 grab.py 最上面 CONFIG（目前：只搶高雄市、類型全收、配額滿為止）。搶到推 LINE 要先在 n8n 建 webhook `keis-grab`（README 有 payload 規格，**還沒建**）。每小時跑用本機排程器（README 有指令）
+- **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 上架腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
 
 ### 中期
