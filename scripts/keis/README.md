@@ -67,13 +67,27 @@ session 過期會提示你重跑 `--login`。
 ## 用法
 
 ```bash
-python grab.py --login          # 第一次：手動登入一次，session 存進 profile/
-python grab.py                  # dry-run：只列出「這次會搶誰」，不真的送出
-python grab.py --apply          # 實際送出申請（搶單）
-python grab.py --apply --headed # 同上但顯示瀏覽器（debug）
+python grab.py --login                  # 第一次：手動登入一次，session 存進 profile/
+python grab.py                          # 單次 dry-run：列出「這次會搶誰」，不送出
+python grab.py --apply                  # 單次實搶
+python grab.py --watch                  # 常駐監控(dry-run)：早上時段高頻掃，只印不搶
+python grab.py --watch --apply          # 常駐監控 + 實搶（正式用這個）
+python grab.py --watch --apply --headed # debug：顯示瀏覽器
 ```
 
-**第一次務必先不加 `--apply` 跑一次**，確認列出的名單符合預期（縣市、類型對不對），再開實搶。
+**第一次務必先 dry-run**（`python grab.py` 或 `python grab.py --watch`），確認列出的名單符合預期（縣市、類型對不對），再開 `--apply` 實搶。
+
+## 搶快：watch 常駐監控
+
+觀察到的節奏：名單**每天早上批次釋出**，~08:19 起全店一群同事集中搶，**前 10 分鐘掃掉一大半**，一小時內收尾（爛名單才留到最後）。所以 watch 模式只在早上時段火力全開：
+
+- 監控時段內 → 每 ~20 秒（帶隨機抖動）掃一次，逮到符合條件的新名單**立刻搶 + 推 LINE**
+- 時段外 → 睡到下一個窗口，不狂打
+- 配額用完 → 當天收工（只想要新名單，配額滿就沒得搶了）
+- session 過期 → 推 LINE 提醒並停下，重跑 `--login` 後再啟動
+
+監控時段／頻率改 `grab.py` 的 `WATCH_WINDOWS`（預設 `[("07:50","09:30")]`，本機時間）、`POLL_INTERVAL_SEC`。
+常駐跑法：開一個終端機跑 `python grab.py --watch --apply` 讓它一直開著，或用排程器/服務管理(Windows 工作排程器設「登入時啟動」、Linux systemd/supervisor)讓它開機自動跑。
 
 ## 設定（改 `grab.py` 最上面的 CONFIG 區塊）
 
@@ -106,18 +120,25 @@ POST /api/v1/call-purchase/apply/{summary_id}   （無 body）
 
 ## 搶到推 LINE（接 n8n）
 
-`.env` 設 `KEIS_NOTIFY_WEBHOOK` 後，搶到時腳本會 POST 這個 payload 到 n8n：
+`.env` 設 `KEIS_NOTIFY_WEBHOOK` 後，腳本會 POST 到 n8n。兩種 `event`：
 
+搶到名單：
 ```json
-{ "grabbed": [ { "summary_id": 62867, "name": "賴先生", "phone": "2852068",
+{ "event": "grabbed",
+  "grabbed": [ { "summary_id": 62867, "name": "賴先生", "phone": "2852068",
                  "city": "高雄市", "category": "店面", "budget": "380萬",
                  "start_time": "2026-06-22T13:10", "grabbed_at": "..." } ],
   "quota_left": 5 }
 ```
 
-n8n 端最小設定：**Webhook 節點**（path `keis-grab`）→ **HTTP Request 打 LINE Push**
+警示（session 過期等）：
+```json
+{ "event": "alert", "text": "⚠ KEIS 公買搶單監控停止：登入 session 過期，請重新登入並重啟。" }
+```
+
+n8n 端最小設定：**Webhook 節點**（path `keis-grab`）→ 依 `event` 分流 → **HTTP Request 打 LINE Push**
 （用既有 `LINE Channel Access Token` 憑證，to = 薛力瑜 userId `Ufab42c56b2eb9b9a9ff18c367b85a6dd`），
-把 `grabbed[]` 組成訊息文字推出去。要的話我可以幫你產這支 workflow JSON。
+把 `grabbed[]` 或 `text` 組成訊息推出去。要的話我可以幫你產這支 workflow JSON。
 
 ## 注意
 

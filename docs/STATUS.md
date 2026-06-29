@@ -177,7 +177,9 @@ Skill 會自動：
 ## 接下來要做
 
 ### 立刻能做
-- **驗證 `scripts/keis/grab.py` 公買搶單**：已從 HAR 逆出乾淨 JSON API（`GET /api/v1/call-purchase/query`、`POST /api/v1/call-purchase/apply/{id}`，session cookie 驗證，跟 publish.py 共用 `profile/`）。流程：`python grab.py --login` 登入一次 → `python grab.py`（dry-run 看會搶誰）→ 確認條件對 → `python grab.py --apply` 實搶。設定在 grab.py 最上面 CONFIG（目前：只搶高雄市、類型全收、配額滿為止）。搶到推 LINE 要先在 n8n 建 webhook `keis-grab`（README 有 payload 規格，**還沒建**）。每小時跑用本機排程器（README 有指令）
+- **驗證 `scripts/keis/grab.py` 公買搶單**：已從 HAR 逆出乾淨 JSON API（`GET /api/v1/call-purchase/query`、`POST /api/v1/call-purchase/apply/{id}`，session cookie 驗證，跟 publish.py 共用 `profile/`）。流程：`python grab.py --login` 登入一次 →（dry-run）`python grab.py --watch` 看會搶誰 → 確認條件對 → `python grab.py --watch --apply` 正式跑。設定在 grab.py 最上面 CONFIG（目前：只搶高雄市、類型全收、配額滿為止）。
+  - **搶快用 `--watch` 常駐模式**：名單每天早上批次釋出（從 app_time 反推 ~08:19 起全店集中搶、前 10 分鐘掃光），所以 watch 只在 `WATCH_WINDOWS`（預設 07:50–09:30）每 ~20s 高頻掃，逮到就秒搶推 LINE；時段外睡到下個窗口；配額滿當天收工；session 過期推 LINE 警示並停。常駐跑法見 README（Windows 工作排程器登入時啟動 / systemd）。
+  - **搶到推 LINE 要先在 n8n 建 webhook `keis-grab`**（README 有 payload：`event=grabbed`/`alert`，**還沒建**，使用者可叫 Claude 產 workflow JSON）。
 - **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 上架腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
 
