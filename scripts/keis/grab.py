@@ -1,34 +1,33 @@
 #!/usr/bin/env python3
 """
-KEIS 公買搶單自動化腳本
+KEIS 公買搶單自動化（輕量無瀏覽器版）
 
 掃「查詢公買 → 買屋需求列表」，把還能申請(status=Available)且符合條件的最新名單
-自動按下「申請私買」，搶到後拿到沒遮罩的真實姓名＋電話，推一筆到 LINE。
+自動申請私買，搶到後拿到沒遮罩的真實姓名＋電話，推一筆到 LINE。
+
+⚠️ 這個功能 KEIS「僅限門市內使用」——伺服器會擋 IP，只有門市網路能用。
+   所以本腳本要跑在「店裡、連門市網路、且一直開著」的電腦上（例如公司電腦不關機）。
+   啟動時會先打 check-ip 確認；不在門市網路會直接告訴你、不會空跑。
+
+純 HTTP（httpx），不需要瀏覽器/Playwright，店裡任何常開機器都能跑。
 
 用法:
-    python grab.py --login            # 第一次：開瀏覽器手動登入一次，session 存進 profile/
-    python grab.py                    # 單次 dry-run：只列出「這次會搶誰」，不真的送出
-    python grab.py --apply            # 單次實搶
-    python grab.py --watch            # 常駐監控(dry-run)：早上時段高頻掃，只印不搶
-    python grab.py --watch --apply    # 常駐監控 + 實搶（正式用這個）
-    python grab.py --watch --apply --headed   # debug：顯示瀏覽器
+    python grab.py                 # 單次 dry-run：列出「這次會搶誰」，不送出
+    python grab.py --apply         # 單次實搶
+    python grab.py --watch         # 常駐監控(dry-run)：早上時段高頻掃，只印不搶
+    python grab.py --watch --apply # 常駐監控 + 實搶（正式用這個）
 
-登入方式跟 publish.py 共用同一個 profile/ — 登入一次兩支腳本都能用。
-KEIS 是 session cookie 驗證，不存帳密；session 過期會推 LINE 提醒並停下，重跑 --login。
+認證（從 HAR 逆出來）:
+    POST /api/v1/auth/login?device_type=desktop  (form: username, password)
+         → {"access_token":"<JWT>", "token_type":"bearer", "expires_in":28800}  # 8h
+    後續帶 Authorization: Bearer <access_token>
+    GET  /api/v1/call-purchase/check-ip   → {"allowed":true/false, "ip":"..."}
+    GET  /api/v1/call-purchase/query?inquiry_type=1&...   → data[] + new_case_quota_remaining
+    POST /api/v1/call-purchase/apply/{summary_id}         → {"success":true,"data":{display_name,phone_number}}
 
-API（從 HAR 逆出來的，無 body）:
-    GET  /api/v1/call-purchase/query?inquiry_type=1&page=1&page_size=20&...
-         → {"data":[{summary_id,status,display_name,target_city,property_category,
-                     budget_start,budget_end,start_time,app_time,...}],
-            "new_case_quota_remaining": 6, ...}
-         status: "Available"=可申請 / "CoolingDown"=已被申請(7天)
-    POST /api/v1/call-purchase/apply/{summary_id}
-         → {"success":true,"data":{"display_name":"賴先生","phone_number":"2852068"}}
-
-觀察到的節奏：名單每天早上批次釋出，~08:19 起全店集中搶，前 10 分鐘掃掉大半，一小時收尾。
-所以 watch 模式預設只在早上時段火力全開（見 WATCH_WINDOWS）。
-
-環境變數（.env，可選）:
+環境變數（.env）:
+    KEIS_USERNAME         KEIS 帳號（必填）
+    KEIS_PASSWORD         KEIS 密碼（必填）
     KEIS_NOTIFY_WEBHOOK   n8n webhook URL；設了才會推 LINE（payload 見 README）
 """
 
@@ -38,13 +37,12 @@ import os
 import random
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
 from dotenv import load_dotenv
-from playwright.sync_api import sync_playwright
 
 load_dotenv()
 
@@ -57,47 +55,92 @@ MAX_BUDGET = None            # 預算上限(萬)，None=不限
 MAX_APPLY_PER_RUN = None     # 單次執行最多搶幾筆；None = 搶到當日配額用完為止
 DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 
-# --- watch 常駐監控模式設定（本機時間，假設 Asia/Taipei）---
+# --- watch 常駐監控模式設定（本機時間，店裡電腦請設成 Asia/Taipei）---
 WATCH_WINDOWS = [("07:50", "09:30")]  # 只在這些時段高頻掃；(開始, 結束) 24h 制，可放多段
 POLL_INTERVAL_SEC = 20       # 時段內每幾秒掃一次
 POLL_JITTER_SEC = 5          # 每次再隨機 ±這個秒數，別像節拍器
-OFF_WINDOW_RECHECK_SEC = 600 # 時段外最久睡多久就醒來重算(睡到下個窗口，但每 10 分鐘確認一次)
+OFF_WINDOW_RECHECK_SEC = 600 # 時段外最久睡多久就醒來重算
 # ==============================
 
 KEIS_BASE = "https://keis.kshouse.com.tw"
-KEIS_LOGIN_URL = f"{KEIS_BASE}/"
-KEIS_PUBLIC_PURCHASE_URL = f"{KEIS_BASE}/public-purchase"
 API = f"{KEIS_BASE}/api/v1"
 
-PROFILE_DIR = Path(__file__).parent / "profile"   # 跟 publish.py 共用同一個登入 session
-GRABBED_CSV = Path(__file__).parent / "grabbed.csv"
-
+USERNAME = os.environ.get("KEIS_USERNAME", "")
+PASSWORD = os.environ.get("KEIS_PASSWORD", "")
 NOTIFY_WEBHOOK = os.environ.get("KEIS_NOTIFY_WEBHOOK", "").strip()
 
-API_HEADERS = {
-    "accept": "application/json, text/plain, */*",
-    "referer": KEIS_PUBLIC_PURCHASE_URL,
-    "origin": KEIS_BASE,
-}
+GRABBED_CSV = Path(__file__).parent / "grabbed.csv"
 
 
-class SessionExpired(Exception):
-    """KEIS 登入 session 失效"""
+class IPBlocked(Exception):
+    """不在門市網路，被 IP 鎖擋下"""
 
 
-def build_query_url() -> str:
-    year = datetime.now().year
-    params = {
-        "page": 1,
-        "page_size": 20,
-        "inquiry_type": INQUIRY_TYPE,
-        "only_my_applications": "false",
-        "start_date": f"{year}-01-01 00:00:00",
-        "end_date": f"{year}-12-31 23:59:59",
-        "target_area": "",
-        "property_category": "",
-    }
-    return f"{API}/call-purchase/query?{urlencode(params)}"
+class Keis:
+    """KEIS API client：自動登入 + 帶 bearer token，token 過期自動重登"""
+
+    def __init__(self):
+        self.c = httpx.Client(
+            timeout=20,
+            headers={
+                "accept": "application/json, text/plain, */*",
+                "origin": KEIS_BASE,
+                "referer": f"{KEIS_BASE}/public-purchase",
+                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) keis-grab",
+            },
+        )
+        self._token = None
+        self._exp = 0.0
+
+    def _login(self):
+        if not USERNAME or not PASSWORD:
+            raise SystemExit("❌ 沒設 KEIS_USERNAME / KEIS_PASSWORD（填在 .env）")
+        r = self.c.post(
+            f"{API}/auth/login",
+            params={"device_type": "desktop"},
+            data={"username": USERNAME, "password": PASSWORD},
+            headers={"content-type": "application/x-www-form-urlencoded",
+                     "referer": f"{KEIS_BASE}/login"},
+        )
+        if r.status_code != 200:
+            raise SystemExit(f"❌ 登入失敗 HTTP {r.status_code}: {r.text[:200]}")
+        j = r.json()
+        self._token = j["access_token"]
+        self._exp = time.time() + j.get("expires_in", 28800)
+
+    def _auth(self) -> dict:
+        if not self._token or time.time() > self._exp - 60:
+            self._login()
+        return {"authorization": f"Bearer {self._token}"}
+
+    def _get(self, path: str):
+        r = self.c.get(f"{API}{path}", headers=self._auth())
+        if r.status_code == 401:           # token 失效 → 重登重試一次
+            self._login()
+            r = self.c.get(f"{API}{path}", headers=self._auth())
+        if r.status_code == 403:
+            raise IPBlocked()
+        r.raise_for_status()
+        return r.json()
+
+    def check_ip(self) -> dict:
+        return self._get("/call-purchase/check-ip")
+
+    def query(self) -> dict:
+        year = datetime.now().year
+        params = {
+            "page": 1, "page_size": 20, "inquiry_type": INQUIRY_TYPE,
+            "only_my_applications": "false",
+            "start_date": f"{year}-01-01 00:00:00", "end_date": f"{year}-12-31 23:59:59",
+            "target_area": "", "property_category": "",
+        }
+        return self._get(f"/call-purchase/query?{urlencode(params)}")
+
+    def apply(self, summary_id: int) -> dict:
+        r = self.c.post(f"{API}/call-purchase/apply/{summary_id}", headers=self._auth())
+        if r.status_code == 403:
+            raise IPBlocked()
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
 
 
 def matches(rec: dict) -> bool:
@@ -131,33 +174,22 @@ def desc(r: dict) -> str:
             f"{fmt_budget(r)}（建檔 {r['start_time'][:16]}）")
 
 
-def fetch_records(req):
-    """回傳 (符合條件且可申請的名單[新→舊], 今日剩餘配額)"""
-    me = req.get(f"{API}/auth/me", headers=API_HEADERS)
-    if not me.ok or "username" not in me.text():
-        raise SessionExpired()
-    resp = req.get(build_query_url(), headers=API_HEADERS)
-    if not resp.ok:
-        raise SystemExit(f"❌ 撈清單失敗 HTTP {resp.status}: {resp.text()[:200]}")
-    body = resp.json()
+def pick_candidates(body: dict):
     records = body.get("data", [])
     quota = body.get("new_case_quota_remaining")
     quota = quota if quota is not None else 0
-    candidates = [r for r in records if matches(r)]
-    candidates.sort(key=lambda r: r.get("start_time", ""), reverse=True)
-    return candidates, quota
+    cands = [r for r in records if matches(r)]
+    cands.sort(key=lambda r: r.get("start_time", ""), reverse=True)
+    return cands, quota
 
 
-def apply_one(req, r: dict):
-    """搶一筆。成功回 grabbed dict，失敗回 None。"""
-    sid = r["summary_id"]
-    ar = req.post(f"{API}/call-purchase/apply/{sid}", headers=API_HEADERS)
-    data = ar.json() if ar.ok else {}
-    if ar.ok and data.get("success"):
+def grab_record(keis: Keis, r: dict):
+    data = keis.apply(r["summary_id"])
+    if data.get("success"):
         d = data.get("data") or {}
         return {
             "grabbed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "summary_id": sid,
+            "summary_id": r["summary_id"],
             "name": d.get("display_name", ""),
             "phone": d.get("phone_number", ""),
             "city": r["target_city"],
@@ -165,8 +197,7 @@ def apply_one(req, r: dict):
             "budget": fmt_budget(r),
             "start_time": r["start_time"][:16],
         }
-    msg = (data.get("message") if isinstance(data, dict) else None) or ar.text()[:120]
-    print(f"   ❌ [{sid}] 沒搶到（可能配額用完/被秒搶）：{msg}")
+    print(f"   ❌ [{r['summary_id']}] 沒搶到（可能配額用完/被秒搶）：{data.get('message')}")
     return None
 
 
@@ -195,31 +226,33 @@ def notify_grabbed(grabbed: list[dict], quota_left: int) -> None:
     print(f"📲 已推 {len(grabbed)} 筆到 LINE")
 
 
-def run_login_flow() -> None:
-    print("🔑 開 KEIS 讓你手動登入。登入完成後關掉瀏覽器，session 會自動存起來。")
-    with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(user_data_dir=str(PROFILE_DIR), headless=False)
-        page = context.new_page()
-        page.goto(KEIS_LOGIN_URL)
-        print("⏳ 等你登入完關掉瀏覽器...")
-        page.wait_for_event("close", timeout=0)
-        context.close()
-    print("✅ session 存好了。之後跑 python grab.py 就會自動帶登入狀態。")
+def ensure_in_store_network(keis: Keis) -> bool:
+    """確認跑這支的機器在門市網路（IP 被允許）"""
+    info = keis.check_ip()
+    if info.get("allowed"):
+        print(f"✅ IP {info.get('ip')} 在門市網路，可用")
+        return True
+    msg = f"⛔ 這台機器 IP {info.get('ip')} 不在門市網路，KEIS 公買功能被擋。請把腳本放到店裡、連門市網路的電腦上跑。"
+    print(msg)
+    notify({"event": "alert", "text": "⚠ KEIS 搶單：" + msg})
+    return False
 
 
 # ---------- 單次模式 ----------
 
-def run_once(req, dry_run: bool) -> int:
-    candidates, quota = fetch_records(req)
-    print(f"📋 符合條件可申請 {len(candidates)} 筆，今日剩餘配額 {quota} 筆")
-    if not candidates:
+def run_once(keis: Keis, dry_run: bool) -> int:
+    if not ensure_in_store_network(keis):
+        return 1
+    cands, quota = pick_candidates(keis.query())
+    print(f"📋 符合條件可申請 {len(cands)} 筆，今日剩餘配額 {quota} 筆")
+    if not cands:
         print("😴 沒有符合條件且可申請的名單，這次不動作")
         return 0
 
     limit = quota
     if MAX_APPLY_PER_RUN is not None:
         limit = min(limit, MAX_APPLY_PER_RUN)
-    targets = candidates[:limit]
+    targets = cands[:limit]
 
     print(f"🎯 這次預計搶 {len(targets)} 筆：")
     for r in targets:
@@ -231,12 +264,12 @@ def run_once(req, dry_run: bool) -> int:
 
     grabbed = []
     for r in targets:
-        g = apply_one(req, r)
+        g = grab_record(keis, r)
         if g:
             grabbed.append(g)
             print(f"   ✅ 搶到 [{g['summary_id']}] {g['name']} / {g['phone']}")
         else:
-            break  # 配額用完/失敗就停手
+            break
     if grabbed:
         append_csv(grabbed)
         notify_grabbed(grabbed, quota - len(grabbed))
@@ -248,7 +281,7 @@ def run_once(req, dry_run: bool) -> int:
 
 # ---------- 常駐監控模式 ----------
 
-def _parse_hhmm(s: str) -> tuple[int, int]:
+def _parse_hhmm(s: str):
     h, m = s.split(":")
     return int(h), int(m)
 
@@ -264,28 +297,33 @@ def in_window(now: datetime) -> bool:
 
 
 def seconds_to_next_window(now: datetime) -> int:
-    """距離下一個窗口開始還有幾秒（找不到就回 OFF_WINDOW_RECHECK_SEC）"""
+    cur = now.hour * 60 + now.minute
     best = None
     for start, _ in WATCH_WINDOWS:
         sh, sm = _parse_hhmm(start)
-        for day in (0, 1):  # 今天 / 明天
-            t = (now + timedelta(days=day)).replace(hour=sh, minute=sm, second=0, microsecond=0)
-            if t > now:
-                delta = int((t - now).total_seconds())
-                best = delta if best is None else min(best, delta)
-    if best is None:
-        return OFF_WINDOW_RECHECK_SEC
-    return min(best, OFF_WINDOW_RECHECK_SEC)
+        start_min = sh * 60 + sm
+        delta = (start_min - cur) % (24 * 60)
+        delta = delta or 24 * 60
+        best = delta if best is None else min(best, delta)
+    return min((best or 1) * 60, OFF_WINDOW_RECHECK_SEC)
 
 
-def run_watch(req, dry_run: bool) -> int:
+def run_watch(keis: Keis, dry_run: bool) -> int:
     mode = "dry-run（只印不搶）" if dry_run else "實搶"
     print(f"👁  watch 模式啟動（{mode}），監控時段 {WATCH_WINDOWS}，每 ~{POLL_INTERVAL_SEC}s 掃一次。Ctrl+C 結束。")
-    seen: set[int] = set()          # 這次跑已處理過的 id，避免重複
-    quota_exhausted_day = None      # 已通知過配額用完的日期，避免重複睡醒又喊
+    if not ensure_in_store_network(keis):
+        return 1
+
+    seen: set[int] = set()
+    seen_day = None
+    quota_done_day = None
 
     while True:
         now = datetime.now()
+        if seen_day != now.date():       # 跨日重置
+            seen.clear()
+            seen_day = now.date()
+
         if not in_window(now):
             sleep_s = seconds_to_next_window(now)
             print(f"💤 {now:%H:%M} 非監控時段，睡 {sleep_s}s")
@@ -293,25 +331,24 @@ def run_watch(req, dry_run: bool) -> int:
             continue
 
         try:
-            candidates, quota = fetch_records(req)
-        except SessionExpired:
-            print("❌ KEIS session 過期，停止監控。請跑 `python grab.py --login` 重登後再啟動。")
-            notify({"event": "alert", "text": "⚠ KEIS 公買搶單監控停止：登入 session 過期，請重新登入並重啟。"})
+            cands, quota = pick_candidates(keis.query())
+        except IPBlocked:
+            notify({"event": "alert", "text": "⚠ KEIS 搶單停止：IP 被擋（離開門市網路了？）"})
+            print("⛔ IP 被擋，停止監控")
             return 1
 
-        # 配額用完：只想要新名單 → 當天收工，睡到下個窗口
         if quota <= 0:
-            if quota_exhausted_day != now.date():
-                print(f"🈵 {now:%H:%M} 今日配額用完，停止搶單，睡到下個監控時段")
-                quota_exhausted_day = now.date()
+            if quota_done_day != now.date():
+                print(f"🈵 {now:%H:%M} 今日配額用完，睡到下個監控時段")
+                quota_done_day = now.date()
             time.sleep(seconds_to_next_window(now))
             continue
 
-        new_targets = [r for r in candidates if r["summary_id"] not in seen]
-        if new_targets:
-            print(f"🔔 {now:%H:%M:%S} 發現 {len(new_targets)} 筆新名單（剩餘配額 {quota}）")
+        fresh = [r for r in cands if r["summary_id"] not in seen]
+        if fresh:
+            print(f"🔔 {now:%H:%M:%S} 發現 {len(fresh)} 筆新名單（剩餘配額 {quota}）")
             grabbed = []
-            for r in new_targets:
+            for r in fresh:
                 seen.add(r["summary_id"])
                 if dry_run:
                     print(f"   🟡 [dry] 會搶：{desc(r)}")
@@ -319,7 +356,11 @@ def run_watch(req, dry_run: bool) -> int:
                 if quota - len(grabbed) <= 0:
                     print("   🈵 配額用完，剩下的不搶了")
                     break
-                g = apply_one(req, r)
+                try:
+                    g = grab_record(keis, r)
+                except IPBlocked:
+                    notify({"event": "alert", "text": "⚠ KEIS 搶單停止：IP 被擋"})
+                    return 1
                 if g:
                     grabbed.append(g)
                     print(f"   ✅ 搶到 [{g['summary_id']}] {g['name']} / {g['phone']}")
@@ -331,36 +372,17 @@ def run_watch(req, dry_run: bool) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="KEIS 公買搶單自動化")
-    parser.add_argument("--login", action="store_true", help="互動登入模式（第一次跑用、或 session 過期）")
+    parser = argparse.ArgumentParser(description="KEIS 公買搶單（無瀏覽器版）")
     parser.add_argument("--apply", action="store_true", help="實際送出申請（不加只 dry-run）")
     parser.add_argument("--watch", action="store_true", help="常駐監控模式（早上時段高頻掃）")
-    parser.add_argument("--headed", action="store_true", help="顯示瀏覽器（debug 用）")
     args = parser.parse_args()
 
-    if args.login:
-        run_login_flow()
-        return 0
-
     dry_run = DRY_RUN and not args.apply
-
-    if not PROFILE_DIR.exists():
-        raise SystemExit("❌ 沒有 KEIS session profile。先跑 `python grab.py --login` 登入一次")
-
-    with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(user_data_dir=str(PROFILE_DIR), headless=not args.headed)
-        try:
-            # 開頭確認一次登入身分（順便讓 session 暖起來）
-            me = context.request.get(f"{API}/auth/me", headers=API_HEADERS)
-            if not me.ok or "username" not in me.text():
-                raise SystemExit("❌ KEIS session 過期。跑 `python grab.py --login` 重新登入")
-            print(f"👤 登入身分：{me.json().get('username')}")
-
-            if args.watch:
-                return run_watch(context.request, dry_run)
-            return run_once(context.request, dry_run)
-        finally:
-            context.close()
+    keis = Keis()
+    print(f"👤 登入 KEIS：{USERNAME}")
+    if args.watch:
+        return run_watch(keis, dry_run)
+    return run_once(keis, dry_run)
 
 
 if __name__ == "__main__":
