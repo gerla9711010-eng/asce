@@ -483,12 +483,23 @@ class App(tk.Tk):
                 data['area_land'] = round(total, 2)
                 self._log(f'  ✓ 地坪加總 {len(land_paths)} 筆 = {data["area_land"]} 坪')
 
-        # ── 建物坪數加總 ──
+        # ── 建物坪數加總（同一間只算一次）──
+        #   建物標示部面積是「整間實際面積」，不隨持分切分：
+        #   多所有權人各放一張建物謄本時，面積相同 → 判定同一建號，只算一次；
+        #   增建 / 車位等不同建號面積不同 → 照加。
         if len(bldg_paths) > 1:
             sums = {k: 0.0 for k in self._BLDG_AREA_FIELDS}
             got = {k: False for k in self._BLDG_AREA_FIELDS}
+            seen, counted, dup = set(), 0, 0
             for j, bp in enumerate(bldg_paths):
                 dj = data if j == 0 else merge(land0, parse_building(bp))
+                sig = tuple(round(_to_num(dj.get(k)) or 0.0, 2)
+                            for k in self._BLDG_AREA_FIELDS)
+                if sig in seen:
+                    dup += 1
+                    self._log(f'   建物{j + 1}：面積與前面相同 → 同一建號（多持分），不重複加')
+                    continue
+                seen.add(sig); counted += 1
                 for k in self._BLDG_AREA_FIELDS:
                     v = _to_num(dj.get(k))
                     if v is not None:
@@ -496,7 +507,8 @@ class App(tk.Tk):
             for k in self._BLDG_AREA_FIELDS:
                 if got[k]:
                     data[k] = round(sums[k], 2)
-            self._log(f'  ✓ 建物坪數加總 {len(bldg_paths)} 筆建號')
+            self._log(f'  ✓ 建物坪數：{counted} 個不同建號加總'
+                      + (f'（{dup} 張為同一間持分，已略過）' if dup else ''))
 
         return data, land0
 
