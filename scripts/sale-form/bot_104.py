@@ -236,33 +236,32 @@ class Bot104:
 
     # ── 自動填帳密並送出 ──
     def login(self, account: str = ACCOUNT, password: str = PASSWORD) -> bool:
-        """自動登入 104。成功（或本來就已登入）回傳 True，否則 False。"""
+        """自動登入 104。策略：一律把登入表單找出來填，不預先猜是否已登入
+        （index.asp 沒登入也有搜尋欄位、導覽鈕是圖片，猜不準）。
+        以「有沒有 id/code 登入框」為唯一可靠訊號。"""
         d = self.driver
         id_box, code_box = self._find_login_fields(timeout=6)
 
-        # 目前頁沒有登入框 → 若已登入就結束；否則點「會員登入」進表單
-        if not id_box:
-            if self._is_logged_in():
-                self.log('🔑 104 已在登入狀態（免登入）')
-                return True
-            if self._go_to_login_form():
-                self.log('  已點「會員登入」，尋找登入表單…')
-                id_box, code_box = self._find_login_fields(timeout=8)
-
-        # 還是沒有 → 依序改開已知登入頁重試
-        tried = 0
-        while not id_box and tried < len(self.LOGIN_FALLBACK_URLS):
-            url = self.LOGIN_FALLBACK_URLS[tried]; tried += 1
-            self.log(f'  登入框未出現，改開 {url.rsplit("/", 1)[-1]} 再試…')
-            d.get(url); time.sleep(1.5)
+        # 目前頁沒有登入框 → 點「會員登入」連結進表單
+        if not id_box and self._go_to_login_form():
+            self.log('  已點「會員登入」，尋找登入表單…')
             id_box, code_box = self._find_login_fields(timeout=8)
 
+        # 還是沒有 → 依序改開已知登入頁
+        for url in self.LOGIN_FALLBACK_URLS:
+            if id_box:
+                break
+            self.log(f'  改開 {url.rsplit("/", 1)[-1]} 找登入表單…')
+            d.get(url); time.sleep(1.5)
+            # 有些頁登入框要再點一次會員登入才出現
+            id_box, code_box = self._find_login_fields(timeout=6)
+            if not id_box and self._go_to_login_form():
+                id_box, code_box = self._find_login_fields(timeout=6)
+
         if not id_box:
-            if self._is_logged_in():
-                self.log('🔑 104 已在登入狀態（免登入）')
-                return True
-            self.log('⚠ 找不到登入欄位，也非已登入狀態 → 請在瀏覽器手動登入')
-            self._dump_html('104_login_debug.html', '找不到 id/code 登入欄位')
+            # 遍尋不到登入表單：可能本來就已登入，也可能版面改了
+            self.log('⚠ 找不到登入表單（可能已登入，或版面改了）→ 請在瀏覽器確認')
+            self._dump_html('104_login_debug.html', '遍尋不到 id/code 登入表單')
             return False
 
         # 填帳密
@@ -291,11 +290,11 @@ class Bot104:
             return False
 
         time.sleep(2.5)
-        # 確認真的登入了（頁面不再有「會員登入」）
-        if self._is_logged_in():
+        # 驗證：登入框消失 = 已離開登入頁 = 成功
+        if not self._find_login_fields(timeout=3)[0]:
             self.log(f'🔑 已自動登入 104（帳號 {account}）')
             return True
-        self.log('⚠ 送出後仍未登入，帳密可能有誤（可在瀏覽器手動登入）')
+        self.log('⚠ 送出後仍停在登入頁，帳密可能有誤（可在瀏覽器手動登入）')
         self._dump_html('104_login_debug.html', '送出後仍停在登入頁')
         return False
 
