@@ -194,6 +194,22 @@ class Bot104:
                 pass
         return False
 
+    def _dump_html(self, filename: str, note: str = ''):
+        """把當下頁面 HTML 存到 output/，方便回傳除錯。"""
+        try:
+            import os as _os
+            out_dir = _os.path.join(_os.path.dirname(__file__), 'output')
+            _os.makedirs(out_dir, exist_ok=True)
+            path = _os.path.join(out_dir, filename)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(f'<!-- URL: {self.driver.current_url} -->\n')
+                if note:
+                    f.write(f'<!-- NOTE: {note} -->\n')
+                f.write(self.driver.page_source)
+            self.log(f'   已存頁面 HTML：{path}（回傳給我可診斷）')
+        except Exception as e:
+            self.log(f'   （存 HTML 失敗：{e}）')
+
     # ── 自動填帳密並送出 ──
     def login(self, account: str = ACCOUNT, password: str = PASSWORD) -> bool:
         """自動登入 104。成功（或本來就已登入）回傳 True，否則 False。"""
@@ -208,6 +224,7 @@ class Bot104:
                 return True
             if tried >= len(self.LOGIN_FALLBACK_URLS):
                 self.log('⚠ 找不到登入欄位，也非已登入狀態 → 請在瀏覽器手動登入')
+                self._dump_html('104_login_debug.html', '找不到 id/code 登入欄位')
                 return False
             url = self.LOGIN_FALLBACK_URLS[tried]; tried += 1
             self.log(f'  登入框未出現，改開 {url.rsplit("/", 1)[-1]} 再試…')
@@ -245,6 +262,7 @@ class Bot104:
             self.log(f'🔑 已自動登入 104（帳號 {account}）')
             return True
         self.log('⚠ 送出後仍停在登入頁，帳密可能有誤（可在瀏覽器手動登入）')
+        self._dump_html('104_login_debug.html', '送出後仍停在登入頁')
         return False
 
     # ── 主流程：搜尋 → 找社區 → 抓社區導覽 ──
