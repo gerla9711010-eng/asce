@@ -350,11 +350,16 @@ class App(tk.Tk):
         def worker():
             try:
                 self.bot = Bot104(log=self._log)
-                self.bot.open_login()
-                self.lbl_104_status.config(
-                    text='✅ 已自動登入 104，請按右邊「完成登入，自動產出」',
-                    foreground='#2a7')
-                self.btn_104_go.config(state='normal')
+                ok = self.bot.open_login()
+                if ok:
+                    self.lbl_104_status.config(
+                        text='✅ 已登入 104，請按右邊「完成登入，自動產出」',
+                        foreground='#2a7')
+                else:
+                    self.lbl_104_status.config(
+                        text='⚠ 自動登入沒成功 → 請在瀏覽器手動登入，再按右邊「完成登入，自動產出」',
+                        foreground='#c33')
+                self.btn_104_go.config(state='normal')   # 兩種情況都讓使用者能繼續
             except Exception as e:
                 self._log(f'❌ 開啟 104 失敗：{e}')
                 self.lbl_104_status.config(text=f'❌ 啟動失敗：{e}', foreground='#c33')
