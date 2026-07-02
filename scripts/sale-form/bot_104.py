@@ -184,14 +184,38 @@ class Bot104:
             return None, None
 
     def _is_logged_in(self) -> bool:
-        """搜尋頁的行政區下拉 asblo / 地址欄 add1 有出現 → 視為已登入。"""
+        """頁面還有「會員登入」字樣 → 尚未登入；沒有 → 視為已登入。
+        （index.asp 沒登入也有搜尋欄位，所以不能用 add1/asblo 判斷。）"""
         d = self.driver
-        for sel in ('add1', 'asblo'):
+        try:
+            body = d.find_element(By.TAG_NAME, 'body').text
+        except Exception:
+            return False
+        if not body.strip():
+            return False
+        return '會員登入' not in body
+
+    def _go_to_login_form(self) -> bool:
+        """點頁面上的「會員登入」連結進到登入表單（處理可能開新分頁）。"""
+        d = self.driver
+        before = set(d.window_handles)
+        for xp in ("//a[contains(normalize-space(.),'會員登入')]",
+                   "//a[contains(normalize-space(.),'登入')]",
+                   "//a[contains(@href,'login')]",
+                   "//img[contains(@src,'login')]/ancestor::a[1]"):
+            els = d.find_elements(By.XPATH, xp)
+            if not els:
+                continue
             try:
-                if d.find_elements(By.NAME, sel):
-                    return True
+                d.execute_script("arguments[0].click();", els[0])
+                time.sleep(1.5)
+                new = set(d.window_handles) - before
+                if new:                       # 開了新分頁 → 切過去
+                    d.switch_to.window(new.pop())
+                    time.sleep(0.5)
+                return True
             except Exception:
-                pass
+                continue
         return False
 
     def _dump_html(self, filename: str, note: str = ''):
@@ -214,22 +238,32 @@ class Bot104:
     def login(self, account: str = ACCOUNT, password: str = PASSWORD) -> bool:
         """自動登入 104。成功（或本來就已登入）回傳 True，否則 False。"""
         d = self.driver
-        id_box, code_box = self._find_login_fields(timeout=10)
+        id_box, code_box = self._find_login_fields(timeout=6)
 
-        # 找不到登入框 → 先判斷是否已登入，否則跳其他頁重試
-        tried = 0
-        while not id_box:
+        # 目前頁沒有登入框 → 若已登入就結束；否則點「會員登入」進表單
+        if not id_box:
             if self._is_logged_in():
                 self.log('🔑 104 已在登入狀態（免登入）')
                 return True
-            if tried >= len(self.LOGIN_FALLBACK_URLS):
-                self.log('⚠ 找不到登入欄位，也非已登入狀態 → 請在瀏覽器手動登入')
-                self._dump_html('104_login_debug.html', '找不到 id/code 登入欄位')
-                return False
+            if self._go_to_login_form():
+                self.log('  已點「會員登入」，尋找登入表單…')
+                id_box, code_box = self._find_login_fields(timeout=8)
+
+        # 還是沒有 → 依序改開已知登入頁重試
+        tried = 0
+        while not id_box and tried < len(self.LOGIN_FALLBACK_URLS):
             url = self.LOGIN_FALLBACK_URLS[tried]; tried += 1
             self.log(f'  登入框未出現，改開 {url.rsplit("/", 1)[-1]} 再試…')
             d.get(url); time.sleep(1.5)
             id_box, code_box = self._find_login_fields(timeout=8)
+
+        if not id_box:
+            if self._is_logged_in():
+                self.log('🔑 104 已在登入狀態（免登入）')
+                return True
+            self.log('⚠ 找不到登入欄位，也非已登入狀態 → 請在瀏覽器手動登入')
+            self._dump_html('104_login_debug.html', '找不到 id/code 登入欄位')
+            return False
 
         # 填帳密
         try:
@@ -257,11 +291,11 @@ class Bot104:
             return False
 
         time.sleep(2.5)
-        # 確認真的登入了
-        if self._is_logged_in() or not self._find_login_fields(timeout=3)[0]:
+        # 確認真的登入了（頁面不再有「會員登入」）
+        if self._is_logged_in():
             self.log(f'🔑 已自動登入 104（帳號 {account}）')
             return True
-        self.log('⚠ 送出後仍停在登入頁，帳密可能有誤（可在瀏覽器手動登入）')
+        self.log('⚠ 送出後仍未登入，帳密可能有誤（可在瀏覽器手動登入）')
         self._dump_html('104_login_debug.html', '送出後仍停在登入頁')
         return False
 
