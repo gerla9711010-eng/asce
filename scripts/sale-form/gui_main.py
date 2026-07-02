@@ -210,14 +210,27 @@ def fill_excel(data: dict, output_path: str):
 
 
 # ─────────────────────────────────────────────────────
+#  數字工具（坪數加總用）
+# ─────────────────────────────────────────────────────
+def _to_num(v):
+    """把坪數值轉成 float；None / 抓不到數字 → None。支援 '12.34'、'12.34坪'。"""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    m = re.search(r'-?\d+(?:\.\d+)?', str(v))
+    return float(m.group()) if m else None
+
+
+# ─────────────────────────────────────────────────────
 #  GUI
 # ─────────────────────────────────────────────────────
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('不動產售屋表自動填寫工具')
-        self.resizable(False, False)
-        self.geometry('580x500')
+        self.resizable(True, True)
+        self.geometry('600x600')
         self.bot = None           # Bot104 instance
         self.data_104 = None      # 104 抓到的社區資料
         self._build_ui()
@@ -226,18 +239,27 @@ class App(tk.Tk):
     def _build_ui(self):
         pad = dict(padx=12, pady=6)
 
-        # 謄本選擇
-        frame_pdf = ttk.LabelFrame(self, text='謄本 PDF', padding=8)
+        # 謄本選擇（多持分：土地/建物都可按 ＋新增 加列，坪數會自動加總）
+        frame_pdf = ttk.LabelFrame(self, text='謄本 PDF（多持分可按 ＋新增，坪數自動加總）', padding=8)
         frame_pdf.pack(fill='x', **pad)
 
-        self.land_var = tk.StringVar()
-        self.bldg_var = tk.StringVar()
+        self.land_vars = []       # list[StringVar] 土地謄本
+        self.bldg_vars = []       # list[StringVar] 建物謄本
 
-        for label, var, row in [('土地謄本', self.land_var, 0), ('建物謄本', self.bldg_var, 1)]:
-            ttk.Label(frame_pdf, text=label, width=8).grid(row=row, column=0, sticky='w')
-            ttk.Entry(frame_pdf, textvariable=var, width=42).grid(row=row, column=1, padx=4)
-            ttk.Button(frame_pdf, text='選擇', width=6,
-                       command=lambda v=var: self._pick_pdf(v)).grid(row=row, column=2)
+        ttk.Label(frame_pdf, text='土地謄本').grid(row=0, column=0, sticky='w')
+        self.land_rows = ttk.Frame(frame_pdf)
+        self.land_rows.grid(row=1, column=0, sticky='w')
+        ttk.Button(frame_pdf, text='＋ 新增土地謄本',
+                   command=lambda: self._add_pdf_row('land')).grid(row=2, column=0, sticky='w', pady=(0, 8))
+
+        ttk.Label(frame_pdf, text='建物謄本').grid(row=3, column=0, sticky='w')
+        self.bldg_rows = ttk.Frame(frame_pdf)
+        self.bldg_rows.grid(row=4, column=0, sticky='w')
+        ttk.Button(frame_pdf, text='＋ 新增建物謄本',
+                   command=lambda: self._add_pdf_row('bldg')).grid(row=5, column=0, sticky='w')
+
+        self._add_pdf_row('land')     # 預設各一列
+        self._add_pdf_row('bldg')
 
         # 104 自動化區塊
         frame_104 = ttk.LabelFrame(self, text='104 自動查詢（選用）', padding=8)
@@ -273,6 +295,36 @@ class App(tk.Tk):
                            font=('Consolas', 9), bg='#1e1e1e', fg='#d4d4d4')
         self.log.pack(fill='both', expand=True)
 
+    # ── 謄本列（可多筆持分）────────────────────
+    def _add_pdf_row(self, kind):
+        vars_list = self.land_vars if kind == 'land' else self.bldg_vars
+        parent    = self.land_rows if kind == 'land' else self.bldg_rows
+        var = tk.StringVar()
+        vars_list.append(var)
+        row = ttk.Frame(parent)
+        row.pack(anchor='w', pady=1)
+        ttk.Entry(row, textvariable=var, width=42).pack(side='left', padx=(0, 2))
+        ttk.Button(row, text='選擇', width=5,
+                   command=lambda v=var: self._pick_pdf(v)).pack(side='left')
+        ttk.Button(row, text='✕', width=2,
+                   command=lambda: self._remove_pdf_row(kind, row, var)).pack(side='left', padx=(2, 0))
+
+    def _remove_pdf_row(self, kind, row, var):
+        vars_list = self.land_vars if kind == 'land' else self.bldg_vars
+        if len(vars_list) <= 1:      # 至少保留一列，只清空
+            var.set('')
+            return
+        if var in vars_list:
+            vars_list.remove(var)
+        row.destroy()
+        self.data_104 = None
+
+    def _land_paths(self):
+        return [v.get().strip() for v in self.land_vars if v.get().strip()]
+
+    def _bldg_paths(self):
+        return [v.get().strip() for v in self.bldg_vars if v.get().strip()]
+
     # ── 檔案選擇 ────────────────────────────
     def _pick_pdf(self, var):
         p = filedialog.askopenfilename(filetypes=[('PDF 檔案', '*.pdf')])
@@ -287,10 +339,10 @@ class App(tk.Tk):
 
     # ── 開啟 104 給使用者登入 ────────────────
     def _open_104(self):
-        if not self.land_var.get().strip() or not self.bldg_var.get().strip():
+        if not self._land_paths() or not self._bldg_paths():
             messagebox.showwarning('請先選謄本',
                 '請先選土地與建物謄本 PDF，再開 104。\n'
-                '（程式會用建物謄本的門牌去搜尋 104）')
+                '（程式會用第 1 筆建物謄本的門牌去搜尋 104）')
             return
         self.btn_104_open.config(state='disabled')
         self.lbl_104_status.config(text='⏳ 啟動瀏覽器…', foreground='#888')
@@ -319,11 +371,8 @@ class App(tk.Tk):
 
     def _worker_with_104(self):
         try:
-            land_path = self.land_var.get().strip()
-            bldg_path = self.bldg_var.get().strip()
             self._log('── 解析謄本 ...')
-            land = parse_land(land_path); bldg = parse_building(bldg_path)
-            data = merge(land, bldg)
+            data, land = self._combine_parcels(self._land_paths(), self._bldg_paths())
             self._log(f'  門牌：{data.get("address")}')
 
             # 用門牌跑 104
@@ -406,6 +455,51 @@ class App(tk.Tk):
             if v not in (None, '', []):
                 data[k] = v
 
+    # 建物坪數欄位（跨多建號時一起加總）
+    _BLDG_AREA_FIELDS = ('area_indoor', 'area_balcony', 'area_canopy',
+                         'area_parking', 'area_common')
+
+    def _combine_parcels(self, land_paths, bldg_paths):
+        """解析並合併多筆土地/建物謄本。
+        地坪   = 所有土地謄本地坪加總（多持分才會是完整地坪）
+        建物坪 = 所有建物謄本坪數加總（多建號：主建物＋增建＋車位建號…）
+        其餘欄位（門牌/格局/樓層/社區…）取第 1 筆土地 + 第 1 筆建物。
+        回傳 (data, land0)；land0 供使用分區查詢用（以第 1 筆地號為準）。
+        """
+        land0 = parse_land(land_paths[0])
+        bldg0 = parse_building(bldg_paths[0])
+        data = merge(land0, bldg0)
+
+        # ── 地坪加總 ──
+        if len(land_paths) > 1:
+            total, got = 0.0, False
+            for i, lp in enumerate(land_paths):
+                di = data if i == 0 else merge(parse_land(lp), bldg0)
+                v = _to_num(di.get('area_land'))
+                self._log(f'   土地{i + 1} 地坪：{di.get("area_land")}')
+                if v is not None:
+                    total += v; got = True
+            if got:
+                data['area_land'] = round(total, 2)
+                self._log(f'  ✓ 地坪加總 {len(land_paths)} 筆 = {data["area_land"]} 坪')
+
+        # ── 建物坪數加總 ──
+        if len(bldg_paths) > 1:
+            sums = {k: 0.0 for k in self._BLDG_AREA_FIELDS}
+            got = {k: False for k in self._BLDG_AREA_FIELDS}
+            for j, bp in enumerate(bldg_paths):
+                dj = data if j == 0 else merge(land0, parse_building(bp))
+                for k in self._BLDG_AREA_FIELDS:
+                    v = _to_num(dj.get(k))
+                    if v is not None:
+                        sums[k] += v; got[k] = True
+            for k in self._BLDG_AREA_FIELDS:
+                if got[k]:
+                    data[k] = round(sums[k], 2)
+            self._log(f'  ✓ 建物坪數加總 {len(bldg_paths)} 筆建號')
+
+        return data, land0
+
     def _apply_zoning(self, data: dict, land: dict, driver=None):
         """查高雄市使用分區，覆蓋 usage_zone / special_zone（官網最準）。"""
         try:
@@ -431,27 +525,23 @@ class App(tk.Tk):
 
     # ── 主流程 ──────────────────────────────
     def _run(self):
-        land_path = self.land_var.get().strip()
-        bldg_path = self.bldg_var.get().strip()
+        land_paths = self._land_paths()
+        bldg_paths = self._bldg_paths()
 
-        if not land_path or not bldg_path:
+        if not land_paths or not bldg_paths:
             messagebox.showerror('錯誤', '請先選擇土地與建物謄本 PDF')
             return
 
         self.btn_run.config(state='disabled')
         threading.Thread(target=self._worker,
-                         args=(land_path, bldg_path), daemon=True).start()
+                         args=(land_paths, bldg_paths), daemon=True).start()
 
-    def _worker(self, land_path, bldg_path):
+    def _worker(self, land_paths, bldg_paths):
         try:
-            self._log('── 解析土地謄本 ...')
-            land = parse_land(land_path)
+            self._log('── 解析謄本 ...')
+            data, land = self._combine_parcels(land_paths, bldg_paths)
             self._log(f"  地號：{land.get('district','')}{land.get('section','')} {land.get('land_no','')}")
-            self._log('── 解析建物謄本 ...')
-            bldg = parse_building(bldg_path)
-            self._log(f"  門牌：{bldg.get('address_raw')}")
-            self._log('── 合併資料 ...')
-            data = merge(land, bldg)
+            self._log(f"  門牌：{data.get('address')}")
             if self.data_104:
                 self._apply_104(data, self.data_104)
                 self._log(f'  ✓ 已套用 104：{self.data_104.get("community_name")}')
