@@ -7,28 +7,20 @@ KEIS 公買搶單自動化（輕量無瀏覽器版）
 
 ⚠️ 這個功能 KEIS「僅限門市內使用」——伺服器會擋 IP，只有門市網路能用。
    所以本腳本要跑在「店裡、連門市網路、且一直開著」的電腦上（例如公司電腦不關機）。
-   啟動時會先打 check-ip 確認；不在門市網路會直接告訴你、不會空跑。
 
-純 HTTP（httpx），不需要瀏覽器/Playwright，店裡任何常開機器都能跑。
+無人看管長期跑：watch 模式會一直循環，時段外閒置、時段內高頻掃；遇到暫時性錯誤
+（斷網、逾時）不會死，會自己重試。搭配 run.bat 開機自動啟動 + 掛掉自動重開。
 
 用法:
     python grab.py                 # 單次 dry-run：列出「這次會搶誰」，不送出
     python grab.py --apply         # 單次實搶
     python grab.py --watch         # 常駐監控(dry-run)：早上時段高頻掃，只印不搶
-    python grab.py --watch --apply # 常駐監控 + 實搶（正式用這個）
-
-認證（從 HAR 逆出來）:
-    POST /api/v1/auth/login?device_type=desktop  (form: username, password)
-         → {"access_token":"<JWT>", "token_type":"bearer", "expires_in":28800}  # 8h
-    後續帶 Authorization: Bearer <access_token>
-    GET  /api/v1/call-purchase/check-ip   → {"allowed":true/false, "ip":"..."}
-    GET  /api/v1/call-purchase/query?inquiry_type=1&...   → data[] + new_case_quota_remaining
-    POST /api/v1/call-purchase/apply/{summary_id}         → {"success":true,"data":{display_name,phone_number}}
+    python grab.py --watch --apply # 常駐監控 + 實搶（正式；開機自動跑就是這個）
 
 環境變數（.env）:
     KEIS_USERNAME         KEIS 帳號（必填）
     KEIS_PASSWORD         KEIS 密碼（必填）
-    KEIS_NOTIFY_WEBHOOK   n8n webhook URL；設了才會推 LINE（payload 見 README）
+    KEIS_NOTIFY_WEBHOOK   n8n webhook URL；設了才會推 LINE（可選）
 """
 
 import argparse
@@ -45,6 +37,12 @@ import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# 避免在 Windows cmd（cp950）印 emoji 時整個當掉
+try:
+    sys.stdout.reconfigure(errors="replace")
+except Exception:
+    pass
 
 # ====== 設定：直接改這裡 ======
 INQUIRY_TYPE = 1              # 1=買屋, 2=租屋
@@ -70,6 +68,18 @@ PASSWORD = os.environ.get("KEIS_PASSWORD", "")
 NOTIFY_WEBHOOK = os.environ.get("KEIS_NOTIFY_WEBHOOK", "").strip()
 
 GRABBED_CSV = Path(__file__).parent / "grabbed.csv"
+LOG_FILE = Path(__file__).parent / "watch.log"
+
+
+def log(msg: str) -> None:
+    """印出來 + 存進 watch.log（無人看管時才查得到發生什麼事）"""
+    line = f"{datetime.now():%Y-%m-%d %H:%M:%S} {msg}"
+    print(line)
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
 
 
 class IPBlocked(Exception):
@@ -93,8 +103,6 @@ class Keis:
         self._exp = 0.0
 
     def _login(self):
-        if not USERNAME or not PASSWORD:
-            raise SystemExit("❌ 沒設 KEIS_USERNAME / KEIS_PASSWORD（填在 .env）")
         r = self.c.post(
             f"{API}/auth/login",
             params={"device_type": "desktop"},
@@ -103,7 +111,7 @@ class Keis:
                      "referer": f"{KEIS_BASE}/login"},
         )
         if r.status_code != 200:
-            raise SystemExit(f"❌ 登入失敗 HTTP {r.status_code}: {r.text[:200]}")
+            raise RuntimeError(f"登入失敗 HTTP {r.status_code}: {r.text[:200]}")
         j = r.json()
         self._token = j["access_token"]
         self._exp = time.time() + j.get("expires_in", 28800)
@@ -197,7 +205,7 @@ def grab_record(keis: Keis, r: dict):
             "budget": fmt_budget(r),
             "start_time": r["start_time"][:16],
         }
-    print(f"   ❌ [{r['summary_id']}] 沒搶到（可能配額用完/被秒搶）：{data.get('message')}")
+    log(f"   ❌ [{r['summary_id']}] 沒搶到（可能配額用完/被秒搶）：{data.get('message')}")
     return None
 
 
@@ -223,26 +231,18 @@ def notify(payload: dict) -> None:
 
 def notify_grabbed(grabbed: list[dict], quota_left: int) -> None:
     notify({"event": "grabbed", "grabbed": grabbed, "quota_left": quota_left})
-    print(f"📲 已推 {len(grabbed)} 筆到 LINE")
-
-
-def ensure_in_store_network(keis: Keis) -> bool:
-    """確認跑這支的機器在門市網路（IP 被允許）"""
-    info = keis.check_ip()
-    if info.get("allowed"):
-        print(f"✅ IP {info.get('ip')} 在門市網路，可用")
-        return True
-    msg = f"⛔ 這台機器 IP {info.get('ip')} 不在門市網路，KEIS 公買功能被擋。請把腳本放到店裡、連門市網路的電腦上跑。"
-    print(msg)
-    notify({"event": "alert", "text": "⚠ KEIS 搶單：" + msg})
-    return False
+    log(f"📲 已推 {len(grabbed)} 筆到 LINE")
 
 
 # ---------- 單次模式 ----------
 
 def run_once(keis: Keis, dry_run: bool) -> int:
-    if not ensure_in_store_network(keis):
+    info = keis.check_ip()
+    if not info.get("allowed"):
+        print(f"⛔ 這台機器 IP {info.get('ip')} 不在門市網路，KEIS 公買功能被擋。請放到店裡、連門市網路的電腦上跑。")
         return 1
+    print(f"✅ IP {info.get('ip')} 在門市網路，可用")
+
     cands, quota = pick_candidates(keis.query())
     print(f"📋 符合條件可申請 {len(cands)} 筆，今日剩餘配額 {quota} 筆")
     if not cands:
@@ -301,8 +301,7 @@ def seconds_to_next_window(now: datetime) -> int:
     best = None
     for start, _ in WATCH_WINDOWS:
         sh, sm = _parse_hhmm(start)
-        start_min = sh * 60 + sm
-        delta = (start_min - cur) % (24 * 60)
+        delta = (sh * 60 + sm - cur) % (24 * 60)
         delta = delta or 24 * 60
         best = delta if best is None else min(best, delta)
     return min((best or 1) * 60, OFF_WINDOW_RECHECK_SEC)
@@ -310,65 +309,75 @@ def seconds_to_next_window(now: datetime) -> int:
 
 def run_watch(keis: Keis, dry_run: bool) -> int:
     mode = "dry-run（只印不搶）" if dry_run else "實搶"
-    print(f"👁  watch 模式啟動（{mode}），監控時段 {WATCH_WINDOWS}，每 ~{POLL_INTERVAL_SEC}s 掃一次。Ctrl+C 結束。")
-    if not ensure_in_store_network(keis):
-        return 1
+    log(f"👁 watch 啟動（{mode}），監控時段 {WATCH_WINDOWS}，每 ~{POLL_INTERVAL_SEC}s 掃一次。Ctrl+C 結束。")
+    try:
+        info = keis.check_ip()
+        if info.get("allowed"):
+            log(f"✅ IP {info.get('ip')} 在門市網路，開始監控")
+        else:
+            log(f"⛔ IP {info.get('ip')} 不在門市網路，會持續重試（把它放到店裡的電腦）")
+            notify({"event": "alert", "text": f"⚠ KEIS 搶單：這台 IP {info.get('ip')} 不在門市網路"})
+    except Exception as e:
+        log(f"⚠ 初次連線失敗（會自動重試）：{type(e).__name__}: {e}")
 
     seen: set[int] = set()
     seen_day = None
     quota_done_day = None
+    last_alert = 0.0
 
     while True:
-        now = datetime.now()
-        if seen_day != now.date():       # 跨日重置
-            seen.clear()
-            seen_day = now.date()
-
-        if not in_window(now):
-            sleep_s = seconds_to_next_window(now)
-            print(f"💤 {now:%H:%M} 非監控時段，睡 {sleep_s}s")
-            time.sleep(sleep_s)
-            continue
-
         try:
+            now = datetime.now()
+            if seen_day != now.date():       # 跨日重置
+                seen.clear()
+                seen_day = now.date()
+
+            if not in_window(now):
+                time.sleep(seconds_to_next_window(now))
+                continue
+
             cands, quota = pick_candidates(keis.query())
-        except IPBlocked:
-            notify({"event": "alert", "text": "⚠ KEIS 搶單停止：IP 被擋（離開門市網路了？）"})
-            print("⛔ IP 被擋，停止監控")
-            return 1
 
-        if quota <= 0:
-            if quota_done_day != now.date():
-                print(f"🈵 {now:%H:%M} 今日配額用完，睡到下個監控時段")
-                quota_done_day = now.date()
-            time.sleep(seconds_to_next_window(now))
-            continue
+            if quota <= 0:
+                if quota_done_day != now.date():
+                    log("🈵 今日配額用完，睡到下個監控時段")
+                    quota_done_day = now.date()
+                time.sleep(seconds_to_next_window(now))
+                continue
 
-        fresh = [r for r in cands if r["summary_id"] not in seen]
-        if fresh:
-            print(f"🔔 {now:%H:%M:%S} 發現 {len(fresh)} 筆新名單（剩餘配額 {quota}）")
-            grabbed = []
-            for r in fresh:
-                seen.add(r["summary_id"])
-                if dry_run:
-                    print(f"   🟡 [dry] 會搶：{desc(r)}")
-                    continue
-                if quota - len(grabbed) <= 0:
-                    print("   🈵 配額用完，剩下的不搶了")
-                    break
-                try:
+            fresh = [r for r in cands if r["summary_id"] not in seen]
+            if fresh:
+                log(f"🔔 發現 {len(fresh)} 筆新名單（剩餘配額 {quota}）")
+                grabbed = []
+                for r in fresh:
+                    seen.add(r["summary_id"])
+                    if dry_run:
+                        log(f"   🟡 [dry] 會搶：{desc(r)}")
+                        continue
+                    if quota - len(grabbed) <= 0:
+                        break
                     g = grab_record(keis, r)
-                except IPBlocked:
-                    notify({"event": "alert", "text": "⚠ KEIS 搶單停止：IP 被擋"})
-                    return 1
-                if g:
-                    grabbed.append(g)
-                    print(f"   ✅ 搶到 [{g['summary_id']}] {g['name']} / {g['phone']}")
-            if grabbed:
-                append_csv(grabbed)
-                notify_grabbed(grabbed, quota - len(grabbed))
+                    if g:
+                        grabbed.append(g)
+                        log(f"   ✅ 搶到 {g['name']} / {g['phone']}｜{g['city']} {g['category']} {g['budget']}")
+                if grabbed:
+                    append_csv(grabbed)
+                    notify_grabbed(grabbed, quota - len(grabbed))
 
-        time.sleep(POLL_INTERVAL_SEC + random.uniform(-POLL_JITTER_SEC, POLL_JITTER_SEC))
+            time.sleep(POLL_INTERVAL_SEC + random.uniform(-POLL_JITTER_SEC, POLL_JITTER_SEC))
+
+        except KeyboardInterrupt:
+            log("👋 手動停止監控")
+            return 0
+        except IPBlocked:
+            if time.time() - last_alert > 1800:
+                notify({"event": "alert", "text": "⚠ KEIS 搶單：IP 被擋（離開門市網路了？）"})
+                last_alert = time.time()
+            log("⛔ IP 被擋，60s 後重試")
+            time.sleep(60)
+        except Exception as e:
+            log(f"⚠ 暫時性錯誤，30s 後重試：{type(e).__name__}: {e}")
+            time.sleep(30)
 
 
 def main() -> int:
@@ -376,6 +385,9 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="實際送出申請（不加只 dry-run）")
     parser.add_argument("--watch", action="store_true", help="常駐監控模式（早上時段高頻掃）")
     args = parser.parse_args()
+
+    if not USERNAME or not PASSWORD:
+        raise SystemExit("❌ 沒設 KEIS_USERNAME / KEIS_PASSWORD（填在 .env）")
 
     dry_run = DRY_RUN and not args.apply
     keis = Keis()

@@ -179,7 +179,8 @@ Skill 會自動：
 ### 立刻能做
 - **【主力】`scripts/keis/grab.py` 公買搶單（無瀏覽器版，跑店裡電腦）**：已從 HAR 逆出 API — `POST /auth/login?device_type=desktop`（form 帳密 → JWT bearer 8h）、`GET /call-purchase/check-ip`（`{allowed,ip}`）、`GET /call-purchase/query`、`POST /call-purchase/apply/{id}`。純 httpx 不需瀏覽器。
   - **⚠️ 公買功能鎖門市 IP**（KEIS「僅限門市內使用」，手機 4G/雲端/家裡都被擋）→ **只能跑在店裡、連門市網路、一直開著的電腦**（使用者打算用公司電腦不關機）。腳本啟動先 `check-ip` 守門，不在門市網路直接 LINE 警示不空跑。**原本規劃的 Railway 雲端 n8n 版因 IP 鎖作廢、已刪 `keis-grab-watch.json`。**
-  - 流程：`.env` 填 `KEIS_USERNAME`/`KEIS_PASSWORD` → `python grab.py`（dry-run 看會搶誰）→ `python grab.py --watch --apply`（正式，watch 卡 07:50–09:30 每 ~20s 掃、搶到推 LINE、配額滿收工）。設定在 grab.py 最上面 CONFIG（目前：只搶高雄市、類型全收、配額滿為止）。
+  - 流程：`.env` 填 `KEIS_USERNAME`/`KEIS_PASSWORD` → `python grab.py`（dry-run 看會搶誰）→ 開機自動跑靠 `run.bat`（雙擊或放「啟動」資料夾捷徑；掛掉 60s 自動重開，grab.py 遇暫時性錯誤也重試不死，紀錄寫 `watch.log`）。設定在 grab.py 最上面 CONFIG（目前：只搶高雄市、類型全收、配額滿為止）。
+  - **✅ 已在使用者公司電腦實測通過**（2026-07-06）：登入成功（JWT bearer 確認可用）、`check-ip` 回 IP `60.248.248.217` allowed（公司電腦就在門市網路）、query 正常。**唯「搶」(apply POST) 尚未遇到 Available 名單驗證**，等隔天早上放單時段自動跑驗證。
   - 名單每天早上批次釋出（app_time 反推 ~08:19 全店集中搶、前 10 分鐘掃光，故鎖早上時段）。
   - **搶到推 LINE 要先在 n8n 建 webhook `keis-grab`**（README 有 payload：`event=grabbed`/`alert`，**還沒建**；店裡電腦跑 KEIS、結果丟雲端 n8n 推 LINE，可行）。
   - KEIS 密碼偏弱，建議換強的（換了要更新 .env）。

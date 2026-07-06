@@ -115,11 +115,17 @@ POST /api/v1/call-purchase/apply/{summary_id}   （無 body）
      → {"success":true,"data":{"display_name":"賴先生","phone_number":"2852068"}}
 ```
 
-## 讓它在公司電腦長期跑（門市網路）
+## 讓它在公司電腦「開機就自動監控」（門市網路）
 
-公司電腦不關機 → 開一個終端機跑 `python grab.py --watch --apply` 讓它一直開著就行。
-想開機自動跑：Windows 工作排程器設「登入時啟動」執行 `python <路徑>\grab.py --watch --apply`
-（或做個 `.bat` 雙擊）。watch 自己卡早上時段，平常閒置不吃資源。
+目標：電腦一開著就自己盯，天天如此，不用手動開。用附的 `run.bat`：
+
+1. 把 `grab.py`、`run.bat`、`.env` 三個放同一個資料夾（例如桌面 `keis`）。
+2. **雙擊 `run.bat`** 就會開始監控（黑視窗會顯示 `👁 watch 啟動...`，時段外顯示閒置）。
+3. 開機自動跑：`Win + R` → 打 `shell:startup` → Enter 開啟「啟動」資料夾 →
+   把 `run.bat` **用右鍵拖進去 → 選「在此建立捷徑」**。以後開機/登入就自動啟動。
+
+`run.bat` 會在 grab.py 意外結束（斷網、當機）時 **60 秒後自動重開**；grab.py 自己遇到
+暫時性錯誤也會重試不死。運作紀錄寫在同資料夾 `watch.log`（可事後查發生什麼事）。
 
 ## 搶到推 LINE（接 n8n）
 
