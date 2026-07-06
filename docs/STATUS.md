@@ -182,7 +182,7 @@ Skill 會自動：
   - 流程：`.env` 填 `KEIS_USERNAME`/`KEIS_PASSWORD` → `python grab.py`（dry-run 看會搶誰）→ 開機自動跑靠 `run.bat`（雙擊或放「啟動」資料夾捷徑；掛掉 60s 自動重開，grab.py 遇暫時性錯誤也重試不死，紀錄寫 `watch.log`）。設定在 grab.py 最上面 CONFIG（目前：只搶高雄市、類型全收、配額滿為止）。
   - **✅ 已在使用者公司電腦實測通過**（2026-07-06）：登入成功（JWT bearer 確認可用）、`check-ip` 回 IP `60.248.248.217` allowed（公司電腦就在門市網路）、query 正常。**唯「搶」(apply POST) 尚未遇到 Available 名單驗證**，等隔天早上放單時段自動跑驗證。
   - 名單每天早上批次釋出（app_time 反推 ~08:19 全店集中搶、前 10 分鐘掃光，故鎖早上時段）。
-  - **搶到推 LINE 要先在 n8n 建 webhook `keis-grab`**（README 有 payload：`event=grabbed`/`alert`，**還沒建**；店裡電腦跑 KEIS、結果丟雲端 n8n 推 LINE，可行）。
+  - **搶到推 LINE**：workflow `workflows/keis-grab-notify.json`（Webhook `keis-grab` → 組訊息 → LINE Push 給薛力瑜）。使用者匯入 n8n、設 Active，並在店裡電腦 `.env` 加 `KEIS_NOTIFY_WEBHOOK=https://primary-production-68428.up.railway.app/webhook/keis-grab` 後重啟 run.bat 即生效。payload：`event=grabbed`（含 grabbed[]+quota_left）/ `event=alert`（含 text）。
   - KEIS 密碼偏弱，建議換強的（換了要更新 .env）。
 - **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 上架腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
