@@ -1,12 +1,12 @@
 @echo off
-REM KEIS 公買搶單 — 開機自動監控啟動檔
-REM 雙擊即可跑；放進「啟動」資料夾就會開機自動執行。
-REM cd 到這個 .bat 所在的資料夾（grab.py 和 .env 要在同一層）
+REM KEIS public-purchase grabber - auto-start launcher.
+REM Double-click to run. Put a shortcut in the Startup folder to run at boot.
+REM Keep this file ASCII-only: Windows .bat mangles non-ASCII text.
 cd /d "%~dp0"
 
 :loop
-echo [%date% %time%] 啟動 grab.py --watch --apply
+echo [%date% %time%] starting grab.py --watch --apply
 python grab.py --watch --apply
-echo [%date% %time%] grab.py 結束（可能斷網/當機），60 秒後自動重啟... >> watch.log
+echo [%date% %time%] grab.py exited, restarting in 60s... >> watch.log
 timeout /t 60 /nobreak >nul
 goto loop
