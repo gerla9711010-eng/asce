@@ -1,8 +1,5 @@
 .env
-.venv/
-profile/
-__pycache__/
-*.pyc
-keis_error_*.png
 grabbed.csv
 watch.log
+__pycache__/
+*.pyc
