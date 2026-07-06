@@ -1,0 +1,95 @@
+{
+  "name": "KEIS 搶單 LINE 通知",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "keis-grab",
+        "options": {}
+      },
+      "id": "e2e49551-c8f9-49c4-a3e7-f8a5b118807b",
+      "name": "Webhook 收搶單結果",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "a01f67ae-4109-4411-98f0-1f9569c1b5c5"
+    },
+    {
+      "parameters": {
+        "jsCode": "// KEIS 搶單通知：收 grab.py POST 進來的 payload，組成 LINE 訊息\nconst body = $input.first().json.body || $input.first().json;\nconst USER_ID = \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\"; // 薛力瑜\n\nlet text;\nif (body.event === 'alert') {\n  text = body.text || '⚠ KEIS 搶單警示';\n} else {\n  const g = body.grabbed || [];\n  const lines = g.map(x => `・${x.name} ${x.phone}｜${x.city} ${x.category} ${x.budget}`).join('\\n');\n  const left = (body.quota_left != null) ? body.quota_left : '?';\n  text = `🎯 KEIS 搶到 ${g.length} 筆（今日剩餘配額 ${left}）\\n\\n${lines}`;\n}\nreturn [{ json: { userId: USER_ID, text } }];\n"
+      },
+      "id": "eef216b1-aebf-4792-9ab7-6c0f26eef5e5",
+      "name": "組 LINE 訊息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {}
+      },
+      "id": "0107f83f-1aeb-416c-aea3-0f186345c97c",
+      "name": "LINE Push",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook 收搶單結果": {
+      "main": [
+        [
+          {
+            "node": "組 LINE 訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組 LINE 訊息": {
+      "main": [
+        [
+          {
+            "node": "LINE Push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {}
+}

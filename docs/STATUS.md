@@ -177,7 +177,13 @@ Skill 會自動：
 ## 接下來要做
 
 ### 立刻能做
-- **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
+- **公買搶單系統（🟢 已上線，跑在使用者公司電腦）** — `scripts/keis/grab.py` + `run.bat`（開機自動啟動）+ n8n `keis-grab-notify` 推 LINE。細節見 `scripts/keis/README.md`。
+  - 邏輯：早上 07:50–09:30 每 ~20s 掃公買買屋清單，篩「高雄市 + Available」，由新到舊搶到當日配額(7)滿為止；搶到拿真實姓名+電話存 `grabbed.csv` 並推 LINE。條件都在 grab.py 最上面 CONFIG。
+  - API（HAR 逆出）：`POST /auth/login?device_type=desktop`（form 帳密→JWT bearer 8h）、`GET /call-purchase/check-ip`（`{allowed,ip}`）、`GET /call-purchase/query`、`POST /call-purchase/apply/{id}`。純 httpx 無瀏覽器。
+  - **⚠️ 公買鎖門市 IP**（「僅限門市內使用」，雲端/家裡/手機都被擋）→ 只能跑店裡門市網路的電腦；grab.py 啟動先 `check-ip` 守門。**所以不能放 Railway 雲端**（原雲端版已刪）。
+  - 部署現況（2026-07-06 使用者本機）：公司電腦(桌面 `keis` 資料夾放 grab.py/run.bat/.env)、`.env` 已填帳密+`KEIS_NOTIFY_WEBHOOK`、`run.bat` 捷徑已進「啟動」資料夾、n8n `keis-grab-notify` 已 Active、LINE 測試已收到。登入/check-ip(IP 60.248.248.217 allowed)/query 全實測通過。**唯真正「搶」(apply POST) 待放單時段有 Available 名單才驗證得到。**
+  - KEIS 密碼偏弱，建議換強的（換了要更新公司電腦 .env）。
+- **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 上架腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
 
 ### 中期
