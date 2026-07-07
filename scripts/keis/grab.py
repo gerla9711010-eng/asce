@@ -55,8 +55,8 @@ DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 
 # --- watch 常駐監控模式設定（本機時間，店裡電腦請設成 Asia/Taipei）---
 WATCH_WINDOWS = [("07:50", "09:30")]  # 只在這些時段高頻掃；(開始, 結束) 24h 制，可放多段
-POLL_INTERVAL_SEC = 20       # 時段內每幾秒掃一次
-POLL_JITTER_SEC = 5          # 每次再隨機 ±這個秒數，別像節拍器
+POLL_INTERVAL_SEC = 5       # 時段內每幾秒掃一次
+POLL_JITTER_SEC = 2          # 每次再隨機 ±這個秒數，別像節拍器
 OFF_WINDOW_RECHECK_SEC = 600 # 時段外最久睡多久就醒來重算
 # ==============================
 
@@ -76,7 +76,7 @@ def log(msg: str) -> None:
     line = f"{datetime.now():%Y-%m-%d %H:%M:%S} {msg}"
     print(line)
     try:
-        with LOG_FILE.open("a", encoding="utf-8") as f:
+        with LOG_FILE.open("a", encoding="utf-8-sig") as f:
             f.write(line + "\n")
     except Exception:
         pass
