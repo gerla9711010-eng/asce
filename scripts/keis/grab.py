@@ -54,10 +54,11 @@ MAX_APPLY_PER_RUN = None     # 單次執行最多搶幾筆；None = 搶到當日
 DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 
 # --- watch 常駐監控模式設定（本機時間，店裡電腦請設成 Asia/Taipei）---
-WATCH_WINDOWS = [("07:50", "09:30")]  # 只在這些時段高頻掃；(開始, 結束) 24h 制，可放多段
+WATCH_WINDOWS = [("07:30", "09:30")]  # 只在這些時段高頻掃；(開始, 結束) 24h 制，可放多段
 POLL_INTERVAL_SEC = 5       # 時段內每幾秒掃一次
 POLL_JITTER_SEC = 3          # 每次再隨機 ±這個秒數，別像節拍器（越大越不規律）
 OFF_WINDOW_RECHECK_SEC = 600 # 時段外最久睡多久就醒來重算
+OBSERVE_INTERVAL_SEC = 30    # 配額用完後改「純觀測上架時間」，每幾秒掃一次（不搶、不吃配額）
 
 # --- 低調 / 抗尖峰設定 ---
 HTTP_TIMEOUT_SEC = 30        # 單次請求逾時；開盤塞車時多等一下再放棄
@@ -75,6 +76,8 @@ NOTIFY_WEBHOOK = os.environ.get("KEIS_NOTIFY_WEBHOOK", "").strip()
 
 GRABBED_CSV = Path(__file__).parent / "grabbed.csv"
 LOG_FILE = Path(__file__).parent / "watch.log"
+APPEAR_CSV = Path(__file__).parent / "appearances.csv"   # 上架偵測：新名單第一次出現的時刻
+APPEAR_STATE = Path(__file__).parent / "appear_state.txt"  # 記住今天觀測基準（撐過重啟）
 
 
 def log(msg: str) -> None:
@@ -230,6 +233,66 @@ def append_csv(grabbed: list[dict]) -> None:
                         g["city"], g["category"], g["budget"], g["start_time"]])
 
 
+# ---------- 上架偵測（唯讀觀測，不搶不吃配額）----------
+# 邏輯：每天以「當下池子最大 summary_id」為基準，之後只要冒出更大號的名單，
+# 就是後台剛推上架的新貨 → 記錄它第一次被我們看到的時刻。跑幾天就能看出後台放單規律。
+
+def _load_appear_state():
+    try:
+        d, m = APPEAR_STATE.read_text(encoding="utf-8").strip().split(",")
+        return d, int(m)
+    except Exception:
+        return None, 0
+
+
+def _save_appear_state(day: str, max_id: int) -> None:
+    try:
+        APPEAR_STATE.write_text(f"{day},{max_id}", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _append_appearance(rows: list[dict]) -> None:
+    new = not APPEAR_CSV.exists()
+    with APPEAR_CSV.open("a", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["首次出現時間", "summary_id", "建檔時間", "縣市", "區域", "類型", "狀態"])
+        for r in rows:
+            w.writerow([r["seen"], r["id"], r["start"], r["city"], r["area"], r["cat"], r["status"]])
+
+
+def observe_appearances(records: list, ap_day, ap_max):
+    """回傳更新後的 (ap_day, ap_max)。新的一天先建基準不記錄；之後記錄冒出的新單號。"""
+    today = datetime.now().date().isoformat()
+    ids = [r.get("summary_id", 0) for r in records if r.get("summary_id") is not None]
+    if not ids:
+        return ap_day, ap_max
+    cur_max = max(ids)
+    if ap_day != today:                       # 跨日/首次：以現有池子當基準，不記錄
+        log(f"🔭 上架觀測基準建立（{today}）：目前最大單號 {cur_max}")
+        _save_appear_state(today, cur_max)
+        return today, cur_max
+    new = [r for r in records if (r.get("summary_id") or 0) > ap_max]
+    if new:
+        rows = []
+        for r in sorted(new, key=lambda x: x.get("summary_id", 0)):
+            seen = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            rows.append({"seen": seen, "id": r.get("summary_id"),
+                         "start": r.get("start_time"),
+                         "city": r.get("target_city") or "",
+                         "area": "".join(r.get("target_areas") or []),
+                         "cat": r.get("property_category") or "",
+                         "status": r.get("status")})
+            log(f"🆕 上架偵測 id{r.get('summary_id')} 首次出現"
+                f"（建檔 {str(r.get('start_time'))[:16]}）"
+                f"{r.get('target_city') or ''}{r.get('property_category') or ''}")
+        _append_appearance(rows)
+        ap_max = max(ap_max, cur_max)
+        _save_appear_state(today, ap_max)
+    return today, ap_max
+
+
 def notify(payload: dict) -> None:
     if not NOTIFY_WEBHOOK:
         return
@@ -334,6 +397,7 @@ def run_watch(keis: Keis, dry_run: bool) -> int:
     seen_day = None
     quota_done_day = None
     last_alert = 0.0
+    appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
 
     while True:
         try:
@@ -346,13 +410,16 @@ def run_watch(keis: Keis, dry_run: bool) -> int:
                 time.sleep(seconds_to_next_window(now))
                 continue
 
-            cands, quota = pick_candidates(keis.query())
+            body = keis.query()
+            cands, quota = pick_candidates(body)
+            appear_day, appear_max = observe_appearances(
+                body.get("data", []), appear_day, appear_max)  # 記錄新名單上架時刻
 
             if quota <= 0:
                 if quota_done_day != now.date():
-                    log("🈵 今日配額用完，睡到下個監控時段")
+                    log("🈵 今日配額用完，改為純觀測上架時間（不搶），直到時段結束")
                     quota_done_day = now.date()
-                time.sleep(seconds_to_next_window(now))
+                time.sleep(OBSERVE_INTERVAL_SEC)   # 留在時段內繼續觀測，不離開
                 continue
 
             fresh = [r for r in cands if r["summary_id"] not in seen]
