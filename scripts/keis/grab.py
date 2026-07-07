@@ -18,8 +18,10 @@ KEIS 公買搶單自動化（輕量無瀏覽器版）
     python grab.py --watch --apply # 常駐監控 + 實搶（正式；開機自動跑就是這個）
 
 環境變數（.env）:
-    KEIS_USERNAME         KEIS 帳號（必填）
-    KEIS_PASSWORD         KEIS 密碼（必填）
+    KEIS_USERNAME         KEIS 主帳號（必填）
+    KEIS_PASSWORD         主帳號密碼（必填）
+    KEIS_USERNAME2/3…     副帳號（可選）；每多一個帳號 = 多 7 筆配額，會自動分工不撞單
+    KEIS_PASSWORD2/3…     對應副帳號密碼
     KEIS_NOTIFY_WEBHOOK   n8n webhook URL；設了才會推 LINE（可選）
 """
 
@@ -54,21 +56,45 @@ MAX_APPLY_PER_RUN = None     # 單次執行最多搶幾筆；None = 搶到當日
 DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 
 # --- watch 常駐監控模式設定（本機時間，店裡電腦請設成 Asia/Taipei）---
-WATCH_WINDOWS = [("07:50", "09:30")]  # 只在這些時段高頻掃；(開始, 結束) 24h 制，可放多段
+WATCH_WINDOWS = [("07:30", "09:30")]  # 只在這些時段高頻掃；(開始, 結束) 24h 制，可放多段
 POLL_INTERVAL_SEC = 5       # 時段內每幾秒掃一次
-POLL_JITTER_SEC = 2          # 每次再隨機 ±這個秒數，別像節拍器
+POLL_JITTER_SEC = 3          # 每次再隨機 ±這個秒數，別像節拍器（越大越不規律）
 OFF_WINDOW_RECHECK_SEC = 600 # 時段外最久睡多久就醒來重算
+OBSERVE_INTERVAL_SEC = 30    # 配額用完後改「純觀測上架時間」，每幾秒掃一次（不搶、不吃配額）
+
+# --- 低調 / 抗尖峰設定 ---
+HTTP_TIMEOUT_SEC = 30        # 單次請求逾時；開盤塞車時多等一下再放棄
+ERROR_RETRY_MIN = 3          # 時段內遇暫時性錯誤(逾時等)後，最短幾秒重試
+ERROR_RETRY_MAX = 8          # ...最長幾秒（隨機取，別死等 30s 錯過開盤）
+# 註：抓到多筆時是「一次全搶」(秒搶)，中間不留間隔——刻意保留最高搶單成功率
 # ==============================
 
 KEIS_BASE = "https://keis.kshouse.com.tw"
 API = f"{KEIS_BASE}/api/v1"
 
-USERNAME = os.environ.get("KEIS_USERNAME", "")
-PASSWORD = os.environ.get("KEIS_PASSWORD", "")
 NOTIFY_WEBHOOK = os.environ.get("KEIS_NOTIFY_WEBHOOK", "").strip()
+
+
+def load_accounts() -> list[tuple]:
+    """從 .env 讀多帳號。每個帳號有自己的 7 配額，會分工搶不同名單。
+    支援 KEIS_USERNAME/PASSWORD（主帳號）+ KEIS_USERNAME2/PASSWORD2、3…（副帳號）。"""
+    accts = []
+    u, p = os.environ.get("KEIS_USERNAME", ""), os.environ.get("KEIS_PASSWORD", "")
+    if u and p:
+        accts.append((u, p))
+    i = 2
+    while True:
+        u, p = os.environ.get(f"KEIS_USERNAME{i}", ""), os.environ.get(f"KEIS_PASSWORD{i}", "")
+        if not (u and p):
+            break
+        accts.append((u, p))
+        i += 1
+    return accts
 
 GRABBED_CSV = Path(__file__).parent / "grabbed.csv"
 LOG_FILE = Path(__file__).parent / "watch.log"
+APPEAR_CSV = Path(__file__).parent / "appearances.csv"   # 上架偵測：新名單第一次出現的時刻
+APPEAR_STATE = Path(__file__).parent / "appear_state.txt"  # 記住今天觀測基準（撐過重啟）
 
 
 def log(msg: str) -> None:
@@ -87,16 +113,24 @@ class IPBlocked(Exception):
 
 
 class Keis:
-    """KEIS API client：自動登入 + 帶 bearer token，token 過期自動重登"""
+    """KEIS API client：自動登入 + 帶 bearer token，token 過期自動重登。
+    每個實例綁一個帳號（多帳號各自一份 client / token / 配額）。"""
 
-    def __init__(self):
+    def __init__(self, username: str, password: str):
+        self.username = username
+        self.password = password
+        self.label = username           # grabbed.csv / LINE 用來標「誰搶的」
         self.c = httpx.Client(
-            timeout=20,
+            timeout=HTTP_TIMEOUT_SEC,
             headers={
                 "accept": "application/json, text/plain, */*",
+                "accept-language": "zh-TW,zh;q=0.9",
                 "origin": KEIS_BASE,
                 "referer": f"{KEIS_BASE}/public-purchase",
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) keis-grab",
+                # 一般 Chrome UA，別在存取紀錄裡自曝是腳本
+                "user-agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/126.0.0.0 Safari/537.36"),
             },
         )
         self._token = None
@@ -106,12 +140,12 @@ class Keis:
         r = self.c.post(
             f"{API}/auth/login",
             params={"device_type": "desktop"},
-            data={"username": USERNAME, "password": PASSWORD},
+            data={"username": self.username, "password": self.password},
             headers={"content-type": "application/x-www-form-urlencoded",
                      "referer": f"{KEIS_BASE}/login"},
         )
         if r.status_code != 200:
-            raise RuntimeError(f"登入失敗 HTTP {r.status_code}: {r.text[:200]}")
+            raise RuntimeError(f"[{self.label}] 登入失敗 HTTP {r.status_code}: {r.text[:200]}")
         j = r.json()
         self._token = j["access_token"]
         self._exp = time.time() + j.get("expires_in", 28800)
@@ -197,6 +231,7 @@ def grab_record(keis: Keis, r: dict):
         d = data.get("data") or {}
         return {
             "grabbed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "account": keis.label,          # 哪個帳號搶的
             "summary_id": r["summary_id"],
             "name": d.get("display_name", ""),
             "phone": d.get("phone_number", ""),
@@ -205,7 +240,7 @@ def grab_record(keis: Keis, r: dict):
             "budget": fmt_budget(r),
             "start_time": r["start_time"][:16],
         }
-    log(f"   ❌ [{r['summary_id']}] 沒搶到（可能配額用完/被秒搶）：{data.get('message')}")
+    log(f"   ❌ [{keis.label}] [{r['summary_id']}] 沒搶到（可能配額用完/被秒搶）：{data.get('message')}")
     return None
 
 
@@ -214,10 +249,70 @@ def append_csv(grabbed: list[dict]) -> None:
     with GRABBED_CSV.open("a", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         if new:
-            w.writerow(["搶到時間", "summary_id", "姓名", "電話", "縣市", "類型", "預算", "建檔時間"])
+            w.writerow(["搶到時間", "帳號", "summary_id", "姓名", "電話", "縣市", "類型", "預算", "建檔時間"])
         for g in grabbed:
-            w.writerow([g["grabbed_at"], g["summary_id"], g["name"], g["phone"],
+            w.writerow([g["grabbed_at"], g.get("account", ""), g["summary_id"], g["name"], g["phone"],
                         g["city"], g["category"], g["budget"], g["start_time"]])
+
+
+# ---------- 上架偵測（唯讀觀測，不搶不吃配額）----------
+# 邏輯：每天以「當下池子最大 summary_id」為基準，之後只要冒出更大號的名單，
+# 就是後台剛推上架的新貨 → 記錄它第一次被我們看到的時刻。跑幾天就能看出後台放單規律。
+
+def _load_appear_state():
+    try:
+        d, m = APPEAR_STATE.read_text(encoding="utf-8").strip().split(",")
+        return d, int(m)
+    except Exception:
+        return None, 0
+
+
+def _save_appear_state(day: str, max_id: int) -> None:
+    try:
+        APPEAR_STATE.write_text(f"{day},{max_id}", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _append_appearance(rows: list[dict]) -> None:
+    new = not APPEAR_CSV.exists()
+    with APPEAR_CSV.open("a", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["首次出現時間", "summary_id", "建檔時間", "縣市", "區域", "類型", "狀態"])
+        for r in rows:
+            w.writerow([r["seen"], r["id"], r["start"], r["city"], r["area"], r["cat"], r["status"]])
+
+
+def observe_appearances(records: list, ap_day, ap_max):
+    """回傳更新後的 (ap_day, ap_max)。新的一天先建基準不記錄；之後記錄冒出的新單號。"""
+    today = datetime.now().date().isoformat()
+    ids = [r.get("summary_id", 0) for r in records if r.get("summary_id") is not None]
+    if not ids:
+        return ap_day, ap_max
+    cur_max = max(ids)
+    if ap_day != today:                       # 跨日/首次：以現有池子當基準，不記錄
+        log(f"🔭 上架觀測基準建立（{today}）：目前最大單號 {cur_max}")
+        _save_appear_state(today, cur_max)
+        return today, cur_max
+    new = [r for r in records if (r.get("summary_id") or 0) > ap_max]
+    if new:
+        rows = []
+        for r in sorted(new, key=lambda x: x.get("summary_id", 0)):
+            seen = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            rows.append({"seen": seen, "id": r.get("summary_id"),
+                         "start": r.get("start_time"),
+                         "city": r.get("target_city") or "",
+                         "area": "".join(r.get("target_areas") or []),
+                         "cat": r.get("property_category") or "",
+                         "status": r.get("status")})
+            log(f"🆕 上架偵測 id{r.get('summary_id')} 首次出現"
+                f"（建檔 {str(r.get('start_time'))[:16]}）"
+                f"{r.get('target_city') or ''}{r.get('property_category') or ''}")
+        _append_appearance(rows)
+        ap_max = max(ap_max, cur_max)
+        _save_appear_state(today, ap_max)
+    return today, ap_max
 
 
 def notify(payload: dict) -> None:
@@ -234,45 +329,74 @@ def notify_grabbed(grabbed: list[dict], quota_left: int) -> None:
     log(f"📲 已推 {len(grabbed)} 筆到 LINE")
 
 
+def grab_across_accounts(clients: list, fresh: list, dry_run: bool):
+    """把 fresh 名單依各帳號剩餘配額「分工」搶，不同帳號拿不同名單、不撞單。
+    回傳 (grabbed, done_labels, quota_left)：done_labels=本輪確認配額已用完的帳號。"""
+    grabbed: list[dict] = []
+    done: set = set()
+    quota_left = 0
+    idx = 0
+    for cl in clients:
+        if idx >= len(fresh):
+            quota_left += 7  # 這帳號還沒被叫到、配額大概還在（僅供 LINE 顯示概估）
+            continue
+        try:
+            _, q = pick_candidates(cl.query())   # 讀該帳號自己的剩餘配額
+        except Exception as e:
+            log(f"   ⚠ [{cl.label}] 查配額失敗，本輪跳過：{type(e).__name__}")
+            continue
+        if q <= 0:
+            done.add(cl.label)
+            continue
+        take = fresh[idx: idx + q]
+        idx += len(take)
+        succ = 0
+        for r in take:
+            if dry_run:
+                log(f"   🟡 [dry][{cl.label}] 會搶：{desc(r)}")
+                continue
+            g = grab_record(cl, r)
+            if g:
+                grabbed.append(g)
+                succ += 1
+                log(f"   ✅ [{cl.label}] 搶到 {g['name']} / {g['phone']}｜{g['city']} {g['category']} {g['budget']}")
+        remain = q - succ
+        quota_left += max(remain, 0)
+        if not dry_run and remain <= 0:
+            done.add(cl.label)      # 這帳號配額用完了
+    return grabbed, done, quota_left
+
+
 # ---------- 單次模式 ----------
 
-def run_once(keis: Keis, dry_run: bool) -> int:
-    info = keis.check_ip()
+def run_once(clients: list, dry_run: bool) -> int:
+    info = clients[0].check_ip()
     if not info.get("allowed"):
         print(f"⛔ 這台機器 IP {info.get('ip')} 不在門市網路，KEIS 公買功能被擋。請放到店裡、連門市網路的電腦上跑。")
         return 1
     print(f"✅ IP {info.get('ip')} 在門市網路，可用")
 
-    cands, quota = pick_candidates(keis.query())
-    print(f"📋 符合條件可申請 {len(cands)} 筆，今日剩餘配額 {quota} 筆")
+    cands, _ = pick_candidates(clients[0].query())
+    tot_quota = 0
+    for cl in clients:
+        _, q = pick_candidates(cl.query())
+        print(f"   帳號 {cl.label}：剩餘配額 {q}")
+        tot_quota += q
+    print(f"📋 符合條件可申請 {len(cands)} 筆，{len(clients)} 帳號合計剩餘配額 {tot_quota} 筆")
     if not cands:
         print("😴 沒有符合條件且可申請的名單，這次不動作")
         return 0
 
-    limit = quota
-    if MAX_APPLY_PER_RUN is not None:
-        limit = min(limit, MAX_APPLY_PER_RUN)
-    targets = cands[:limit]
+    take = cands if MAX_APPLY_PER_RUN is None else cands[:MAX_APPLY_PER_RUN]
+    print(f"🎯 這次會依各帳號配額分工搶（最多 {len(take)} 筆）")
 
-    print(f"🎯 這次預計搶 {len(targets)} 筆：")
-    for r in targets:
-        print(f"   • {desc(r)}")
-
+    grabbed, _, qleft = grab_across_accounts(clients, take, dry_run)
     if dry_run:
         print("\n🟡 dry-run：以上只是預覽，沒有真的送出。確認沒問題後加 --apply 才會搶。")
         return 0
-
-    grabbed = []
-    for r in targets:
-        g = grab_record(keis, r)
-        if g:
-            grabbed.append(g)
-            print(f"   ✅ 搶到 [{g['summary_id']}] {g['name']} / {g['phone']}")
-        else:
-            break
     if grabbed:
         append_csv(grabbed)
-        notify_grabbed(grabbed, quota - len(grabbed))
+        notify_grabbed(grabbed, qleft)
         print(f"\n✅ 這次搶到 {len(grabbed)} 筆，已記錄到 {GRABBED_CSV.name}")
     else:
         print("\n😕 這次一筆都沒搶到")
@@ -307,11 +431,13 @@ def seconds_to_next_window(now: datetime) -> int:
     return min((best or 1) * 60, OFF_WINDOW_RECHECK_SEC)
 
 
-def run_watch(keis: Keis, dry_run: bool) -> int:
+def run_watch(clients: list, dry_run: bool) -> int:
     mode = "dry-run（只印不搶）" if dry_run else "實搶"
-    log(f"👁 watch 啟動（{mode}），監控時段 {WATCH_WINDOWS}，每 ~{POLL_INTERVAL_SEC}s 掃一次。Ctrl+C 結束。")
+    labels = "、".join(c.label for c in clients)
+    log(f"👁 watch 啟動（{mode}），帳號：{labels}（共 {len(clients)} 個，各 7 配額）")
+    log(f"   監控時段 {WATCH_WINDOWS}，每 ~{POLL_INTERVAL_SEC}s 掃一次。Ctrl+C 結束。")
     try:
-        info = keis.check_ip()
+        info = clients[0].check_ip()
         if info.get("allowed"):
             log(f"✅ IP {info.get('ip')} 在門市網路，開始監控")
         else:
@@ -322,8 +448,11 @@ def run_watch(keis: Keis, dry_run: bool) -> int:
 
     seen: set[int] = set()
     seen_day = None
-    quota_done_day = None
+    done_accounts: set = set()       # 今日已用完配額的帳號 label
+    done_day = None
+    all_done_logged_day = None
     last_alert = 0.0
+    appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
 
     while True:
         try:
@@ -331,38 +460,37 @@ def run_watch(keis: Keis, dry_run: bool) -> int:
             if seen_day != now.date():       # 跨日重置
                 seen.clear()
                 seen_day = now.date()
+            if done_day != now.date():
+                done_accounts.clear()
+                done_day = now.date()
 
             if not in_window(now):
                 time.sleep(seconds_to_next_window(now))
                 continue
 
-            cands, quota = pick_candidates(keis.query())
+            body = clients[0].query()
+            cands, _ = pick_candidates(body)
+            appear_day, appear_max = observe_appearances(
+                body.get("data", []), appear_day, appear_max)  # 記錄新名單上架時刻
 
-            if quota <= 0:
-                if quota_done_day != now.date():
-                    log("🈵 今日配額用完，睡到下個監控時段")
-                    quota_done_day = now.date()
-                time.sleep(seconds_to_next_window(now))
+            active = [c for c in clients if c.label not in done_accounts]
+            if not active:                    # 所有帳號配額都用完
+                if all_done_logged_day != now.date():
+                    log("🈵 所有帳號配額用完，改為純觀測上架時間（不搶），直到時段結束")
+                    all_done_logged_day = now.date()
+                time.sleep(OBSERVE_INTERVAL_SEC)   # 留在時段內繼續觀測，不離開
                 continue
 
             fresh = [r for r in cands if r["summary_id"] not in seen]
             if fresh:
-                log(f"🔔 發現 {len(fresh)} 筆新名單（剩餘配額 {quota}）")
-                grabbed = []
+                log(f"🔔 發現 {len(fresh)} 筆新名單（可搶帳號：{'、'.join(c.label for c in active)}）")
                 for r in fresh:
                     seen.add(r["summary_id"])
-                    if dry_run:
-                        log(f"   🟡 [dry] 會搶：{desc(r)}")
-                        continue
-                    if quota - len(grabbed) <= 0:
-                        break
-                    g = grab_record(keis, r)
-                    if g:
-                        grabbed.append(g)
-                        log(f"   ✅ 搶到 {g['name']} / {g['phone']}｜{g['city']} {g['category']} {g['budget']}")
+                grabbed, newly_done, qleft = grab_across_accounts(active, fresh, dry_run)
+                done_accounts |= newly_done
                 if grabbed:
                     append_csv(grabbed)
-                    notify_grabbed(grabbed, quota - len(grabbed))
+                    notify_grabbed(grabbed, qleft)
 
             time.sleep(POLL_INTERVAL_SEC + random.uniform(-POLL_JITTER_SEC, POLL_JITTER_SEC))
 
@@ -376,8 +504,10 @@ def run_watch(keis: Keis, dry_run: bool) -> int:
             log("⛔ IP 被擋，60s 後重試")
             time.sleep(60)
         except Exception as e:
-            log(f"⚠ 暫時性錯誤，30s 後重試：{type(e).__name__}: {e}")
-            time.sleep(30)
+            # 開盤尖峰逾時是常態；別死等，短間隔隨機重試，才不會錯過剛放出的名單
+            retry = random.uniform(ERROR_RETRY_MIN, ERROR_RETRY_MAX)
+            log(f"⚠ 暫時性錯誤，{retry:.1f}s 後重試：{type(e).__name__}: {e}")
+            time.sleep(retry)
 
 
 def main() -> int:
@@ -386,15 +516,16 @@ def main() -> int:
     parser.add_argument("--watch", action="store_true", help="常駐監控模式（早上時段高頻掃）")
     args = parser.parse_args()
 
-    if not USERNAME or not PASSWORD:
+    accts = load_accounts()
+    if not accts:
         raise SystemExit("❌ 沒設 KEIS_USERNAME / KEIS_PASSWORD（填在 .env）")
 
     dry_run = DRY_RUN and not args.apply
-    keis = Keis()
-    print(f"👤 登入 KEIS：{USERNAME}")
+    clients = [Keis(u, p) for u, p in accts]
+    print(f"👤 登入 KEIS：{'、'.join(c.label for c in clients)}（{len(clients)} 帳號）")
     if args.watch:
-        return run_watch(keis, dry_run)
-    return run_once(keis, dry_run)
+        return run_watch(clients, dry_run)
+    return run_once(clients, dry_run)
 
 
 if __name__ == "__main__":
