@@ -1,5 +1,7 @@
 .env
 grabbed.csv
 watch.log
+appearances.csv
+appear_state.txt
 __pycache__/
 *.pyc
