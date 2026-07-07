@@ -56,8 +56,14 @@ DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 # --- watch 常駐監控模式設定（本機時間，店裡電腦請設成 Asia/Taipei）---
 WATCH_WINDOWS = [("07:50", "09:30")]  # 只在這些時段高頻掃；(開始, 結束) 24h 制，可放多段
 POLL_INTERVAL_SEC = 5       # 時段內每幾秒掃一次
-POLL_JITTER_SEC = 2          # 每次再隨機 ±這個秒數，別像節拍器
+POLL_JITTER_SEC = 3          # 每次再隨機 ±這個秒數，別像節拍器（越大越不規律）
 OFF_WINDOW_RECHECK_SEC = 600 # 時段外最久睡多久就醒來重算
+
+# --- 低調 / 抗尖峰設定 ---
+HTTP_TIMEOUT_SEC = 30        # 單次請求逾時；開盤塞車時多等一下再放棄
+ERROR_RETRY_MIN = 3          # 時段內遇暫時性錯誤(逾時等)後，最短幾秒重試
+ERROR_RETRY_MAX = 8          # ...最長幾秒（隨機取，別死等 30s 錯過開盤）
+# 註：抓到多筆時是「一次全搶」(秒搶)，中間不留間隔——刻意保留最高搶單成功率
 # ==============================
 
 KEIS_BASE = "https://keis.kshouse.com.tw"
@@ -91,12 +97,16 @@ class Keis:
 
     def __init__(self):
         self.c = httpx.Client(
-            timeout=20,
+            timeout=HTTP_TIMEOUT_SEC,
             headers={
                 "accept": "application/json, text/plain, */*",
+                "accept-language": "zh-TW,zh;q=0.9",
                 "origin": KEIS_BASE,
                 "referer": f"{KEIS_BASE}/public-purchase",
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) keis-grab",
+                # 一般 Chrome UA，別在存取紀錄裡自曝是腳本
+                "user-agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/126.0.0.0 Safari/537.36"),
             },
         )
         self._token = None
@@ -376,8 +386,10 @@ def run_watch(keis: Keis, dry_run: bool) -> int:
             log("⛔ IP 被擋，60s 後重試")
             time.sleep(60)
         except Exception as e:
-            log(f"⚠ 暫時性錯誤，30s 後重試：{type(e).__name__}: {e}")
-            time.sleep(30)
+            # 開盤尖峰逾時是常態；別死等，短間隔隨機重試，才不會錯過剛放出的名單
+            retry = random.uniform(ERROR_RETRY_MIN, ERROR_RETRY_MAX)
+            log(f"⚠ 暫時性錯誤，{retry:.1f}s 後重試：{type(e).__name__}: {e}")
+            time.sleep(retry)
 
 
 def main() -> int:
