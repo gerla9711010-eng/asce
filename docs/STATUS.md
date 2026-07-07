@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-06-17（售屋表工具上版：104自動登入＋使用分區查詢＋確認視窗）
+最後更新：2026-07-07（公買搶單系統首次開盤實戰驗證通過，7 筆滿額）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -177,12 +177,13 @@ Skill 會自動：
 ## 接下來要做
 
 ### 立刻能做
-- **公買搶單系統（🟢 已上線，跑在使用者公司電腦）** — `scripts/keis/grab.py` + `run.bat`（開機自動啟動）+ n8n `keis-grab-notify` 推 LINE。細節見 `scripts/keis/README.md`。
-  - 邏輯：早上 07:50–09:30 每 ~20s 掃公買買屋清單，篩「高雄市 + Available」，由新到舊搶到當日配額(7)滿為止；搶到拿真實姓名+電話存 `grabbed.csv` 並推 LINE。條件都在 grab.py 最上面 CONFIG。
+- **公買搶單系統（🟢 已上線且實戰驗證通過，跑在使用者公司電腦）** — `scripts/keis/grab.py` + `run.bat`（開機自動啟動）+ n8n `keis-grab-notify` 推 LINE。細節見 `scripts/keis/README.md`。
+  - 邏輯：早上 07:50–09:30 每 ~5s 掃公買買屋清單，篩「高雄市 + Available」，由新到舊搶到當日配額(7)滿為止；搶到拿真實姓名+電話存 `grabbed.csv` 並推 LINE。條件都在 grab.py 最上面 CONFIG。
   - API（HAR 逆出）：`POST /auth/login?device_type=desktop`（form 帳密→JWT bearer 8h）、`GET /call-purchase/check-ip`（`{allowed,ip}`）、`GET /call-purchase/query`、`POST /call-purchase/apply/{id}`。純 httpx 無瀏覽器。
   - **⚠️ 公買鎖門市 IP**（「僅限門市內使用」，雲端/家裡/手機都被擋）→ 只能跑店裡門市網路的電腦；grab.py 啟動先 `check-ip` 守門。**所以不能放 Railway 雲端**（原雲端版已刪）。
-  - 部署現況（2026-07-06 使用者本機）：公司電腦(桌面 `keis` 資料夾放 grab.py/run.bat/.env)、`.env` 已填帳密+`KEIS_NOTIFY_WEBHOOK`、`run.bat` 捷徑已進「啟動」資料夾、n8n `keis-grab-notify` 已 Active、LINE 測試已收到。登入/check-ip(IP 60.248.248.217 allowed)/query 全實測通過。**唯真正「搶」(apply POST) 待放單時段有 Available 名單才驗證得到。**
-  - KEIS 密碼偏弱，建議換強的（換了要更新公司電腦 .env）。
+  - **✅ 首次開盤實戰驗證（2026-07-07 08:01）**：開盤瞬間抓到 15 筆新名單，一秒內連搶 **7 筆滿額全中**（真實姓名+電話落 `grabbed.csv`、7 筆推 LINE、配額用完自動睡到隔日）。apply POST 全流程已實測。開盤前的連線 timeout 由重試機制自動吸收沒中斷。
+  - 部署現況（桌面 `C:\Users\user\OneDrive\桌面\keis`）：grab.py 與 repo byte-level 一致（`POLL_INTERVAL_SEC=5`）、`.env` 三個 key 齊全、`run.bat` 跑 `--watch --apply` 掛掉自動重開、開機捷徑已進「啟動」、n8n `keis-grab-notify` Active、IP 60.248.248.217 allowed。
+  - KEIS 密碼偏弱（7 碼），建議換強的（換了要更新公司電腦 .env）。
 - **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 上架腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
 
