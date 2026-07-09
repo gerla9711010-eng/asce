@@ -324,9 +324,11 @@ def notify(payload: dict) -> None:
         print(f"⚠ LINE 通知失敗: {e}")
 
 
-def notify_grabbed(grabbed: list[dict], quota_left: int) -> None:
-    notify({"event": "grabbed", "grabbed": grabbed, "quota_left": quota_left})
-    log(f"📲 已推 {len(grabbed)} 筆到 LINE")
+def notify_grabbed(grabbed: list[dict], quota_left: int,
+                   new_today: int, grabbed_today: int) -> None:
+    notify({"event": "grabbed", "grabbed": grabbed, "quota_left": quota_left,
+            "new_today": new_today, "grabbed_today": grabbed_today})
+    log(f"📲 已推 {len(grabbed)} 筆到 LINE（今日新名單 {new_today}／搶到 {grabbed_today}）")
 
 
 def grab_across_accounts(clients: list, fresh: list, dry_run: bool):
@@ -396,7 +398,7 @@ def run_once(clients: list, dry_run: bool) -> int:
         return 0
     if grabbed:
         append_csv(grabbed)
-        notify_grabbed(grabbed, qleft)
+        notify_grabbed(grabbed, qleft, len(cands), len(grabbed))
         print(f"\n✅ 這次搶到 {len(grabbed)} 筆，已記錄到 {GRABBED_CSV.name}")
     else:
         print("\n😕 這次一筆都沒搶到")
@@ -450,6 +452,9 @@ def run_watch(clients: list, dry_run: bool) -> int:
     seen_day = None
     done_accounts: set = set()       # 今日已用完配額的帳號 label
     done_day = None
+    day_new = 0                      # 今日符合條件的新名單累計（不管搶到沒）
+    day_grabbed = 0                  # 今日實際搶到累計
+    counter_day = None
     all_done_logged_day = None
     last_alert = 0.0
     appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
@@ -463,6 +468,10 @@ def run_watch(clients: list, dry_run: bool) -> int:
             if done_day != now.date():
                 done_accounts.clear()
                 done_day = now.date()
+            if counter_day != now.date():    # 跨日把今日累計歸零
+                day_new = 0
+                day_grabbed = 0
+                counter_day = now.date()
 
             if not in_window(now):
                 time.sleep(seconds_to_next_window(now))
@@ -473,24 +482,32 @@ def run_watch(clients: list, dry_run: bool) -> int:
             appear_day, appear_max = observe_appearances(
                 body.get("data", []), appear_day, appear_max)  # 記錄新名單上架時刻
 
+            # 先算「符合條件的新名單」並計入今日累計——就算配額用完也要算，
+            # 這樣 LINE 才能顯示「新名單 N 筆卻只搶到 M 筆」，一眼分辨貨少 vs 搶輸/配額滿
+            fresh = [r for r in cands if r["summary_id"] not in seen]
+            for r in fresh:
+                seen.add(r["summary_id"])
+            day_new += len(fresh)
+
             active = [c for c in clients if c.label not in done_accounts]
             if not active:                    # 所有帳號配額都用完
+                if fresh:
+                    log(f"🈵 配額已滿，{len(fresh)} 筆新名單只記數不搶"
+                        f"（今日新名單累計 {day_new}／搶到 {day_grabbed}）")
                 if all_done_logged_day != now.date():
                     log("🈵 所有帳號配額用完，改為純觀測上架時間（不搶），直到時段結束")
                     all_done_logged_day = now.date()
                 time.sleep(OBSERVE_INTERVAL_SEC)   # 留在時段內繼續觀測，不離開
                 continue
 
-            fresh = [r for r in cands if r["summary_id"] not in seen]
             if fresh:
                 log(f"🔔 發現 {len(fresh)} 筆新名單（可搶帳號：{'、'.join(c.label for c in active)}）")
-                for r in fresh:
-                    seen.add(r["summary_id"])
                 grabbed, newly_done, qleft = grab_across_accounts(active, fresh, dry_run)
                 done_accounts |= newly_done
+                day_grabbed += len(grabbed)
                 if grabbed:
                     append_csv(grabbed)
-                    notify_grabbed(grabbed, qleft)
+                    notify_grabbed(grabbed, qleft, day_new, day_grabbed)
 
             time.sleep(POLL_INTERVAL_SEC + random.uniform(-POLL_JITTER_SEC, POLL_JITTER_SEC))
 

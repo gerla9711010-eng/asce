@@ -19,7 +19,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// KEIS 搶單通知：收 grab.py POST 進來的 payload，組成 LINE 訊息\nconst body = $input.first().json.body || $input.first().json;\nconst USER_ID = \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\"; // 薛力瑜\n\nlet text;\nif (body.event === 'alert') {\n  text = body.text || '⚠ KEIS 搶單警示';\n} else {\n  const g = body.grabbed || [];\n  const lines = g.map(x => `・${x.name} ${x.phone}｜${x.city} ${x.category} ${x.budget}`).join('\\n');\n  const left = (body.quota_left != null) ? body.quota_left : '?';\n  text = `🎯 KEIS 搶到 ${g.length} 筆（今日剩餘配額 ${left}）\\n\\n${lines}`;\n}\nreturn [{ json: { userId: USER_ID, text } }];\n"
+        "jsCode": "// KEIS 搶單通知：收 grab.py POST 進來的 payload，組成 LINE 訊息\nconst body = $input.first().json.body || $input.first().json;\nconst USER_ID = \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\"; // 薛力瑜\n\nlet text;\nif (body.event === 'alert') {\n  text = body.text || '⚠ KEIS 搶單警示';\n} else {\n  const g = body.grabbed || [];\n  const lines = g.map(x => `・${x.name} ${x.phone}｜${x.city} ${x.category} ${x.budget}`).join('\\n');\n  const left = (body.quota_left != null) ? body.quota_left : '?';\n  // 今日累計（舊版 grab.py 沒帶這兩欄時退回用本批數量）\n  const newToday = (body.new_today != null) ? body.new_today : g.length;\n  const grabbedToday = (body.grabbed_today != null) ? body.grabbed_today : g.length;\n  const missed = newToday - grabbedToday;\n  const hint = missed > 0 ? `⚠ 有 ${missed} 筆沒搶到（搶輸/配額滿）` : '✅ 出的全搶到';\n  text = `🎯 KEIS 這批搶到 ${g.length} 筆\\n📊 今天累計 新名單 ${newToday} ／ 搶到 ${grabbedToday}｜剩餘配額 ${left}\\n${hint}\\n\\n${lines}`;\n}\nreturn [{ json: { userId: USER_ID, text } }];\n"
       },
       "id": "eef216b1-aebf-4792-9ab7-6c0f26eef5e5",
       "name": "組 LINE 訊息",
