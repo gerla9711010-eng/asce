@@ -74,6 +74,11 @@ API = f"{KEIS_BASE}/api/v1"
 
 NOTIFY_WEBHOOK = os.environ.get("KEIS_NOTIFY_WEBHOOK", "").strip()
 
+# Notion 同步（可選）：設了 token + 資料庫 id 才會把搶到的名單寫進 Notion
+# token 可沿用其他工具的 NOTION_TOKEN（同一把 integration 分享這個資料庫即可）
+NOTION_TOKEN = (os.environ.get("KEIS_NOTION_TOKEN") or os.environ.get("NOTION_TOKEN", "")).strip()
+NOTION_DB_ID = os.environ.get("KEIS_NOTION_DB_ID", "").strip()
+
 
 def load_accounts() -> list[tuple]:
     """從 .env 讀多帳號。每個帳號有自己的 7 配額，會分工搶不同名單。
@@ -329,6 +334,46 @@ def notify_grabbed(grabbed: list[dict], quota_left: int) -> None:
     log(f"📲 已推 {len(grabbed)} 筆到 LINE")
 
 
+def _notion_dt(s: str) -> str:
+    """把 grab.py 的時間字串轉成 Notion 吃的 ISO（補台灣時區）。
+    "2026-07-10 08:00:02" → "2026-07-10T08:00:02+08:00"；已含 T 的建檔時間也一併補時區。"""
+    s = (s or "").strip().replace(" ", "T")
+    return s + "+08:00" if s and "+" not in s else s
+
+
+def push_notion(g: dict) -> None:
+    """把搶到的一筆寫進 Notion 資料庫（沒設 token 就跳過；失敗只記 log，絕不影響搶單）。"""
+    if not (NOTION_TOKEN and NOTION_DB_ID):
+        return
+    props = {
+        "姓名": {"title": [{"text": {"content": g["name"] or "(未提供)"}}]},
+        "summary_id": {"rich_text": [{"text": {"content": str(g["summary_id"])}}]},
+        "預算": {"rich_text": [{"text": {"content": g["budget"] or "-"}}]},
+        "縣市": {"select": {"name": g["city"] or "-"}},
+        "類型": {"select": {"name": g["category"] or "-"}},
+        "搶到時間": {"date": {"start": _notion_dt(g["grabbed_at"])}},
+        "建檔時間": {"date": {"start": _notion_dt(g["start_time"])}},
+        "聯絡狀態": {"select": {"name": "未聯絡"}},
+    }
+    if g.get("phone"):
+        props["電話"] = {"phone_number": g["phone"]}
+    if g.get("account"):
+        props["帳號"] = {"select": {"name": g["account"]}}
+    try:
+        r = httpx.post(
+            "https://api.notion.com/v1/pages",
+            headers={"Authorization": f"Bearer {NOTION_TOKEN}",
+                     "Notion-Version": "2022-06-28",
+                     "Content-Type": "application/json"},
+            json={"parent": {"database_id": NOTION_DB_ID}, "properties": props},
+            timeout=15,
+        )
+        if r.status_code >= 300:
+            log(f"   ⚠ Notion 寫入失敗 HTTP {r.status_code}: {r.text[:150]}")
+    except Exception as e:
+        log(f"   ⚠ Notion 寫入例外（不影響搶單）：{type(e).__name__}")
+
+
 def grab_across_accounts(clients: list, fresh: list, dry_run: bool,
                          seen: set | None = None, persist: bool = False):
     """把 fresh 名單依各帳號剩餘配額「分工」搶，不同帳號拿不同名單、不撞單。
@@ -371,6 +416,7 @@ def grab_across_accounts(clients: list, fresh: list, dry_run: bool,
                 succ += 1
                 if persist:
                     append_csv([g])            # 逐筆落地，別等整批（逾時也不弄丟）
+                    push_notion(g)             # 同步寫進 Notion（沒設 token 就跳過）
                 if seen is not None:
                     seen.add(r["summary_id"])  # 只有真的搶到才標 seen，中斷的會被補搶
                 log(f"   ✅ [{cl.label}] 搶到 {g['name']} / {g['phone']}｜{g['city']} {g['category']} {g['budget']}")
@@ -412,6 +458,8 @@ def run_once(clients: list, dry_run: bool) -> int:
         return 0
     if grabbed:
         append_csv(grabbed)
+        for g in grabbed:
+            push_notion(g)
         notify_grabbed(grabbed, qleft)
         print(f"\n✅ 這次搶到 {len(grabbed)} 筆，已記錄到 {GRABBED_CSV.name}")
     else:
