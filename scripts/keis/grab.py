@@ -329,9 +329,14 @@ def notify_grabbed(grabbed: list[dict], quota_left: int) -> None:
     log(f"📲 已推 {len(grabbed)} 筆到 LINE")
 
 
-def grab_across_accounts(clients: list, fresh: list, dry_run: bool):
+def grab_across_accounts(clients: list, fresh: list, dry_run: bool,
+                         seen: set | None = None, persist: bool = False):
     """把 fresh 名單依各帳號剩餘配額「分工」搶，不同帳號拿不同名單、不撞單。
-    回傳 (grabbed, done_labels, quota_left)：done_labels=本輪確認配額已用完的帳號。"""
+    回傳 (grabbed, done_labels, quota_left)：done_labels=本輪確認配額已用完的帳號。
+
+    抗開盤壅塞（重要）：每搶到一筆就「立刻」寫 CSV + 標記 seen（persist / seen 有給時）。
+    這樣就算搶到一半伺服器逾時，已搶到的不會弄丟；而還沒搶成的不會被標 seen，
+    下一輪 watch 會自動回頭補搶——不像舊版一逾時就整批放棄、白白浪費剩餘配額。"""
     grabbed: list[dict] = []
     done: set = set()
     quota_left = 0
@@ -355,11 +360,22 @@ def grab_across_accounts(clients: list, fresh: list, dry_run: bool):
             if dry_run:
                 log(f"   🟡 [dry][{cl.label}] 會搶：{desc(r)}")
                 continue
-            g = grab_record(cl, r)
+            try:
+                g = grab_record(cl, r)
+            except Exception as e:
+                # 逾時等暫時性錯誤：這筆沒搶成、不標 seen，收工本批交給下一輪補搶
+                log(f"   ⚠ [{cl.label}] 搶單中斷（剩下的下一輪自動補搶）：{type(e).__name__}")
+                return grabbed, done, quota_left
             if g:
                 grabbed.append(g)
                 succ += 1
+                if persist:
+                    append_csv([g])            # 逐筆落地，別等整批（逾時也不弄丟）
+                if seen is not None:
+                    seen.add(r["summary_id"])  # 只有真的搶到才標 seen，中斷的會被補搶
                 log(f"   ✅ [{cl.label}] 搶到 {g['name']} / {g['phone']}｜{g['city']} {g['category']} {g['budget']}")
+            elif seen is not None:
+                seen.add(r["summary_id"])       # apply 明確回「沒搶到」→ 標 seen 免得一直重試同一筆
         remain = q - succ
         quota_left += max(remain, 0)
         if not dry_run and remain <= 0:
@@ -484,12 +500,11 @@ def run_watch(clients: list, dry_run: bool) -> int:
             fresh = [r for r in cands if r["summary_id"] not in seen]
             if fresh:
                 log(f"🔔 發現 {len(fresh)} 筆新名單（可搶帳號：{'、'.join(c.label for c in active)}）")
-                for r in fresh:
-                    seen.add(r["summary_id"])
-                grabbed, newly_done, qleft = grab_across_accounts(active, fresh, dry_run)
+                # 逐筆搶：搶到就馬上寫 CSV + 標 seen；中途逾時不弄丟、剩下的下一輪自動補搶
+                grabbed, newly_done, qleft = grab_across_accounts(
+                    active, fresh, dry_run, seen=seen, persist=True)
                 done_accounts |= newly_done
                 if grabbed:
-                    append_csv(grabbed)
                     notify_grabbed(grabbed, qleft)
 
             time.sleep(POLL_INTERVAL_SEC + random.uniform(-POLL_JITTER_SEC, POLL_JITTER_SEC))
