@@ -74,6 +74,11 @@ API = f"{KEIS_BASE}/api/v1"
 
 NOTIFY_WEBHOOK = os.environ.get("KEIS_NOTIFY_WEBHOOK", "").strip()
 
+# Notion 同步（可選）：設了 token + 資料庫 id 才會把搶到的名單寫進 Notion
+# token 可沿用其他工具的 NOTION_TOKEN（同一把 integration 分享這個資料庫即可）
+NOTION_TOKEN = (os.environ.get("KEIS_NOTION_TOKEN") or os.environ.get("NOTION_TOKEN", "")).strip()
+NOTION_DB_ID = os.environ.get("KEIS_NOTION_DB_ID", "").strip()
+
 
 def load_accounts() -> list[tuple]:
     """從 .env 讀多帳號。每個帳號有自己的 7 配額，會分工搶不同名單。
@@ -184,6 +189,18 @@ class Keis:
             raise IPBlocked()
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
 
+    def my_applications(self) -> list:
+        """查這個帳號『我的申請』清單（含未遮罩姓名/電話）。給收盤回查對帳用。
+        是滾動 7 天窗口——只看得到最近申請的，所以回查要每個時段跑、別事後才補。"""
+        year = datetime.now().year
+        params = {
+            "page": 1, "page_size": 100, "inquiry_type": INQUIRY_TYPE,
+            "only_my_applications": "true",
+            "start_date": f"{year}-01-01 00:00:00", "end_date": f"{year}-12-31 23:59:59",
+            "target_area": "", "property_category": "",
+        }
+        return self._get(f"/call-purchase/query?{urlencode(params)}").get("data", [])
+
 
 def matches(rec: dict) -> bool:
     if rec.get("status") != "Available":
@@ -210,6 +227,21 @@ def fmt_budget(rec: dict) -> str:
     return f"{s:.0f}萬{'以上' if not e else ''}"
 
 
+def norm_phone(p: str) -> str:
+    """市話補上高雄區碼 07。手機(09…)、已含區碼(0 開頭，如 07/08)、空值都不動。
+    依使用者慣例：07 直接接本地號碼、不加橫線，例：7924059 → 077924059。"""
+    p = (p or "").strip().replace("-", "").replace(" ", "")
+    if not p:
+        return p
+    if p.startswith("09"):                    # 手機
+        return p
+    if len(p) == 9 and p.startswith("9"):     # 手機掉了開頭的 0（0912… 被存成 912…）
+        return "0" + p
+    if p.startswith("0"):                      # 已含區碼（07/08/02…）
+        return p
+    return "07" + p                            # 其餘視為高雄本地市話 → 補 07
+
+
 def desc(r: dict) -> str:
     return (f"[{r['summary_id']}] {r['display_name']} {r['target_city']}"
             f"{''.join(r.get('target_areas') or [])} {r['property_category']} "
@@ -234,7 +266,7 @@ def grab_record(keis: Keis, r: dict):
             "account": keis.label,          # 哪個帳號搶的
             "summary_id": r["summary_id"],
             "name": d.get("display_name", ""),
-            "phone": d.get("phone_number", ""),
+            "phone": norm_phone(d.get("phone_number", "")),
             "city": r["target_city"],
             "category": r["property_category"],
             "budget": fmt_budget(r),
@@ -329,6 +361,114 @@ def notify_grabbed(grabbed: list[dict], quota_left: int) -> None:
     log(f"📲 已推 {len(grabbed)} 筆到 LINE")
 
 
+def _notion_dt(s: str) -> str:
+    """把 grab.py 的時間字串轉成 Notion 吃的 ISO（補台灣時區）。
+    "2026-07-10 08:00:02" → "2026-07-10T08:00:02+08:00"；已含 T 的建檔時間也一併補時區。"""
+    s = (s or "").strip().replace(" ", "T")
+    return s + "+08:00" if s and "+" not in s else s
+
+
+def push_notion(g: dict) -> None:
+    """把搶到的一筆寫進 Notion 資料庫（沒設 token 就跳過；失敗只記 log，絕不影響搶單）。"""
+    if not (NOTION_TOKEN and NOTION_DB_ID):
+        return
+    props = {
+        "姓名": {"title": [{"text": {"content": g["name"] or "(未提供)"}}]},
+        "summary_id": {"rich_text": [{"text": {"content": str(g["summary_id"])}}]},
+        "預算": {"rich_text": [{"text": {"content": g["budget"] or "-"}}]},
+        "縣市": {"select": {"name": g["city"] or "-"}},
+        "類型": {"select": {"name": g["category"] or "-"}},
+        "搶到時間": {"date": {"start": _notion_dt(g["grabbed_at"])}},
+        "建檔時間": {"date": {"start": _notion_dt(g["start_time"])}},
+        "聯絡狀態": {"select": {"name": "未聯絡"}},
+    }
+    if g.get("phone"):
+        props["電話"] = {"phone_number": g["phone"]}
+    if g.get("account"):
+        props["帳號"] = {"select": {"name": g["account"]}}
+    try:
+        r = httpx.post(
+            "https://api.notion.com/v1/pages",
+            headers={"Authorization": f"Bearer {NOTION_TOKEN}",
+                     "Notion-Version": "2022-06-28",
+                     "Content-Type": "application/json"},
+            json={"parent": {"database_id": NOTION_DB_ID}, "properties": props},
+            timeout=15,
+        )
+        if r.status_code >= 300:
+            log(f"   ⚠ Notion 寫入失敗 HTTP {r.status_code}: {r.text[:150]}")
+    except Exception as e:
+        log(f"   ⚠ Notion 寫入例外（不影響搶單）：{type(e).__name__}")
+
+
+def load_recorded_sids() -> set:
+    """讀 grabbed.csv 現有的 summary_id（字串），給回查對帳判斷哪些已落地。"""
+    sids: set = set()
+    if not GRABBED_CSV.exists():
+        return sids
+    try:
+        with GRABBED_CSV.open(encoding="utf-8-sig", newline="") as f:
+            for row in csv.reader(f):
+                if not row or row[0].startswith("搶到時間"):
+                    continue
+                sid = row[2] if len(row) >= 9 else (row[1] if len(row) >= 2 else "")
+                if sid:
+                    sids.add(str(sid).strip())
+    except Exception as e:
+        log(f"⚠ 讀 grabbed.csv 失敗（回查略過）：{type(e).__name__}")
+    return sids
+
+
+def record_from_application(app: dict, label: str) -> dict:
+    """用『我的申請』回傳的未遮罩資料組出一筆搶到紀錄（欄位同 grab_record）。
+    搶到時間優先用伺服器的 app_time（較準），拿不到才用現在時間。"""
+    t = str(app.get("app_time") or "").replace("T", " ").strip()
+    grabbed_at = t[:19] if (len(t) >= 16 and t[:4].isdigit() and "-" in t[:10]) \
+        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "grabbed_at": grabbed_at,
+        "account": label,
+        "summary_id": app.get("summary_id"),
+        "name": app.get("display_name", ""),
+        "phone": norm_phone(app.get("phone_number", "")),
+        "city": app.get("target_city", ""),
+        "category": app.get("property_category", ""),
+        "budget": fmt_budget(app),
+        "start_time": str(app.get("start_time", ""))[:16],
+    }
+
+
+def reconcile_applications(clients: list, dry_run: bool) -> list:
+    """回查各帳號『我的申請』，補回有申請成功卻沒落地的漏記名單（如開盤回應逾時的幽靈搶單）。
+    只增不減、以 summary_id 去重；回傳這次補回的清單。全程 best-effort，出錯只記 log 不影響搶單。
+    在『不搶單的閒時』跑（啟動時、每個時段收盤時），所以不會拖慢搶單。"""
+    if dry_run:
+        return []
+    recorded = load_recorded_sids()
+    recovered: list[dict] = []
+    for cl in clients:
+        try:
+            apps = cl.my_applications()
+        except Exception as e:
+            log(f"   ⚠ [{cl.label}] 回查申請失敗，略過：{type(e).__name__}")
+            continue
+        for app in apps:
+            sid = app.get("summary_id")
+            if sid is None or str(sid) in recorded:
+                continue                       # 已落地過 → 跳過（不會重複補）
+            rec = record_from_application(app, cl.label)
+            try:
+                append_csv([rec])
+                push_notion(rec)
+            except Exception as e:
+                log(f"   ⚠ 補回寫入失敗 {sid}：{type(e).__name__}")
+                continue
+            recorded.add(str(sid))
+            recovered.append(rec)
+            log(f"   ↩ [{cl.label}] 補回漏記名單 {rec['name']} / {rec['phone']}｜{sid} {rec['city']} {rec['category']}")
+    return recovered
+
+
 def grab_across_accounts(clients: list, fresh: list, dry_run: bool,
                          seen: set | None = None, persist: bool = False):
     """把 fresh 名單依各帳號剩餘配額「分工」搶，不同帳號拿不同名單、不撞單。
@@ -371,6 +511,7 @@ def grab_across_accounts(clients: list, fresh: list, dry_run: bool,
                 succ += 1
                 if persist:
                     append_csv([g])            # 逐筆落地，別等整批（逾時也不弄丟）
+                    push_notion(g)             # 同步寫進 Notion（沒設 token 就跳過）
                 if seen is not None:
                     seen.add(r["summary_id"])  # 只有真的搶到才標 seen，中斷的會被補搶
                 log(f"   ✅ [{cl.label}] 搶到 {g['name']} / {g['phone']}｜{g['city']} {g['category']} {g['budget']}")
@@ -412,6 +553,8 @@ def run_once(clients: list, dry_run: bool) -> int:
         return 0
     if grabbed:
         append_csv(grabbed)
+        for g in grabbed:
+            push_notion(g)
         notify_grabbed(grabbed, qleft)
         print(f"\n✅ 這次搶到 {len(grabbed)} 筆，已記錄到 {GRABBED_CSV.name}")
     else:
@@ -462,11 +605,21 @@ def run_watch(clients: list, dry_run: bool) -> int:
     except Exception as e:
         log(f"⚠ 初次連線失敗（會自動重試）：{type(e).__name__}: {e}")
 
+    # 啟動先回查一次：補回上個時段／上次執行時漏記的幽靈搶單（7 天窗口內都救得到）
+    try:
+        rec = reconcile_applications(clients, dry_run)
+        if rec:
+            log(f"↩ 啟動回查補回 {len(rec)} 筆漏記名單")
+            notify_grabbed(rec, 0)
+    except Exception as e:
+        log(f"⚠ 啟動回查失敗（略過）：{type(e).__name__}")
+
     seen: set[int] = set()
     seen_day = None
     done_accounts: set = set()       # 今日已用完配額的帳號 label
     done_day = None
     all_done_logged_day = None
+    was_in_window = False            # 用來偵測「剛收盤」的瞬間，收盤時回查對帳一次
     last_alert = 0.0
     appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
 
@@ -480,7 +633,15 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 done_accounts.clear()
                 done_day = now.date()
 
-            if not in_window(now):
+            inw = in_window(now)
+            if was_in_window and not inw:
+                # 剛收盤（離開時段的瞬間）：此刻沒在搶單，回查各帳號申請、補回漏記的幽靈搶單
+                rec = reconcile_applications(clients, dry_run)
+                if rec:
+                    log(f"↩ 收盤回查補回 {len(rec)} 筆漏記名單")
+                    notify_grabbed(rec, 0)
+            was_in_window = inw
+            if not inw:
                 time.sleep(seconds_to_next_window(now))
                 continue
 
