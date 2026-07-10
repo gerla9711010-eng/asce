@@ -215,6 +215,21 @@ def fmt_budget(rec: dict) -> str:
     return f"{s:.0f}萬{'以上' if not e else ''}"
 
 
+def norm_phone(p: str) -> str:
+    """市話補上高雄區碼 07。手機(09…)、已含區碼(0 開頭，如 07/08)、空值都不動。
+    依使用者慣例：07 直接接本地號碼、不加橫線，例：7924059 → 077924059。"""
+    p = (p or "").strip().replace("-", "").replace(" ", "")
+    if not p:
+        return p
+    if p.startswith("09"):                    # 手機
+        return p
+    if len(p) == 9 and p.startswith("9"):     # 手機掉了開頭的 0（0912… 被存成 912…）
+        return "0" + p
+    if p.startswith("0"):                      # 已含區碼（07/08/02…）
+        return p
+    return "07" + p                            # 其餘視為高雄本地市話 → 補 07
+
+
 def desc(r: dict) -> str:
     return (f"[{r['summary_id']}] {r['display_name']} {r['target_city']}"
             f"{''.join(r.get('target_areas') or [])} {r['property_category']} "
@@ -239,7 +254,7 @@ def grab_record(keis: Keis, r: dict):
             "account": keis.label,          # 哪個帳號搶的
             "summary_id": r["summary_id"],
             "name": d.get("display_name", ""),
-            "phone": d.get("phone_number", ""),
+            "phone": norm_phone(d.get("phone_number", "")),
             "city": r["target_city"],
             "category": r["property_category"],
             "budget": fmt_budget(r),
