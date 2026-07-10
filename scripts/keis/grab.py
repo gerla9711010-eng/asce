@@ -189,6 +189,18 @@ class Keis:
             raise IPBlocked()
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
 
+    def my_applications(self) -> list:
+        """查這個帳號『我的申請』清單（含未遮罩姓名/電話）。給收盤回查對帳用。
+        是滾動 7 天窗口——只看得到最近申請的，所以回查要每個時段跑、別事後才補。"""
+        year = datetime.now().year
+        params = {
+            "page": 1, "page_size": 100, "inquiry_type": INQUIRY_TYPE,
+            "only_my_applications": "true",
+            "start_date": f"{year}-01-01 00:00:00", "end_date": f"{year}-12-31 23:59:59",
+            "target_area": "", "property_category": "",
+        }
+        return self._get(f"/call-purchase/query?{urlencode(params)}").get("data", [])
+
 
 def matches(rec: dict) -> bool:
     if rec.get("status") != "Available":
@@ -389,6 +401,74 @@ def push_notion(g: dict) -> None:
         log(f"   ⚠ Notion 寫入例外（不影響搶單）：{type(e).__name__}")
 
 
+def load_recorded_sids() -> set:
+    """讀 grabbed.csv 現有的 summary_id（字串），給回查對帳判斷哪些已落地。"""
+    sids: set = set()
+    if not GRABBED_CSV.exists():
+        return sids
+    try:
+        with GRABBED_CSV.open(encoding="utf-8-sig", newline="") as f:
+            for row in csv.reader(f):
+                if not row or row[0].startswith("搶到時間"):
+                    continue
+                sid = row[2] if len(row) >= 9 else (row[1] if len(row) >= 2 else "")
+                if sid:
+                    sids.add(str(sid).strip())
+    except Exception as e:
+        log(f"⚠ 讀 grabbed.csv 失敗（回查略過）：{type(e).__name__}")
+    return sids
+
+
+def record_from_application(app: dict, label: str) -> dict:
+    """用『我的申請』回傳的未遮罩資料組出一筆搶到紀錄（欄位同 grab_record）。
+    搶到時間優先用伺服器的 app_time（較準），拿不到才用現在時間。"""
+    t = str(app.get("app_time") or "").replace("T", " ").strip()
+    grabbed_at = t[:19] if (len(t) >= 16 and t[:4].isdigit() and "-" in t[:10]) \
+        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "grabbed_at": grabbed_at,
+        "account": label,
+        "summary_id": app.get("summary_id"),
+        "name": app.get("display_name", ""),
+        "phone": norm_phone(app.get("phone_number", "")),
+        "city": app.get("target_city", ""),
+        "category": app.get("property_category", ""),
+        "budget": fmt_budget(app),
+        "start_time": str(app.get("start_time", ""))[:16],
+    }
+
+
+def reconcile_applications(clients: list, dry_run: bool) -> list:
+    """回查各帳號『我的申請』，補回有申請成功卻沒落地的漏記名單（如開盤回應逾時的幽靈搶單）。
+    只增不減、以 summary_id 去重；回傳這次補回的清單。全程 best-effort，出錯只記 log 不影響搶單。
+    在『不搶單的閒時』跑（啟動時、每個時段收盤時），所以不會拖慢搶單。"""
+    if dry_run:
+        return []
+    recorded = load_recorded_sids()
+    recovered: list[dict] = []
+    for cl in clients:
+        try:
+            apps = cl.my_applications()
+        except Exception as e:
+            log(f"   ⚠ [{cl.label}] 回查申請失敗，略過：{type(e).__name__}")
+            continue
+        for app in apps:
+            sid = app.get("summary_id")
+            if sid is None or str(sid) in recorded:
+                continue                       # 已落地過 → 跳過（不會重複補）
+            rec = record_from_application(app, cl.label)
+            try:
+                append_csv([rec])
+                push_notion(rec)
+            except Exception as e:
+                log(f"   ⚠ 補回寫入失敗 {sid}：{type(e).__name__}")
+                continue
+            recorded.add(str(sid))
+            recovered.append(rec)
+            log(f"   ↩ [{cl.label}] 補回漏記名單 {rec['name']} / {rec['phone']}｜{sid} {rec['city']} {rec['category']}")
+    return recovered
+
+
 def grab_across_accounts(clients: list, fresh: list, dry_run: bool,
                          seen: set | None = None, persist: bool = False):
     """把 fresh 名單依各帳號剩餘配額「分工」搶，不同帳號拿不同名單、不撞單。
@@ -525,11 +605,21 @@ def run_watch(clients: list, dry_run: bool) -> int:
     except Exception as e:
         log(f"⚠ 初次連線失敗（會自動重試）：{type(e).__name__}: {e}")
 
+    # 啟動先回查一次：補回上個時段／上次執行時漏記的幽靈搶單（7 天窗口內都救得到）
+    try:
+        rec = reconcile_applications(clients, dry_run)
+        if rec:
+            log(f"↩ 啟動回查補回 {len(rec)} 筆漏記名單")
+            notify_grabbed(rec, 0)
+    except Exception as e:
+        log(f"⚠ 啟動回查失敗（略過）：{type(e).__name__}")
+
     seen: set[int] = set()
     seen_day = None
     done_accounts: set = set()       # 今日已用完配額的帳號 label
     done_day = None
     all_done_logged_day = None
+    was_in_window = False            # 用來偵測「剛收盤」的瞬間，收盤時回查對帳一次
     last_alert = 0.0
     appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
 
@@ -543,7 +633,15 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 done_accounts.clear()
                 done_day = now.date()
 
-            if not in_window(now):
+            inw = in_window(now)
+            if was_in_window and not inw:
+                # 剛收盤（離開時段的瞬間）：此刻沒在搶單，回查各帳號申請、補回漏記的幽靈搶單
+                rec = reconcile_applications(clients, dry_run)
+                if rec:
+                    log(f"↩ 收盤回查補回 {len(rec)} 筆漏記名單")
+                    notify_grabbed(rec, 0)
+            was_in_window = inw
+            if not inw:
                 time.sleep(seconds_to_next_window(now))
                 continue
 
