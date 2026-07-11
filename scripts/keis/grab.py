@@ -356,9 +356,25 @@ def notify(payload: dict) -> None:
         print(f"⚠ LINE 通知失敗: {e}")
 
 
-def notify_grabbed(grabbed: list[dict], quota_left: int) -> None:
-    notify({"event": "grabbed", "grabbed": grabbed, "quota_left": quota_left})
-    log(f"📲 已推 {len(grabbed)} 筆到 LINE")
+def notify_grabbed(grabbed: list[dict], quota_left: int,
+                   new_today: int | None = None, grabbed_today: int | None = None) -> None:
+    payload = {"event": "grabbed", "grabbed": grabbed, "quota_left": quota_left}
+    if new_today is not None:                # 開盤搶單才帶今日累計；補漏回查不帶（退回本批數）
+        payload["new_today"] = new_today
+        payload["grabbed_today"] = grabbed_today
+    notify(payload)
+    extra = f"（今日新名單 {new_today}／搶到 {grabbed_today}）" if new_today is not None else ""
+    log(f"📲 已推 {len(grabbed)} 筆到 LINE{extra}")
+
+
+def notify_daily_summary(new_today: int, grabbed_today: int, recovered: int = 0) -> None:
+    """收盤保底通知：不管有沒有搶到，時段結束都推一則今日戰果，讓手機一眼看出
+    「今天沒貨」vs「系統掛了」vs「搶輸」。這是掛 0 保底——0 搶到那天也一定有訊息。"""
+    notify({"event": "daily_summary", "new_today": new_today,
+            "grabbed_today": grabbed_today, "recovered": recovered,
+            "date": datetime.now().strftime("%Y-%m-%d")})
+    log(f"📲 已推收盤戰果到 LINE（今日新名單 {new_today}／搶到 {grabbed_today}"
+        f"{f'／補回 {recovered}' if recovered else ''}）")
 
 
 def _notion_dt(s: str) -> str:
@@ -621,6 +637,12 @@ def run_watch(clients: list, dry_run: bool) -> int:
     all_done_logged_day = None
     was_in_window = False            # 用來偵測「剛收盤」的瞬間，收盤時回查對帳一次
     last_alert = 0.0
+    # 今日戰果累計（跨日歸零）。counted_today 專門給「新名單計數」用，跟搶單的 seen 分開——
+    # seen 只在真的搶到/明確被拒才標，才能讓逾時中斷的單留給下一輪補搶；日累計不能干擾它。
+    day_new = 0                      # 今日符合條件的新名單累計（不管搶到沒）
+    day_grabbed = 0                  # 今日實際搶到累計
+    counted_today: set = set()       # 今日已計數過的 summary_id（避免重複算 day_new）
+    counter_day = None
     appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
 
     while True:
@@ -632,6 +654,11 @@ def run_watch(clients: list, dry_run: bool) -> int:
             if done_day != now.date():
                 done_accounts.clear()
                 done_day = now.date()
+            if counter_day != now.date():    # 跨日把今日戰果歸零
+                day_new = 0
+                day_grabbed = 0
+                counted_today.clear()
+                counter_day = now.date()
 
             inw = in_window(now)
             if was_in_window and not inw:
@@ -640,6 +667,8 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 if rec:
                     log(f"↩ 收盤回查補回 {len(rec)} 筆漏記名單")
                     notify_grabbed(rec, 0)
+                # 收盤保底通知：不管今天有沒有搶到都推一則今日戰果（掛 0 那天也一定有訊息）
+                notify_daily_summary(day_new, day_grabbed + len(rec), recovered=len(rec))
             was_in_window = inw
             if not inw:
                 time.sleep(seconds_to_next_window(now))
@@ -649,6 +678,14 @@ def run_watch(clients: list, dry_run: bool) -> int:
             cands, _ = pick_candidates(body)
             appear_day, appear_max = observe_appearances(
                 body.get("data", []), appear_day, appear_max)  # 記錄新名單上架時刻
+
+            # 先算今日新名單累計——就算配額用完、還沒搶，也要算得到，這樣收盤/搶到時 LINE
+            # 才能顯示「新名單 N 筆卻只搶到 M 筆」，一眼分辨貨少 vs 搶輸/配額滿。用獨立的
+            # counted_today，不動搶單的 seen。
+            for r in cands:
+                if r["summary_id"] not in counted_today:
+                    counted_today.add(r["summary_id"])
+                    day_new += 1
 
             active = [c for c in clients if c.label not in done_accounts]
             if not active:                    # 所有帳號配額都用完
@@ -665,8 +702,9 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 grabbed, newly_done, qleft = grab_across_accounts(
                     active, fresh, dry_run, seen=seen, persist=True)
                 done_accounts |= newly_done
+                day_grabbed += len(grabbed)
                 if grabbed:
-                    notify_grabbed(grabbed, qleft)
+                    notify_grabbed(grabbed, qleft, day_new, day_grabbed)
 
             time.sleep(POLL_INTERVAL_SEC + random.uniform(-POLL_JITTER_SEC, POLL_JITTER_SEC))
 
