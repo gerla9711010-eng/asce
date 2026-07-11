@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-11（售屋表工具修正 xlsx 內部類型 bug，別台電腦開不了的問題）
+最後更新：2026-07-11（售屋表 xlsx 內部類型 bug 修好；確認 KEIS 收盤保底通知 PR#30 已合併並部署上線，非待辦）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -181,7 +181,6 @@ Skill 會自動：
 ### 立刻能做
 - **公買搶單系統（🟢 已上線，跑在門市電腦）** — `scripts/keis/grab.py` + `run.bat`（開機自動啟動、掛掉自動重開）。細節見 `scripts/keis/README.md` 及記憶 keis-grab-notion-sync。
   - 邏輯：07:30–09:30 每 ~5s 掃公買買屋清單，篩「高雄市 + Available」由新到舊搶。**雙帳號分工**（薛力瑜＋周珈伊，各 7 配額共 14、不撞單）。搶到拿真實姓名+電話 → 存 `grabbed.csv`＋推 LINE＋寫 Notion「KEIS 搶單名單」DB（`4f28b91531594c618725afc3ecc36e2f`）。市話自動補 07。開盤逾時漏記的靠收盤回查 `my-applications` 自救補回。**收盤時一定推一則今日戰果保底通知**（掛 0 那天也有訊息，分辨貨少 vs 搶輸 vs 系統掛掉）；搶到通知帶今日累計。
-  - ⏳ **PR #30 待合併+重部署**（branch `keis-daily-summary-heartbeat`）：加了收盤保底通知＋今日累計。合併後桌面 `grab.py` 要更新成新版、n8n `keis-grab-notify` workflow 要重匯入（開新空白再匯）。
   - API（HAR 逆出）：`POST /auth/login?device_type=desktop`（form 帳密→JWT 8h）、`GET /call-purchase/check-ip`（`{allowed,ip}`）、`GET /call-purchase/query`（`only_my_applications=true` = 我的申請，滾動 7 天）、`POST /call-purchase/apply/{id}`。純 httpx 無瀏覽器。
   - **⚠️ 公買鎖門市 IP**（雲端/家裡/手機都被擋）→ 只能跑店裡門市網路電腦（IP 60.248.248.217），不能上 Railway；grab.py 啟動先 `check-ip` 守門。
   - 部署：桌面 `C:\Users\user\OneDrive\桌面\keis`（grab.py 與 repo 一致、`.env` 含帳密+LINE webhook+Notion token+DB id、run.bat 跑 `--watch --apply` 進「啟動」）。KEIS 密碼偏弱(7碼)建議換強的（換了要更新桌面 .env）。
