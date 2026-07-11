@@ -35,6 +35,7 @@ def fill_excel(data: dict, output_path: str):
     YELLOW = PatternFill(fill_type='solid', fgColor='FFFF00')
 
     wb = load_workbook(TEMPLATE)
+    wb.template = False   # 範本是 .xltx，不關掉這旗標存出的 .xlsx 內部類型會是 template.main+xml，別台電腦 Excel 拒開
     ws = wb.active
 
     def put(addr, value):
