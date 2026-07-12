@@ -1,0 +1,71 @@
+{
+  "name": "市場週報 LINE 通知",
+  "_note": "收 bdinfo.py weekly POST 進來的市場週報，推文字到 LINE。webhook path=market-report。MARKET_NOTIFY_WEBHOOK 設成這支的 URL。",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "market-report",
+        "options": {}
+      },
+      "id": "b1000001-0001-0001-0001-000000000001",
+      "name": "Webhook 收市場週報",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [260, 300],
+      "webhookId": "market-report"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 收 bdinfo.py 的 {event:'market_report', text:'...'}，組成 LINE 訊息\nconst body = $input.first().json.body || $input.first().json;\nconst USER_ID = \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\"; // 薛力瑜\nconst text = body.text || '📊 市場週報（無內容）';\nreturn [{ json: { userId: USER_ID, text } }];\n"
+      },
+      "id": "b1000001-0001-0001-0001-000000000002",
+      "name": "組 LINE 訊息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {}
+      },
+      "id": "b1000001-0001-0001-0001-000000000003",
+      "name": "LINE Push",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook 收市場週報": {
+      "main": [[{ "node": "組 LINE 訊息", "type": "main", "index": 0 }]]
+    },
+    "組 LINE 訊息": {
+      "main": [[{ "node": "LINE Push", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": {}
+}
