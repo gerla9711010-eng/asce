@@ -1,0 +1,71 @@
+{
+  "name": "自動簽到 LINE 通知",
+  "_note": "收 clockin.py 每天自動簽到後的 POST，推文字到 LINE。webhook path=clockin-report。clockin.py 的 CLOCKIN_NOTIFY_WEBHOOK 設成這支的 URL：https://primary-production-68428.up.railway.app/webhook/clockin-report",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clockin-report",
+        "options": {}
+      },
+      "id": "c1000001-0001-0001-0001-000000000001",
+      "name": "Webhook 收簽到結果",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [260, 300],
+      "webhookId": "clockin-report"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 收 clockin.py 的 {event:'clockin', ok:bool, time:'HH:MM', detail:'...'}，組成 LINE 訊息\nconst body = $input.first().json.body || $input.first().json;\nconst USER_ID = \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\"; // 薛力瑜\nlet text;\nif (body.text) {\n  text = body.text;\n} else if (body.ok) {\n  text = `✅ 已自動簽到 ${body.time || ''}`.trim() + (body.detail ? `\\n${body.detail}` : '');\n} else {\n  text = `⚠️ 自動簽到失敗：${body.detail || '未知原因'}`;\n}\nreturn [{ json: { userId: USER_ID, text } }];\n"
+      },
+      "id": "c1000001-0001-0001-0001-000000000002",
+      "name": "組 LINE 訊息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {}
+      },
+      "id": "c1000001-0001-0001-0001-000000000003",
+      "name": "LINE Push",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook 收簽到結果": {
+      "main": [[{ "node": "組 LINE 訊息", "type": "main", "index": 0 }]]
+    },
+    "組 LINE 訊息": {
+      "main": [[{ "node": "LINE Push", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": {}
+}
