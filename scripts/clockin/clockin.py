@@ -8,18 +8,22 @@
 ⚠️ 差勤面板預設選的是【簽退】(value=1)，不是簽到！本腳本一定會先勾【簽到】
    (value=0) 再按確認，避免把自己簽退。
 
-登入方式：用一個「專用」Chrome 設定檔 (persistent profile) 保存登入狀態，
-不把帳密寫進腳本。session 過期時會 LINE 通知你重新登入，不會默默失敗。
+登入方式：帳密放在 .env（不寫死在程式裡）。每次執行若偵測到沒登入，會自動用 .env
+的店代號/帳號/密碼登入（登入頁無驗證碼）。另用一個 persistent profile 當 session 快取
+（勾「自動登入90天」），能不重登就不重登。帳密錯或登不進去會 LINE 通知。
 
 用法:
-    python clockin.py --login     # 一次性：開瀏覽器讓你手動登入 houseol，登入狀態存進專用設定檔
-    python clockin.py --dry-run   # 演練：開頁、確認有登入、找到簽到鈕，但「不」真的送出
-    python clockin.py             # 正式：勾簽到→按確認→驗證→推 LINE（工作排程器跑這個）
+    python clockin.py --dry-run   # 演練：自動登入→確認進得到簽到頁、找到簽到鈕，但「不」真的送出
+    python clockin.py             # 正式：登入→勾簽到→按確認→驗證→推 LINE（工作排程器跑這個）
+    python clockin.py --login     # 備用：開有畫面的瀏覽器手動登入（萬一改用 LINE 登入/出現驗證碼時）
 
 選項:
     --jitter N   送出前先隨機睡 0~N 秒（不規則化用；若已用工作排程器 RandomDelay 可不加）
 
 環境變數（.env）:
+    HOUSEOL_STORE            店代號（例 H888）
+    HOUSEOL_USER             帳號（例 03039）
+    HOUSEOL_PASS             密碼 ← 唯一機密，只放這裡，別貼進對話
     CLOCKIN_NOTIFY_WEBHOOK   n8n webhook URL（設了才推 LINE）
     CLOCKIN_HEADLESS         1=無視窗(預設)，0=顯示視窗（除錯用；--login 一律顯示視窗）
 """
@@ -45,6 +49,12 @@ except Exception:
 
 CLOCKIN_URL = "https://hq.houseol.com.tw/index.asp?module=main&file=clockin"
 RECORD_URL = "https://hq.houseol.com.tw/index.asp?module=LogEmp&file=Log2"
+LOGIN_URL = "https://es.houseol.com.tw/login.aspx"
+
+# 登入表單欄位（從 login.aspx 逆出）
+HOUSEOL_STORE = os.environ.get("HOUSEOL_STORE", "").strip()
+HOUSEOL_USER = os.environ.get("HOUSEOL_USER", "").strip()
+HOUSEOL_PASS = os.environ.get("HOUSEOL_PASS", "").strip()
 
 HERE = Path(__file__).parent
 PROFILE_DIR = HERE / "profile"          # 專用 Chrome 設定檔（登入狀態存這；不進 git）
@@ -103,6 +113,49 @@ def is_logged_in(page) -> bool:
         return False
 
 
+def auto_login(page) -> tuple[bool, str]:
+    """用 .env 的店代號/帳號/密碼自動登入 login.aspx（無驗證碼）。回 (成功?, 錯誤訊息)。"""
+    if not (HOUSEOL_STORE and HOUSEOL_USER and HOUSEOL_PASS):
+        return False, ("缺登入資料：請在 scripts/clockin/.env 填 "
+                       "HOUSEOL_STORE(店代號) / HOUSEOL_USER(帳號) / HOUSEOL_PASS(密碼)")
+    try:
+        if "login" not in page.url.lower():
+            page.goto(LOGIN_URL, wait_until="domcontentloaded")
+        page.wait_for_selector("#MemberPW", timeout=10000)
+        page.fill("#HouseID", HOUSEOL_STORE)
+        page.fill("#MemberID", HOUSEOL_USER)
+        page.fill("#MemberPW", HOUSEOL_PASS)
+        # 勾「自動登入(90天)」，讓 profile session 撐久一點、少重登
+        try:
+            page.check("#Persistent")
+        except Exception:
+            pass
+        page.click("#LinkButton1")          # ASP.NET __doPostBack 登入
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(2000)
+    except PWTimeout as e:
+        return False, f"登入表單操作逾時：{e}"
+    except Exception as e:
+        return False, f"登入時出錯：{e}"
+    log("[login] 已送出自動登入")
+    return True, ""
+
+
+def ensure_logged_in(page) -> tuple[bool, str]:
+    """到簽到頁；沒登入就自動登入後再回簽到頁確認。回 (成功?, 錯誤訊息)。"""
+    page.goto(CLOCKIN_URL, wait_until="domcontentloaded")
+    if is_logged_in(page):
+        return True, ""
+    log("[login] 未登入，嘗試自動登入…")
+    ok, err = auto_login(page)
+    if not ok:
+        return False, err
+    page.goto(CLOCKIN_URL, wait_until="domcontentloaded")
+    if is_logged_in(page):
+        return True, ""
+    return False, "自動登入後仍進不到簽到頁，請確認 .env 的店代號/帳號/密碼正確"
+
+
 def do_login() -> None:
     """開一個有畫面的瀏覽器，讓使用者手動登入 houseol，登入狀態會存進 PROFILE_DIR。"""
     print("=" * 60)
@@ -145,12 +198,11 @@ def run(dry_run: bool, jitter: int) -> int:
 
         page.on("dialog", on_dialog)
 
-        page.goto(CLOCKIN_URL, wait_until="domcontentloaded")
-
-        if not is_logged_in(page):
+        ok_login, err_login = ensure_logged_in(page)
+        if not ok_login:
             ctx.close()
-            log("[run] ⚠️ 未登入（session 可能過期）")
-            notify(False, "登入過期，請在店裡電腦跑 `python clockin.py --login` 重新登入")
+            log(f"[run] ⚠️ 登入失敗：{err_login}")
+            notify(False, err_login)
             return 2
 
         # 一定先勾【簽到】(value=0)，別誤按到預設的簽退
@@ -209,10 +261,6 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="演練，不真的送出簽到")
     ap.add_argument("--jitter", type=int, default=0, help="送出前隨機睡 0~N 秒")
     args = ap.parse_args()
-
-    if not PROFILE_DIR.exists() and not args.login:
-        log("⚠️ 還沒建立登入設定檔。請先跑：python clockin.py --login")
-        sys.exit(1)
 
     if args.login:
         do_login()
