@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-11（售屋表 xlsx 內部類型 bug 修好；確認 KEIS 收盤保底通知 PR#30 已合併並部署上線，非待辦）
+最後更新：2026-07-13（新增自動簽到工具 scripts/clockin/ + clockin-notify workflow，待部署上線）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -176,9 +176,19 @@ Skill 會自動：
 - **`fill_excel()` 存檔前必須 `wb.template = False`**：範本是 `.xltx`，openpyxl 讀進來會記住範本旗標，不關掉存出的 `.xlsx` 內部類型會是 `template.main+xml`，嚴格版 Excel（別台電腦）直接拒開。已修（git + 本機兩份都改）。
 - 狀態：全流程已實測通過（左營/三民多筆）。未驗證的座標：工業區 K42「乙種工」寫法、車位多層細項（地上/地下、平面/機械、上中下橫移、入口）——需使用者拿對應案件實際開 Excel 確認
 
+## 自動簽到工具（`scripts/clockin/`）
+
+每天 9:00–10:00 之間不規則時間，自動到 houseol 房管系統差勤面板簽到，完成後推 LINE 回報。
+
+- 檔案：`clockin.py`（Playwright + 專用 Chrome 設定檔保存登入，不存帳密）、`install-task.ps1`（註冊 Windows 工作排程，09:00 觸發 + RandomDelay 1h）、`workflows/clockin-notify.json`（webhook `clockin-report` → LINE Push 薛力瑜）
+- **⚠️ 差勤面板預設選【簽退】(LoginType=1)，簽到是 value=0**；腳本一定先勾簽到再按確認，別手殘直接按確認會簽退
+- 驗證：確認鈕 xpath + 簽到 radio 已對著 live DOM 測過各命中 1 個；script import/guard 已測；**尚未做過真實送出**（避免在非時段留錯時間紀錄），第一次真的簽到是排程跑的隔天早上，靠 LINE 回報看成敗
+- 部署要跑在上班時段會開機的電腦（同 keis 那台門市電腦即可）
+
 ## 接下來要做
 
 ### 立刻能做
+- **自動簽到上線三步**（工具已寫好，見上）：① 匯入 `workflows/clockin-notify.json` 成新空白 workflow 並 Activate ② 在門市電腦 `scripts/clockin/` 跑 `pip install -r requirements.txt && python -m playwright install chromium`，`cp .env.example .env`，`python clockin.py --login` 手動登入一次 → `python clockin.py --dry-run` 演練 ③ `powershell -ExecutionPolicy Bypass -File .\install-task.ps1` 裝排程。隔天早上看 LINE 有沒有「✅ 已自動簽到」
 - **公買搶單系統（🟢 已上線，跑在門市電腦）** — `scripts/keis/grab.py` + `run.bat`（開機自動啟動、掛掉自動重開）。細節見 `scripts/keis/README.md` 及記憶 keis-grab-notion-sync。
   - 邏輯：07:30–09:30 每 ~5s 掃公買買屋清單，篩「高雄市 + Available」由新到舊搶。**雙帳號分工**（薛力瑜＋周珈伊，各 7 配額共 14、不撞單）。搶到拿真實姓名+電話 → 存 `grabbed.csv`＋推 LINE＋寫 Notion「KEIS 搶單名單」DB（`4f28b91531594c618725afc3ecc36e2f`）。市話自動補 07。開盤逾時漏記的靠收盤回查 `my-applications` 自救補回。**收盤時一定推一則今日戰果保底通知**（掛 0 那天也有訊息，分辨貨少 vs 搶輸 vs 系統掛掉）；搶到通知帶今日累計。
   - API（HAR 逆出）：`POST /auth/login?device_type=desktop`（form 帳密→JWT 8h）、`GET /call-purchase/check-ip`（`{allowed,ip}`）、`GET /call-purchase/query`（`only_my_applications=true` = 我的申請，滾動 7 天）、`POST /call-purchase/apply/{id}`。純 httpx 無瀏覽器。
