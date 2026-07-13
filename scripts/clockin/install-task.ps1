@@ -1,29 +1,30 @@
-# 註冊「每天 09:00–10:00 之間隨機自動簽到」的 Windows 工作排程。
-# 用法（在本資料夾按右鍵 → 用 PowerShell 執行，或）：
-#   powershell -ExecutionPolicy Bypass -File .\install-task.ps1
-# 移除：Unregister-ScheduledTask -TaskName 'houseol-auto-clockin' -Confirm:$false
+# Register a daily Windows Scheduled Task that auto-clocks-in between 09:00-10:00.
+# Keep this file ASCII-only: Windows PowerShell 5.1 mangles non-ASCII source.
+# Usage:  powershell -ExecutionPolicy Bypass -File .\install-task.ps1
+# Remove: Unregister-ScheduledTask -TaskName 'houseol-auto-clockin' -Confirm:$false
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# 用 pythonw.exe（沒有黑視窗）；找不到就退回 python.exe
+# Prefer pythonw.exe (no console window); fall back to python.exe
 $py = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
 if (-not $py) { $py = (Get-Command python.exe -ErrorAction Stop).Source }
 $script = Join-Path $here 'clockin.py'
 
-if (-not (Test-Path (Join-Path $here 'profile'))) {
-  Write-Warning "還沒登入設定檔！排程裝好前請先跑一次： python clockin.py --login"
+if (-not (Test-Path (Join-Path $here '.env'))) {
+  Write-Warning "No .env found. Fill HOUSEOL_PASS in scripts/clockin/.env before the task can log in."
 }
 
-$action  = New-ScheduledTaskAction -Execute $py -Argument "`"$script`"" -WorkingDirectory $here
+# Task fires at 09:00; the script's --jitter 3600 sleeps a random 0-60 min
+# => actual clock-in lands at an irregular time within 09:00-10:00.
+$action  = New-ScheduledTaskAction -Execute $py -Argument "`"$script`" --jitter 3600" -WorkingDirectory $here
 $trigger = New-ScheduledTaskTrigger -Daily -At 9:00am
-# 09:00 觸發後隨機延遲 0~60 分鐘 → 每天落在 9:00–10:00 之間不規則時間
-$trigger.RandomDelay = (New-TimeSpan -Hours 1)
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+# ExecutionTimeLimit must exceed max jitter (60 min) + run time
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 
 Register-ScheduledTask -TaskName 'houseol-auto-clockin' `
   -Action $action -Trigger $trigger -Settings $settings `
-  -Description '每天 9:00-10:00 之間隨機自動到 houseol 差勤系統簽到' -Force
+  -Description 'Auto clock-in to houseol between 09:00-10:00 daily' -Force
 
-Write-Host "已註冊工作排程 'houseol-auto-clockin'（每天 9:00-10:00 隨機執行）。" -ForegroundColor Green
-Write-Host "手動測一次： python clockin.py --dry-run" -ForegroundColor Cyan
+Write-Host "Registered scheduled task 'houseol-auto-clockin' (daily, random 09:00-10:00)." -ForegroundColor Green
+Write-Host "Test now: python clockin.py --dry-run" -ForegroundColor Cyan
