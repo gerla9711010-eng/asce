@@ -1,0 +1,149 @@
+{
+  "name": "KEIS 待聯絡提醒",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0001-4a00-9000-000000000001",
+      "name": "每日 09:00 Asia/Taipei",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/4f28b91531594c618725afc3ecc36e2f/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  filter: { property: '聯絡狀態', select: { equals: '未聯絡' } },\n  page_size: 100\n}) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0002-4a00-9000-000000000002",
+      "name": "查 Notion 未聯絡名單",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -900,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 從未聯絡名單中，挑出「搶到時間 + 7 天」剩 <= 2 天（含當天、含已過期）的\n// 剩 2/1 天、今天 = 黃燈🟡；已過期 = 紅燈🔴。沒有符合的就回空陣列 → 不推 LINE。\nconst USER_ID = 'Ufab42c56b2eb9b9a9ff18c367b85a6dd'; // 薛力瑜\nconst DAY = 24 * 3600 * 1000;\nconst results = $input.first().json.results || [];\nconst now = new Date();\n\nconst rows = [];\nfor (const p of results) {\n  const props = p.properties || {};\n  const grab = props['搶到時間'] && props['搶到時間'].date && props['搶到時間'].date.start;\n  if (!grab) continue; // 沒搶到時間不算\n  const deadline = new Date(new Date(grab).getTime() + 7 * DAY);\n  const daysLeft = Math.trunc((deadline - now) / DAY); // 與 Notion dateBetween 一致（截斷）\n  if (daysLeft > 2) continue; // 還很久，不提醒\n  const name = (props['姓名'] && props['姓名'].title && props['姓名'].title[0] && props['姓名'].title[0].plain_text) || '(未命名)';\n  const phone = (props['電話'] && props['電話'].phone_number) || '';\n  const city = (props['縣市'] && props['縣市'].select && props['縣市'].select.name) || '';\n  const cat = (props['類型'] && props['類型'].select && props['類型'].select.name) || '';\n  const acct = (props['帳號'] && props['帳號'].select && props['帳號'].select.name) || '';\n  let flag;\n  if (daysLeft < 0) flag = '🔴已過期';\n  else if (daysLeft === 0) flag = '🟡今天到期';\n  else flag = '🟡剩' + daysLeft + '天';\n  rows.push({ daysLeft, name, phone, city, cat, acct, flag });\n}\n\nif (rows.length === 0) return []; // 沒有待提醒 → 不推 LINE\n\nrows.sort((a, b) => a.daysLeft - b.daysLeft); // 最急（已過期）排前面\nconst today = now.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' });\nconst lines = rows.map(function (r) {\n  const parts = [r.name, r.city + r.cat, r.phone, r.acct].filter(Boolean).join('｜');\n  return '・' + r.flag + '｜' + parts;\n}).join('\\n');\nconst text = '🔔 待聯絡提醒 ' + today + '\\n以下 ' + rows.length + ' 筆「未聯絡」快到期，記得跟進：\\n\\n' + lines;\nreturn [{ json: { userId: USER_ID, text } }];\n"
+      },
+      "id": "a1b2c3d4-0003-4a00-9000-000000000003",
+      "name": "挑出快到期未聯絡",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0004-4a00-9000-000000000004",
+      "name": "LINE Push",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -460,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "每日 09:00 Asia/Taipei": {
+      "main": [
+        [
+          {
+            "node": "查 Notion 未聯絡名單",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查 Notion 未聯絡名單": {
+      "main": [
+        [
+          {
+            "node": "挑出快到期未聯絡",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "挑出快到期未聯絡": {
+      "main": [
+        [
+          {
+            "node": "LINE Push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {}
+}
