@@ -183,13 +183,12 @@ Skill 會自動：
 - 檔案：`clockin.py`（Playwright；**自動登入**：讀 `.env` 店代號/帳號/密碼登入，登入頁無驗證碼）、`install-task.ps1`（Windows 工作排程 09:00 觸發 + RandomDelay 1h）、`workflows/clockin-notify.json`（webhook `clockin-report` → LINE Push 薛力瑜）
 - 登入表單（es.houseol.com.tw/login.aspx，ASP.NET）：`#HouseID`(店代號 H888) `#MemberID`(帳號 03039) `#MemberPW`(密碼) `#LinkButton1`(登入)；帳密放 `.env`（HOUSEOL_STORE/USER/PASS），只有密碼是機密
 - **⚠️ 差勤面板預設選【簽退】(LoginType value=1)，簽到是 value=0**；腳本一定先勾簽到再按確認，別手殘直接按確認會簽退
-- 驗證：登入 5 個 selector + 確認鈕 xpath + 簽到 radio 全對著 live DOM 命中；**dry-run 真實自動登入成功**（進到簽到頁、已勾簽到、找到確認鈕，未送出）；**尚未做過真實「送出」**（避免非時段留錯時間紀錄），第一次真送是排程隔天早上，靠 LINE 看成敗
-- 部署要跑在上班時段會開機的電腦（同 keis 那台門市電腦即可）
+- **🟢 已上線，2026-07-14 首跑成功**（排程自動觸發、自動登入、簽到送出成功）。跑在門市電腦（同 keis 那台）。
+- 之後只需偶爾看 LINE 回報有沒有到；沒到就查 `scripts/clockin/clockin.log`
 
 ## 接下來要做
 
 ### 立刻能做
-- **自動簽到（🟡 排程已裝，跑在門市電腦=本機，等首跑）** — .env 密碼已填、Playwright/chromium 已裝、dry-run（真實自動登入未送出）已過、工作排程 `houseol-auto-clockin` 已註冊（每天 09:00 觸發 + `--jitter 3600` 隨機 0-60 分 → 落 9:00-10:00）。**剩兩件**：① 把桌面 `json/clockin-notify.json` 匯入 n8n 成新 workflow 並 Activate（不然簽到成功但收不到 LINE）② 隔天(7/14)早上看 LINE 有沒有「✅ 已自動簽到 09:xx」，沒有就查 `scripts/clockin/clockin.log`
 - **公買搶單系統（🟢 已上線，跑在門市電腦）** — `scripts/keis/grab.py` + `run.bat`（開機自動啟動、掛掉自動重開）。細節見 `scripts/keis/README.md` 及記憶 keis-grab-notion-sync。
   - 邏輯：06:00–09:30 每 ~5s 掃公買買屋清單，篩「高雄市 + Available」由新到舊搶。（**2026-07-14 起跑點 07:30→06:00**：07-14 名單在 07:30 前就進池，害上架偵測 `appearances.csv` 整批漏記；起點提前讓基準在釋出前建好、量得到真實釋出時刻，也接得住早釋出。純觀測不吃配額。**改動需重啟 watch 進程才生效**。）**雙帳號分工**（薛力瑜＋周珈伊，各 7 配額共 14、不撞單）。搶到拿真實姓名+電話 → 存 `grabbed.csv`＋推 LINE＋寫 Notion「KEIS 搶單名單」DB（`4f28b91531594c618725afc3ecc36e2f`）。市話自動補 07。開盤逾時漏記的靠收盤回查 `my-applications` 自救補回。**收盤時一定推一則今日戰果保底通知**（掛 0 那天也有訊息，分辨貨少 vs 搶輸 vs 系統掛掉）；搶到通知帶今日累計。
   - API（HAR 逆出）：`POST /auth/login?device_type=desktop`（form 帳密→JWT 8h）、`GET /call-purchase/check-ip`（`{allowed,ip}`）、`GET /call-purchase/query`（`only_my_applications=true` = 我的申請，滾動 7 天）、`POST /call-purchase/apply/{id}`。純 httpx 無瀏覽器。
