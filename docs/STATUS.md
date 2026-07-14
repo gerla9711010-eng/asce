@@ -165,37 +165,23 @@ Skill 會自動：
    - 你說「發到 X 社團」→ append `廣告貼文紀錄`
    - 你說「已撤除」→ 標下架 + 附粉專連結提示手動刪 FB
 
-## 售屋表自動填寫工具（`scripts/sale-form/`）
+## 獨立桌面工具（深度細節見各自 README）
 
-桌面 GUI 工具（與 n8n 無關，獨立執行）：謄本 PDF → 自動查 104 社區 + 高雄市使用分區 → 確認視窗逐項核對 → 產出售屋表 Excel。
+跑在門市電腦、與 n8n 無關的獨立工具。這裡只記狀態，機制/gotcha/用法一律看各資料夾 README：
 
-- 檔案：`gui_main.py`（GUI＋填表）、`bot_104.py`（104 自動登入＋使用分區查詢）、`confirm_wizard.py`（確認視窗）
-- **本機才有、未進版控**（在使用者本機資料夾）：`parser.py`、`template/sale_template.xltx`、`output/`、`啟動工具.vbs`；套件 `selenium`/`openpyxl` + Chrome
-- 104 登入帳密寫死在 `bot_104.py`（`ACCOUNT`/`PASSWORD`）→ 已進 git 歷史，要公開或換密碼時注意
-- **⚠️ 實際運行版在本機 `OneDrive\桌面\不動產售屋表工具_v3.4\zipinspect\`，git 這份只是副本**。改 git 不會影響本機在跑的工具，兩邊要同步改。
-- **`fill_excel()` 存檔前必須 `wb.template = False`**：範本是 `.xltx`，openpyxl 讀進來會記住範本旗標，不關掉存出的 `.xlsx` 內部類型會是 `template.main+xml`，嚴格版 Excel（別台電腦）直接拒開。已修（git + 本機兩份都改）。
-- 狀態：全流程已實測通過（左營/三民多筆）。未驗證的座標：工業區 K42「乙種工」寫法、車位多層細項（地上/地下、平面/機械、上中下橫移、入口）——需使用者拿對應案件實際開 Excel 確認
-
-## 自動簽到工具（`scripts/clockin/`）
-
-每天 9:00–10:00 之間不規則時間，自動到 houseol 房管系統差勤面板簽到，完成後推 LINE 回報。
-
-- 檔案：`clockin.py`（Playwright；**自動登入**：讀 `.env` 店代號/帳號/密碼登入，登入頁無驗證碼）、`install-task.ps1`（Windows 工作排程 09:00 觸發 + RandomDelay 1h）、`workflows/clockin-notify.json`（webhook `clockin-report` → LINE Push 薛力瑜）
-- 登入表單（es.houseol.com.tw/login.aspx，ASP.NET）：`#HouseID`(店代號 H888) `#MemberID`(帳號 03039) `#MemberPW`(密碼) `#LinkButton1`(登入)；帳密放 `.env`（HOUSEOL_STORE/USER/PASS），只有密碼是機密
-- **⚠️ 差勤面板預設選【簽退】(LoginType value=1)，簽到是 value=0**；腳本一定先勾簽到再按確認，別手殘直接按確認會簽退
-- **🟢 已上線，2026-07-14 首跑成功**（排程自動觸發、自動登入、簽到送出成功）。跑在門市電腦（同 keis 那台）。
-- 之後只需偶爾看 LINE 回報有沒有到；沒到就查 `scripts/clockin/clockin.log`
+| 工具 | 狀態 | 深度文件 |
+|---|---|---|
+| **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦）；🟡 06:00 起跑待驗證，見下方待辦 | `scripts/keis/README.md` |
+| **KEIS 廣告上架** `scripts/keis/publish.py` | 🟡 待第一次實跑驗 selector，見下方待辦 | `scripts/keis/README.md` |
+| **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
+| **售屋表填寫** `scripts/sale-form/` | 🟢 全流程實測通過（少數座標待驗） | `scripts/sale-form/README.md` |
 
 ## 接下來要做
 
 ### 立刻能做
-- **公買搶單系統（🟢 已上線，跑在門市電腦）** — `scripts/keis/grab.py` + `run.bat`（開機自動啟動、掛掉自動重開）。細節見 `scripts/keis/README.md` 及記憶 keis-grab-notion-sync。
-  - 邏輯：06:00–09:30 每 ~5s 掃公買買屋清單，篩「高雄市 + Available」由新到舊搶。（**2026-07-14 起跑點 07:30→06:00**：07-14 名單在 07:30 前就進池，害上架偵測 `appearances.csv` 整批漏記；起點提前讓基準在釋出前建好、量得到真實釋出時刻，也接得住早釋出。純觀測不吃配額。**改動需重啟 watch 進程才生效**。）**雙帳號分工**（薛力瑜＋周珈伊，各 7 配額共 14、不撞單）。搶到拿真實姓名+電話 → 存 `grabbed.csv`＋推 LINE＋寫 Notion「KEIS 搶單名單」DB（`4f28b91531594c618725afc3ecc36e2f`）。市話自動補 07。開盤逾時漏記的靠收盤回查 `my-applications` 自救補回。**收盤時一定推一則今日戰果保底通知**（掛 0 那天也有訊息，分辨貨少 vs 搶輸 vs 系統掛掉）；搶到通知帶今日累計。
-  - API（HAR 逆出）：`POST /auth/login?device_type=desktop`（form 帳密→JWT 8h）、`GET /call-purchase/check-ip`（`{allowed,ip}`）、`GET /call-purchase/query`（`only_my_applications=true` = 我的申請，滾動 7 天）、`POST /call-purchase/apply/{id}`。純 httpx 無瀏覽器。
-  - **⚠️ 公買鎖門市 IP**（雲端/家裡/手機都被擋）→ 只能跑店裡門市網路電腦（IP 60.248.248.217），不能上 Railway；grab.py 啟動先 `check-ip` 守門。
-  - 部署：桌面 `C:\Users\user\OneDrive\桌面\keis`（grab.py 與 repo 一致、`.env` 含帳密+LINE webhook+Notion token+DB id、run.bat 跑 `--watch --apply` 進「啟動」）。KEIS 密碼偏弱(7碼)建議換強的（換了要更新桌面 .env）。
-  - **🟡 待驗證（06:00 起跑）**：① 今晚重啟一次 watch 讓 06:00 生效（現跑的那支載入的還是舊 07:30）②連看幾天 `appearances.csv` 的 07-15、07-16… 時間戳＝真實釋出時刻，確認釋出到底幾點、穩不穩，穩定後可把起點收窄回去。釋出規律目前看是「建檔+7天、原本壓 ~08:00」，07-14 異常提前到 07:30 前。
-- **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 上架腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
+- **公買搶單 — 驗證 06:00 起跑**（機制全在 `scripts/keis/README.md`）：① 今晚重啟一次 watch 讓 `WATCH_WINDOWS` 06:00 生效（現跑的那支載入的還是舊 07:30）② 連看幾天 `appearances.csv` 的時間戳＝真實釋出時刻，確認釋出到底幾點、穩不穩，穩定後可把起點收窄回去。
+  - 未驗的另一半：07-14 對帳時薛力瑜 7 筆已在 KEIS 頁面逐號驗過；**周珈伊 7 筆需登入她帳號才能核**（密碼類使用者自己登入）。
+- **驗證 `scripts/keis/publish.py`（KEIS 廣告上架）**：照 README 設定 → `python publish.py --login` 手動登入一次 → `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次會錯（通用 `get_by_label` 寫法），失敗截圖 `keis_error_*.png`，下次 session 拿截圖調。**YC1868650 KEIS 還沒上架**，跑通就順便補上。
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
 
 ### 中期
