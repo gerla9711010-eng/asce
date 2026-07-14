@@ -1,7 +1,11 @@
 # houseol 自動簽到（clockin）
 
+> 狀態：🟢 **已上線，2026-07-14 首跑成功**（排程自動觸發、自動登入、簽到送出成功）。跑在門市電腦（同 keis 那台）。平常只需偶爾看 LINE 回報有沒有到，沒到就查 `clockin.log`。
+
 每天在 **9:00–10:00 之間的不規則時間**，自動到永慶博愛凱璿房管系統
 （hq.houseol.com.tw）的「差勤系統」點【確認】簽到，然後推 LINE 回報。
+
+工作排程 `houseol-auto-clockin` 每天 09:00 觸發 + `--jitter 3600`（隨機 0–60 分）。
 
 ## 它怎麼運作
 - **Windows 工作排程器** 每天 09:00 觸發，設定了「隨機延遲 0~60 分」→ 落在 9:00–10:00 之間，每天時間不一樣。
@@ -37,3 +41,7 @@ n8n 那邊：把 `workflows/clockin-notify.json` 匯入成一個**新的空白 w
 - 想看它實際跑的畫面：`.env` 設 `CLOCKIN_HEADLESS=0`。
 - log 在 `clockin.log`。
 - 移除排程：`Unregister-ScheduledTask -TaskName 'houseol-auto-clockin' -Confirm:$false`
+
+## 實作細節（DOM）
+- 登入頁 `es.houseol.com.tw/login.aspx`（ASP.NET）：`#HouseID`(店代號 H888) `#MemberID`(帳號 03039) `#MemberPW`(密碼) `#LinkButton1`(登入)。帳密放 `.env`：`HOUSEOL_STORE`/`HOUSEOL_USER`/`HOUSEOL_PASS`，只有密碼是機密。
+- ⚠️ **差勤面板預設選【簽退】(`LoginType` value=1)，簽到是 value=0**；腳本一定先勾簽到再按確認，別手殘直接按確認會簽退。
