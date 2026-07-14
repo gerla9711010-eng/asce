@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-13（新增自動簽到工具 scripts/clockin/ + clockin-notify workflow，待部署上線）
+最後更新：2026-07-14（公買搶單監控起跑 07:30→06:00，接住早釋出並讓上架偵測量得到真實釋出時刻；待今晚重啟 watch 生效）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -191,10 +191,11 @@ Skill 會自動：
 ### 立刻能做
 - **自動簽到（🟡 排程已裝，跑在門市電腦=本機，等首跑）** — .env 密碼已填、Playwright/chromium 已裝、dry-run（真實自動登入未送出）已過、工作排程 `houseol-auto-clockin` 已註冊（每天 09:00 觸發 + `--jitter 3600` 隨機 0-60 分 → 落 9:00-10:00）。**剩兩件**：① 把桌面 `json/clockin-notify.json` 匯入 n8n 成新 workflow 並 Activate（不然簽到成功但收不到 LINE）② 隔天(7/14)早上看 LINE 有沒有「✅ 已自動簽到 09:xx」，沒有就查 `scripts/clockin/clockin.log`
 - **公買搶單系統（🟢 已上線，跑在門市電腦）** — `scripts/keis/grab.py` + `run.bat`（開機自動啟動、掛掉自動重開）。細節見 `scripts/keis/README.md` 及記憶 keis-grab-notion-sync。
-  - 邏輯：07:30–09:30 每 ~5s 掃公買買屋清單，篩「高雄市 + Available」由新到舊搶。**雙帳號分工**（薛力瑜＋周珈伊，各 7 配額共 14、不撞單）。搶到拿真實姓名+電話 → 存 `grabbed.csv`＋推 LINE＋寫 Notion「KEIS 搶單名單」DB（`4f28b91531594c618725afc3ecc36e2f`）。市話自動補 07。開盤逾時漏記的靠收盤回查 `my-applications` 自救補回。**收盤時一定推一則今日戰果保底通知**（掛 0 那天也有訊息，分辨貨少 vs 搶輸 vs 系統掛掉）；搶到通知帶今日累計。
+  - 邏輯：06:00–09:30 每 ~5s 掃公買買屋清單，篩「高雄市 + Available」由新到舊搶。（**2026-07-14 起跑點 07:30→06:00**：07-14 名單在 07:30 前就進池，害上架偵測 `appearances.csv` 整批漏記；起點提前讓基準在釋出前建好、量得到真實釋出時刻，也接得住早釋出。純觀測不吃配額。**改動需重啟 watch 進程才生效**。）**雙帳號分工**（薛力瑜＋周珈伊，各 7 配額共 14、不撞單）。搶到拿真實姓名+電話 → 存 `grabbed.csv`＋推 LINE＋寫 Notion「KEIS 搶單名單」DB（`4f28b91531594c618725afc3ecc36e2f`）。市話自動補 07。開盤逾時漏記的靠收盤回查 `my-applications` 自救補回。**收盤時一定推一則今日戰果保底通知**（掛 0 那天也有訊息，分辨貨少 vs 搶輸 vs 系統掛掉）；搶到通知帶今日累計。
   - API（HAR 逆出）：`POST /auth/login?device_type=desktop`（form 帳密→JWT 8h）、`GET /call-purchase/check-ip`（`{allowed,ip}`）、`GET /call-purchase/query`（`only_my_applications=true` = 我的申請，滾動 7 天）、`POST /call-purchase/apply/{id}`。純 httpx 無瀏覽器。
   - **⚠️ 公買鎖門市 IP**（雲端/家裡/手機都被擋）→ 只能跑店裡門市網路電腦（IP 60.248.248.217），不能上 Railway；grab.py 啟動先 `check-ip` 守門。
   - 部署：桌面 `C:\Users\user\OneDrive\桌面\keis`（grab.py 與 repo 一致、`.env` 含帳密+LINE webhook+Notion token+DB id、run.bat 跑 `--watch --apply` 進「啟動」）。KEIS 密碼偏弱(7碼)建議換強的（換了要更新桌面 .env）。
+  - **🟡 待驗證（06:00 起跑）**：① 今晚重啟一次 watch 讓 06:00 生效（現跑的那支載入的還是舊 07:30）②連看幾天 `appearances.csv` 的 07-15、07-16… 時間戳＝真實釋出時刻，確認釋出到底幾點、穩不穩，穩定後可把起點收窄回去。釋出規律目前看是「建檔+7天、原本壓 ~08:00」，07-14 異常提前到 07:30 前。
 - **使用者裝 Python 跑 `scripts/keis/publish.py` 驗證 KEIS 上架腳本**：照 `scripts/keis/README.md` 設定 → 跑 `python publish.py --login` 手動登入一次 → 跑 `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次跑會錯（用通用 `get_by_label` 寫法），失敗會截圖 `keis_error_*.png`，下次 session 拿截圖調 selector。**YC1868650 KEIS 還沒上架**，跑通就順便補上
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
 
