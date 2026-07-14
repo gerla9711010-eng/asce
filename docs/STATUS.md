@@ -183,6 +183,7 @@ Skill 會自動：
   - 未驗的另一半：07-14 對帳時薛力瑜 7 筆已在 KEIS 頁面逐號驗過；**周珈伊 7 筆需登入她帳號才能核**（密碼類使用者自己登入）。
 - **驗證 `scripts/keis/publish.py`（KEIS 廣告上架）**：照 README 設定 → `python publish.py --login` 手動登入一次 → `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次會錯（通用 `get_by_label` 寫法），失敗截圖 `keis_error_*.png`，下次 session 拿截圖調。**YC1868650 KEIS 還沒上架**，跑通就順便補上。
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
+- **匯入「KEIS 待聯絡提醒」workflow**（`workflows/keis-contact-reminder.json`，桌面 `json\` 有一份）：開新空白 workflow → 匯入 → Activate。每天 09:00 查搶單名單，把「未聯絡且搶到滿 7 天剩≤2 天（含當天/已過期）」的推一則 LINE。⚠️ 前提：搶單名單 DB（`4f28b91531594c618725afc3ecc36e2f`）要在 Notion 分享給 n8n 那個 integration（Notion API Token `edOz4T0LC6EP41Ug`），否則查詢會 404。搭配 Notion「🔔 待聯絡」視圖。
 
 ### 中期
 - yc-ad skill 跑幾個物件後微調 SKILL.md 文案 prompt（口氣、社團排版變化度）
