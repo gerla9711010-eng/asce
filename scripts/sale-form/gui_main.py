@@ -91,14 +91,16 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
     # （超過 5 筆這個範本放不下，全數併進最後一格，並在 log 提醒要手動拆）
     floor_pings = data.get('floor_pings') or []
     floor_slots = ['F12', 'F14', 'F16', 'F18', 'F20']
-    label_slots = ['E12', 'E14', 'E16', 'E18', 'E20']
+    # 層次名稱寫左邊的 C12:D13 合併格（頂格 C12），E 欄範本預設「室內」/「F」不動——
+    # 12~20 列標籤區是 C:D + E 兩個相鄰合併格，寫 E 會蓋掉範本標籤且視覺偏右一格
+    label_slots = ['C12', 'C14', 'C16', 'C18', 'C20']
     if floor_pings:
         overflow = floor_pings[len(floor_slots) - 1:]
         shown = floor_pings[:len(floor_slots) - 1] if len(floor_pings) > len(floor_slots) else floor_pings
         for addr, (_, ping) in zip(floor_slots, shown):
             put(addr, ping)
-        # 只有真的有多層時才把 E 欄改寫成謄本實際層次名稱（一層/二層/突出物一層…）；
-        # 一般大樓單一樓層戶只有1筆，E12 維持範本預設「室內」，不要被謄本樓層字樣蓋掉。
+        # 只有真的有多層時才寫層次名稱（一層/二層/突出物一層…）；
+        # 一般大樓單一樓層戶只有1筆，C12 維持空白、E12 維持範本預設「室內」。
         if len(floor_pings) > 1:
             for addr, (label, _) in zip(label_slots, shown):
                 put(addr, _clean_floor_label(label))
