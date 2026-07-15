@@ -125,16 +125,82 @@ def _build_steps():
 
         {'title': '入口型式', 'type': 'choice',
          'prompt': '入口型式：', 'key': '_entrance_type',
-         'options': [('坡道式', '坡道'), ('機械升降式', '升降')]},
+         'options': [('坡道式', '坡道'), ('機械升降式', '升降')],
+         'show': lambda d: d.get('_parking_yn') == '有'},
     ]
 
 
+SELLING_SLOTS = 9   # 訴求重點欄數（AD29/31/.../45）
+
+
+def _build_land_steps(is_rental=False):
+    """土地表確認步驟。
+    建蔽率/容積率日後由 v523 自動查詢預填（查到就帶入、可改）；查不到則手動。
+    寬度/深度手動。訴求重點 9 欄逐欄輸入（見 'selling' 型）。"""
+    steps = [
+        {'title': '案名', 'type': 'text', 'prompt': '案名：', 'key': 'case_name'},
+    ]
+    if is_rental:
+        steps += [
+            {'title': '租金', 'type': 'number',
+             'prompt': '租金（萬）：', 'key': 'price', 'unit': '萬'},
+            {'title': '押金', 'type': 'number',
+             'prompt': '押金（萬）：', 'key': 'deposit', 'unit': '萬'},
+        ]
+    else:
+        steps += [
+            {'title': '總價', 'type': 'number',
+             'prompt': '總價款（萬）：', 'key': 'price', 'unit': '萬'},
+        ]
+    steps += [
+        {'title': '建蔽率', 'type': 'number',
+         'prompt': '建蔽率（%）：', 'key': 'coverage_ratio', 'unit': '%'},
+        {'title': '容積率', 'type': 'number',
+         'prompt': '容積率（%）：', 'key': 'floor_ratio', 'unit': '%'},
+        {'title': '寬度', 'type': 'number',
+         'prompt': '寬度（米）：', 'key': 'land_width', 'unit': '米'},
+        {'title': '深度', 'type': 'number',
+         'prompt': '深度（米）：', 'key': 'land_depth', 'unit': '米'},
+        {'title': '用途', 'type': 'text',
+         'prompt': '用途：', 'key': 'usage_type'},
+        {'title': '面前道路', 'type': 'number',
+         'prompt': '面前道路（米）：', 'key': 'road_width', 'unit': '米'},
+
+        # 地上建物：有 → 問房廳衛；無 → 跳過
+        {'title': '地上建物', 'type': 'choice',
+         'prompt': '是否有地上建物？', 'key': '_has_building',
+         'options': [('有', '有'), ('無', '無')]},
+        {'title': '格局 - 房', 'type': 'number',
+         'prompt': '幾房？', 'key': 'lot_rooms', 'unit': '房',
+         'show': lambda d: d.get('_has_building') == '有'},
+        {'title': '格局 - 廳', 'type': 'number',
+         'prompt': '幾廳？', 'key': 'lot_halls', 'unit': '廳',
+         'show': lambda d: d.get('_has_building') == '有'},
+        {'title': '格局 - 衛', 'type': 'number',
+         'prompt': '幾衛浴？', 'key': 'lot_baths', 'unit': '衛',
+         'show': lambda d: d.get('_has_building') == '有'},
+
+        {'title': '現況', 'type': 'choice',
+         'prompt': '現況：', 'key': 'current_status',
+         'options': [('空地', '空地'), ('建物', '建物'), ('租賃', '租賃')]},
+    ]
+
+    # 訴求重點 9 欄：逐欄輸入，三鈕（先不填 / 填下一個 / 填寫完畢）
+    for i in range(SELLING_SLOTS):
+        steps.append({
+            'title': f'訴求重點 {i + 1}/{SELLING_SLOTS}',
+            'type': 'selling', 'key': f'sp_{i}',
+            'idx': i + 1, 'total': SELLING_SLOTS,
+        })
+    return steps
+
+
 class ConfirmWizard:
-    def __init__(self, parent, data: dict, log=print):
+    def __init__(self, parent, data: dict, log=print, steps=None):
         self.parent = parent
         self.data = dict(data)
         self.log = log
-        self.steps = _build_steps()
+        self.steps = steps if steps is not None else _build_steps()
         self.idx = 0
 
     def run(self):
@@ -150,6 +216,8 @@ class ConfirmWizard:
             r = dlg.result
             if r == 'next':
                 self.idx += 1
+            elif r == 'finish':      # 訴求重點「填寫完畢／先不填」→ 直接結束產出
+                break
             elif r == 'back':
                 self.idx -= 1
                 while self.idx >= 0:
@@ -172,6 +240,15 @@ class ConfirmWizard:
         parts = [p for p in parts if p]
         if parts:
             self.data['mrt_nearby'] = '、'.join(parts)
+
+        # 訴求重點 sp_0..sp_N → selling_points（依序、去空白）
+        sps = []
+        for i in range(SELLING_SLOTS):
+            v = self.data.pop(f'sp_{i}', None)
+            if v:
+                sps.append(v)
+        if sps:
+            self.data['selling_points'] = sps
         return self.data
 
 
@@ -271,6 +348,12 @@ class StepDialog(tk.Toplevel):
                 cb.pack(side='left')
                 self.entries.append(cb)
 
+        elif t == 'selling':
+            self._row_text(body, s['key'], width=40)
+            ttk.Label(self, text='填下一個＝存這欄繼續；填寫完畢＝存並產出；先不填＝不填直接產出',
+                      foreground='#888',
+                      font=('Microsoft JhengHei', 9)).pack(anchor='w', pady=(4, 0))
+
     def _row_number(self, parent, key, unit=None):
         f = ttk.Frame(parent); f.pack(anchor='w', pady=4)
         v = tk.StringVar(value=self._init_val(key))
@@ -319,6 +402,19 @@ class StepDialog(tk.Toplevel):
                 self.data[k] = raw
         return True
 
+    def _on_finish(self):
+        """訴求重點『填寫完畢』：存這欄後結束產出。"""
+        if not self._commit():
+            return
+        self.result = 'finish'
+        self.destroy()
+
+    def _on_finish_blank(self):
+        """訴求重點『先不填』：這欄不存，直接結束產出。"""
+        self.data.pop(self.step['key'], None)
+        self.result = 'finish'
+        self.destroy()
+
     def _on_back(self):
         self.result = 'back'
         self.destroy()
@@ -336,6 +432,20 @@ class StepDialog(tk.Toplevel):
 
     def _build_buttons(self):
         bf = ttk.Frame(self); bf.pack(pady=(12, 0), fill='x')
+
+        # 訴求重點：填下一個 / 填寫完畢；「先不填」只在第 1 欄出現
+        if self.step['type'] == 'selling':
+            if self.step.get('idx') == 1:
+                ttk.Button(bf, text='先不填',
+                           command=self._on_finish_blank).pack(side='left')
+            ttk.Button(bf, text='取消',
+                       command=self._on_cancel).pack(side='right')
+            ttk.Button(bf, text='填寫完畢',
+                       command=self._on_finish).pack(side='right', padx=4)
+            ttk.Button(bf, text='填下一個 (Enter)',
+                       command=self._on_next).pack(side='right', padx=4)
+            return
+
         ttk.Button(bf, text='← 上一步',
                    command=self._on_back).pack(side='left')
         ttk.Button(bf, text='略過',
