@@ -22,6 +22,12 @@ from bot_104 import Bot104, fetch_zoning
 from confirm_wizard import ConfirmWizard, _build_land_steps
 
 
+def _clean_floor_label(label: str) -> str:
+    """謄本『層次』欄位有些格式是『突出物一層：２５．７２平方公尺』，
+    後面那段是面積重複帶出來的，不是樓層名稱，填表只要冒號前面那段。"""
+    return re.split(r'[：:]', label, maxsplit=1)[0].strip()
+
+
 # ─────────────────────────────────────────────────────
 #  填表邏輯
 #  - 直接讀 .xltx 範本（openpyxl），不需 LibreOffice
@@ -80,18 +86,25 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
         fill('AG4')
 
     # ── 坪數（F3 總建坪 = SUM(F7:J31) 自動算，勿填）──
-    # 主建物「室內」下面有 5 格（F12/F14/F16/F18/F20，E欄「室內／F」是範本固定標籤，
-    # 不是程式寫的）：謄本記載幾層就分別填幾格，不要全部擠進 F12 一格
+    # 主建物「室內」下面有 5 格（E12/F12、E14/F14…E20/F20；E欄範本預設是
+    # 「室內」／「F」）：謄本記載幾層就分別填幾格，不要全部擠進 F12 一格
     # （超過 5 筆這個範本放不下，全數併進最後一格，並在 log 提醒要手動拆）
     floor_pings = data.get('floor_pings') or []
     floor_slots = ['F12', 'F14', 'F16', 'F18', 'F20']
+    label_slots = ['E12', 'E14', 'E16', 'E18', 'E20']
     if floor_pings:
         overflow = floor_pings[len(floor_slots) - 1:]
         shown = floor_pings[:len(floor_slots) - 1] if len(floor_pings) > len(floor_slots) else floor_pings
         for addr, (_, ping) in zip(floor_slots, shown):
             put(addr, ping)
+        # 只有真的有多層時才把 E 欄改寫成謄本實際層次名稱（一層/二層/突出物一層…）；
+        # 一般大樓單一樓層戶只有1筆，E12 維持範本預設「室內」，不要被謄本樓層字樣蓋掉。
+        if len(floor_pings) > 1:
+            for addr, (label, _) in zip(label_slots, shown):
+                put(addr, _clean_floor_label(label))
         if len(floor_pings) > len(floor_slots):
             put(floor_slots[len(shown)], round(sum(p for _, p in overflow), 2))
+            put(label_slots[len(shown)], '其他樓層合計')
             log(f'⚠ 主建物層數({len(floor_pings)})超過範本5格，最後一格已合併{len(overflow)}筆，請人工核對拆分')
     else:
         put('F12', data.get('area_indoor'))    # 室內（沒有逐層資料時退回總數）
@@ -690,18 +703,27 @@ class App(tk.Tk):
         bldg0 = parse_building(bldg_paths[0])
         data = merge(land0, bldg0)
 
-        # ── 地坪加總 ──
+        # ── 地坪加總 + 持分加總是否等於全部 ──
+        # 每張土地謄本的 area_land 已經是「這個所有權人的持分坪數」（merge() 用
+        # land_area × land_share 算的），所以加總才會是完整地坪；但舊版只加坪數，
+        # 沒有同步檢查持分加起來是不是剛好=1——結果 3 個共有人謄本都餵了、地坪也
+        # 加對了，所有權卻還是照 land0（第1筆）標「持分 3分之1」，沒有改標「全部」。
         if len(land_paths) > 1:
-            total, got = 0.0, False
+            total, share_total, got = 0.0, 0.0, False
             for i, lp in enumerate(land_paths):
                 di = data if i == 0 else merge(parse_land(lp), bldg0)
                 v = _to_num(di.get('area_land'))
-                self._log(f'   土地{i + 1} 地坪：{di.get("area_land")}')
+                self._log(f'   土地{i + 1} 地坪：{di.get("area_land")}（持分 {di.get("land_share")}）')
                 if v is not None:
                     total += v; got = True
+                if di.get('land_share'):
+                    share_total += _share_to_float(di['land_share'])
             if got:
                 data['area_land'] = round(total, 2)
                 self._log(f'  ✓ 地坪加總 {len(land_paths)} 筆 = {data["area_land"]} 坪')
+            if abs(share_total - 1.0) < 0.01:
+                data['ownership'] = '全部'
+                self._log(f'  ✓ 持分加總 ≈ {share_total:.3f}（等於全部），所有權改標「全部」而非「持分」')
 
         # ── 建物坪數加總（同一間只算一次）──
         #   建物標示部面積是「整間實際面積」，不隨持分切分：
@@ -809,23 +831,30 @@ class App(tk.Tk):
         """組土地表 data。座落用地段地號；多筆土地地坪加總。回傳 (data, land0)。"""
         land0 = parse_land(land_paths[0])
 
-        # 地坪 = 面積 × 持分，多筆加總
-        total, got = 0.0, False
+        # 地坪 = 面積 × 持分，多筆加總；持分也加總，加起來≈1才算「全部」
+        # （同一塊地餵了全部共有人的謄本，地坪加對了但所有權沒有跟著從
+        # land0單一筆的「持分」改標「全部」——跟建物案 _combine_parcels 同一個舊 bug）
+        total, share_total, got = 0.0, 0.0, False
         for i, lp in enumerate(land_paths):
             li = land0 if i == 0 else parse_land(lp)
             if li.get('land_area') and li.get('land_share'):
                 v = _to_ping(li['land_area'] * _share_to_float(li['land_share']))
-                self._log(f'   土地{i + 1} 地坪：{v}')
+                self._log(f'   土地{i + 1} 地坪：{v}（持分 {li.get("land_share")}）')
                 total += v; got = True
+                share_total += _share_to_float(li['land_share'])
         area_land = round(total, 2) if got else None
         if got and len(land_paths) > 1:
             self._log(f'  ✓ 地坪加總 {len(land_paths)} 筆 = {area_land} 坪')
+        ownership = '全部' if is_full_ownership(land0.get('land_share')) else '持分'
+        if len(land_paths) > 1 and abs(share_total - 1.0) < 0.01:
+            ownership = '全部'
+            self._log(f'  ✓ 持分加總 ≈ {share_total:.3f}（等於全部），所有權改標「全部」而非「持分」')
 
         data = {
             'address': f"{land0.get('city','')}{land0.get('district','')}"
                        f"{land0.get('section','')}{land0.get('land_no','')}",
             'area_land': area_land,
-            'ownership': '全部' if is_full_ownership(land0.get('land_share')) else '持分',
+            'ownership': ownership,
             'mortgage': bool(land0.get('mortgage_total')),
             'mortgage_amount': land0.get('mortgage_total'),
             'mortgage_bank': land0.get('mortgage_bank'),
