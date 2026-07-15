@@ -180,6 +180,7 @@ Skill 會自動：
 ## 接下來要做
 
 ### 立刻能做
+- **⚠️ 換 104woo 密碼**：`scripts/sale-form/bot_104.py` 舊版曾寫死真實登入帳密並進 git 歷史，repo 是 public，等於已外洩（2026-07-15 已改用 `.env`，見 `scripts/sale-form/.env.example`）。舊密碼本身要去 104woo 官網換掉，換完記得同步更新 git repo 的 `scripts/sale-form/.env` 跟桌面 `不動產售屋表工具_v3.4\zipinspect\.env`（兩份都不進 git，各自手動改）。
 - **公買搶單 — 收斂分層時段邊界**（機制全在 `scripts/keis/README.md`）：連看幾天 `logs/` + `page1_track.csv` + `appearances.csv`，確認熱門時段（06:00-10:00／18:00-24:00）邊界抓得對不對，樣本夠了再跟使用者一起調窄/調寬。
   - 未驗的另一半：07-14 對帳時薛力瑜 7 筆已在 KEIS 頁面逐號驗過；**周珈伊 7 筆需登入她帳號才能核**（密碼類使用者自己登入）。
 - **驗證 `scripts/keis/publish.py`（KEIS 廣告上架）**：照 README 設定 → `python publish.py --login` 手動登入一次 → `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次會錯（通用 `get_by_label` 寫法），失敗截圖 `keis_error_*.png`，下次 session 拿截圖調。**YC1868650 KEIS 還沒上架**，跑通就順便補上。
