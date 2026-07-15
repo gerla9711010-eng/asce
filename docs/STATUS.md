@@ -144,6 +144,7 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - **行事曆建立器**：`行事曆 ...` 文字或圖片 → Gemini 抽 `{title,start,end,location,description}` → Google Calendar primary 建 event → LINE 回覆（含失敗原因）
 - **客戶建檔器**：`客戶 ...` 文字或圖片（名片）→ Gemini 抽姓名/電話/公司/LINE/來源/狀態/標籤/備註/追蹤日 → Notion 客戶名單 DB 新增 → LINE 回覆（失敗會帶 Notion API 原始錯誤）
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發到行事曆建立器或客戶建檔器（分不出時預設客戶）
+- **KEIS 待聯絡提醒**（`workflows/keis-contact-reminder.json`，🟢 已上線）：每天 09:00 查搶單名單（`4f28b915…`）→ 挑出「聯絡狀態=未聯絡 且 搶到滿 7 天剩≤2 天(含當天/已過期)」→ 有的話推一則 LINE 給薛力瑜，沒有就不推。判定 trunc 與 Notion「倒數天數」欄位一致（🟡剩2/1天/今天、🔴已過期）。搭配 Notion 視圖「🔔 待聯絡」
 - **yc-ad skill**（`.claude/skills/yc-ad/SKILL.md`）：桌面 Claude Code 用。一個指令 `/yc-ad YCxxx` 或自然語言「發 YCxxx」即啟動全流程：產粉專+社團兩版文案 → 寫 Notion → 對話式接收後續粉專連結 / KEIS 同步指令 / 社團發文紀錄 / 撤除。文案規格詳見 SKILL.md：粉專 200-300 字，社團 50-80 字不放連結引導留言區，兩版下方都帶法規必填「凱璿誼峰不動產有限公司 + 字號」footer，聯絡人固定「薛先生 0912877583（同 LINE）+ LINE 連結 `https://line.me/ti/p/kg1pMk4vX8`」，不放 YC 編號 hashtag
 
 ## yc-ad skill 使用方式（桌面 Claude Code）
@@ -183,7 +184,6 @@ Skill 會自動：
   - 未驗的另一半：07-14 對帳時薛力瑜 7 筆已在 KEIS 頁面逐號驗過；**周珈伊 7 筆需登入她帳號才能核**（密碼類使用者自己登入）。
 - **驗證 `scripts/keis/publish.py`（KEIS 廣告上架）**：照 README 設定 → `python publish.py --login` 手動登入一次 → `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次會錯（通用 `get_by_label` 寫法），失敗截圖 `keis_error_*.png`，下次 session 拿截圖調。**YC1868650 KEIS 還沒上架**，跑通就順便補上。
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
-- **匯入「KEIS 待聯絡提醒」workflow**（`workflows/keis-contact-reminder.json`，桌面 `json\` 有一份）：開新空白 workflow → 匯入 → Activate。每天 09:00 查搶單名單，把「未聯絡且搶到滿 7 天剩≤2 天（含當天/已過期）」的推一則 LINE。⚠️ 前提：搶單名單 DB（`4f28b91531594c618725afc3ecc36e2f`）要在 Notion 分享給 n8n 那個 integration（Notion API Token `edOz4T0LC6EP41Ug`），否則查詢會 404。搭配 Notion「🔔 待聯絡」視圖。
 
 ### 中期
 - yc-ad skill 跑幾個物件後微調 SKILL.md 文案 prompt（口氣、社團排版變化度）
