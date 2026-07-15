@@ -25,7 +25,7 @@ load_dotenv()
 
 LOGIN_URL = 'https://www.104woo.com.tw/price/index.asp?aver=104&sno=1'
 
-# 登入帳密放 .env（複製 .env.example 填入實際值，.env 已 gitignore 不會進版控）
+# 登入帳密放同資料夾 .env（複製 .env.example 填入實際值）
 ACCOUNT = os.environ.get('WOO104_ACCOUNT', '')
 PASSWORD = os.environ.get('WOO104_PASSWORD', '')
 if not ACCOUNT or not PASSWORD:
@@ -161,8 +161,14 @@ class Bot104:
         self.log = log
         self.driver = None
 
+    # 找不到登入框時，依序改開這些頁面重試
+    LOGIN_FALLBACK_URLS = (
+        'https://www.104woo.com.tw/price/login.asp?aver=104&sno=1',
+        'https://www.104woo.com.tw/price/index.asp?aver=104&sno=1',
+    )
+
     # ── 開瀏覽器到登入頁，並自動登入 ──
-    def open_login(self):
+    def open_login(self) -> bool:
         opts = Options()
         opts.add_argument('--start-maximized')
         opts.add_experimental_option('excludeSwitches', ['enable-automation'])
@@ -170,20 +176,100 @@ class Bot104:
         self.driver = webdriver.Chrome(options=opts)
         self.driver.get(LOGIN_URL)
         self.log('🌐 已開啟 104，正在自動登入…')
-        self.login()
+        return self.login()
+
+    def _find_login_fields(self, timeout: int = 8):
+        """回傳 (id_box, code_box)；找不到回傳 (None, None)。"""
+        try:
+            id_box = WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.NAME, 'id')))
+            code_box = self.driver.find_element(By.NAME, 'code')
+            return id_box, code_box
+        except Exception:
+            return None, None
+
+    def _is_logged_in(self) -> bool:
+        """頁面還有「會員登入」字樣 → 尚未登入；沒有 → 視為已登入。
+        （index.asp 沒登入也有搜尋欄位，所以不能用 add1/asblo 判斷。）"""
+        d = self.driver
+        try:
+            body = d.find_element(By.TAG_NAME, 'body').text
+        except Exception:
+            return False
+        if not body.strip():
+            return False
+        return '會員登入' not in body
+
+    def _go_to_login_form(self) -> bool:
+        """點頁面上的「會員登入」連結進到登入表單（處理可能開新分頁）。"""
+        d = self.driver
+        before = set(d.window_handles)
+        for xp in ("//a[contains(normalize-space(.),'會員登入')]",
+                   "//a[contains(normalize-space(.),'登入')]",
+                   "//a[contains(@href,'login')]",
+                   "//img[contains(@src,'login')]/ancestor::a[1]"):
+            els = d.find_elements(By.XPATH, xp)
+            if not els:
+                continue
+            try:
+                d.execute_script("arguments[0].click();", els[0])
+                time.sleep(1.5)
+                new = set(d.window_handles) - before
+                if new:                       # 開了新分頁 → 切過去
+                    d.switch_to.window(new.pop())
+                    time.sleep(0.5)
+                return True
+            except Exception:
+                continue
+        return False
+
+    def _dump_html(self, filename: str, note: str = ''):
+        """把當下頁面 HTML 存到 output/，方便回傳除錯。"""
+        try:
+            import os as _os
+            out_dir = _os.path.join(_os.path.dirname(__file__), 'output')
+            _os.makedirs(out_dir, exist_ok=True)
+            path = _os.path.join(out_dir, filename)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(f'<!-- URL: {self.driver.current_url} -->\n')
+                if note:
+                    f.write(f'<!-- NOTE: {note} -->\n')
+                f.write(self.driver.page_source)
+            self.log(f'   已存頁面 HTML：{path}（回傳給我可診斷）')
+        except Exception as e:
+            self.log(f'   （存 HTML 失敗：{e}）')
 
     # ── 自動填帳密並送出 ──
     def login(self, account: str = ACCOUNT, password: str = PASSWORD) -> bool:
-        """在登入頁填 id/code 並按送出。已登入或找不到欄位則回傳 False。"""
+        """自動登入 104。策略：一律把登入表單找出來填，不預先猜是否已登入
+        （index.asp 沒登入也有搜尋欄位、導覽鈕是圖片，猜不準）。
+        以「有沒有 id/code 登入框」為唯一可靠訊號。"""
         d = self.driver
-        wait = WebDriverWait(d, 15)
-        try:
-            id_box = wait.until(EC.presence_of_element_located((By.NAME, 'id')))
-            code_box = d.find_element(By.NAME, 'code')
-        except Exception as e:
-            self.log(f'⚠ 找不到登入欄位（可能已登入）：{e}')
+        id_box, code_box = self._find_login_fields(timeout=6)
+
+        # 目前頁沒有登入框 → 點「會員登入」連結進表單
+        if not id_box and self._go_to_login_form():
+            self.log('  已點「會員登入」，尋找登入表單…')
+            id_box, code_box = self._find_login_fields(timeout=8)
+
+        # 還是沒有 → 依序改開已知登入頁
+        for url in self.LOGIN_FALLBACK_URLS:
+            if id_box:
+                break
+            self.log(f'  改開 {url.rsplit("/", 1)[-1]} 找登入表單…')
+            d.get(url); time.sleep(1.5)
+            # 有些頁登入框要再點一次會員登入才出現
+            id_box, code_box = self._find_login_fields(timeout=6)
+            if not id_box and self._go_to_login_form():
+                id_box, code_box = self._find_login_fields(timeout=6)
+
+        if not id_box:
+            # 遍尋不到登入表單：可能本來就已登入，也可能版面改了
+            self.log('⚠ 找不到登入表單（可能已登入，或版面改了）→ 請在瀏覽器確認')
+            self._dump_html('104_login_debug.html', '遍尋不到 id/code 登入表單')
             return False
 
+        # 填帳密
         try:
             id_box.clear();   id_box.send_keys(account)
             code_box.clear(); code_box.send_keys(password)
@@ -208,9 +294,14 @@ class Bot104:
             self.log(f'⚠ 送出登入失敗：{e}')
             return False
 
-        time.sleep(2)
-        self.log(f'🔑 已自動登入 104（帳號 {account}）')
-        return True
+        time.sleep(2.5)
+        # 驗證：登入框消失 = 已離開登入頁 = 成功
+        if not self._find_login_fields(timeout=3)[0]:
+            self.log(f'🔑 已自動登入 104（帳號 {account}）')
+            return True
+        self.log('⚠ 送出後仍停在登入頁，帳密可能有誤（可在瀏覽器手動登入）')
+        self._dump_html('104_login_debug.html', '送出後仍停在登入頁')
+        return False
 
     # ── 主流程：搜尋 → 找社區 → 抓社區導覽 ──
     def search_and_fetch(self, address: str) -> dict | None:

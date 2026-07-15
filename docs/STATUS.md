@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-15（公買搶單改成全天分層輪詢 `WATCH_TIERS`，取代單一早上時段；新增斷網退避＋LINE告警。桌面版跟 GitHub `scripts/keis/` 同步習慣：使用者說「收工」就雙邊同步）
+最後更新：2026-07-15（售屋表工具大修：主建物坪數/層次名稱逐層列出、多筆土地持分加總所有權判斷、車位wizard矛盾、地上權支援(沒選土地謄本=地上權)，全部用真實案例實測過，PR#48~51。收工同步習慣涵蓋 keis/ 與售屋表工具兩個桌面資料夾）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -175,7 +175,7 @@ Skill 會自動：
 | **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦），全天分層輪詢 | `scripts/keis/README.md` |
 | **KEIS 廣告上架** `scripts/keis/publish.py` | 🟡 待第一次實跑驗 selector，見下方待辦 | `scripts/keis/README.md` |
 | **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
-| **售屋表填寫** `scripts/sale-form/` | 🟢 全流程實測通過（少數座標待驗） | `scripts/sale-form/README.md` |
+| **售屋表填寫** `scripts/sale-form/` | 🟢 全流程實測通過；2026-07-15 大修坪數逐層/所有權/地上權 | `scripts/sale-form/README.md` |
 
 ## 接下來要做
 
