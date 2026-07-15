@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-15（售屋表工具大修：主建物坪數/層次名稱逐層列出、多筆土地持分加總所有權判斷、車位wizard矛盾、地上權支援(沒選土地謄本=地上權)，全部用真實案例實測過，PR#48~51。收工同步習慣涵蓋 keis/ 與售屋表工具兩個桌面資料夾）
+最後更新：2026-07-15（廣告系統 v2 改造計畫拍板，見「接下來要做」）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -177,19 +177,27 @@ Skill 會自動：
 | **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 全流程實測通過；2026-07-15 大修坪數逐層/所有權/地上權 | `scripts/sale-form/README.md` |
 
-## 接下來要做
+## 廣告系統 v2 改造計畫（2026-07-15 拍板，取代所有舊的廣告流程待辦）
 
-### 立刻能做
+**背景**：使用者實際用過 v1（yc-ad skill 對話式流程）後結論：人工介入太多太雜（一物件 11+ 次）。拍板重造，目標「上架 3 次接觸、下架 0~1 次，全部在 LINE 完成」。
+
+**目標流程**：
+1. LINE 傳「建檔 <永慶連結>」→ n8n 解析 + 產文案（粉專版+社團版）→ LINE 推預覽
+2. 使用者回「發」→ n8n 走 FB Graph API 自動發粉專文（自動附物件照片）→ permalink 存回 Notion、狀態=已發布 → LINE 推社團版文案
+3. 社團分層：重點 2-3 團手動貼原生文（效果），其餘社團用 FB「分享」功能撒網（分享自動帶原文照片文案；粉專原文刪除時分享全部自動失效）
+4. KEIS：門市電腦駐守腳本（同 grab.py 模式）輪詢 Notion「已發布且未同步」→ 自動上架 → 標已同步。無人工
+5. 下架：n8n cron 偵測永慶連結失效 → FB API 自動刪粉專文（分享連帶全滅）→ Notion 標下架 → LINE 通知 + 原生文手刪清單
+
+**建置順序**（每步獨立可用）：
+1. **FB 永久 token**（卡整座架構，最先做，需使用者出席約 1 小時）：走 Meta 企業管理平台 System User 發永久 Page token（`pages_manage_posts` 等），繞過前兩輪卡死的 redirect URI 問題（歷史見 git log 搜 `FBL4B`；舊 FB Apps 已棄置，直接重建）
+2. n8n 發文線：建檔 workflow 接「文案 → LINE 預覽 → 回『發』→ Graph API 發文（多照片）→ 存 permalink」
+3. 下架線：`yc-removal-detector` 接「Graph API 刪 post」+ 重新啟用 cron（舊的「等 6/1 額度」理由早已過期）
+4. KEIS 駐守：先驗證 `scripts/keis/publish.py` 能跑（`--login` 一次 → `publish.py YC1868650`，YC1868650 尚未上架），再改成輪詢模式駐店電腦
+5. 清舊：砍 `yc-rewrite-copy` workflow + router `生成文案` 出口；yc-ad skill 降級為維修工具（調文案/查狀態），改寫 SKILL.md
+
+**設計原則**：Notion 仍是唯一真相中心；「發」的人工確認保留（廣告法規責任，穩定後可拿掉）；FB 社團不做任何自動化（Groups API 已被 Meta 移除，瀏覽器機器人=封號風險）。
+
+## 其他待辦（非廣告系統）
+
 - **公買搶單 — 收斂分層時段邊界**（機制全在 `scripts/keis/README.md`）：連看幾天 `logs/` + `page1_track.csv` + `appearances.csv`，確認熱門時段（06:00-10:00／18:00-24:00）邊界抓得對不對，樣本夠了再跟使用者一起調窄/調寬。
   - 未驗的另一半：07-14 對帳時薛力瑜 7 筆已在 KEIS 頁面逐號驗過；**周珈伊 7 筆需登入她帳號才能核**（密碼類使用者自己登入）。
-- **驗證 `scripts/keis/publish.py`（KEIS 廣告上架）**：照 README 設定 → `python publish.py --login` 手動登入一次 → `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次會錯（通用 `get_by_label` 寫法），失敗截圖 `keis_error_*.png`，下次 session 拿截圖調。**YC1868650 KEIS 還沒上架**，跑通就順便補上。
-- 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
-
-### 中期
-- yc-ad skill 跑幾個物件後微調 SKILL.md 文案 prompt（口氣、社團排版變化度）
-- KEIS 腳本驗證能跑後，包成 FastAPI webhook 部到 Railway，串進 yc-ad skill 4b 步驟取代「貼操作指令包」
-- 等 yc-ad skill 用順手後，砍掉 n8n 的 `yc-rewrite-copy` workflow + router 的 `生成文案` 出口
-
-### 暫不做
-- **FB Graph API 自動排程粉專**：兩輪嘗試（2026-05-20 + 2026-05-21）都卡在 redirect URI host whitelist。詳細 debug 過程看 git log（搜 `FBL4B`）。粉專繼續用 Meta Business Suite 手動排程。要再戰可考慮：(a) 真實擁有的網域 + HTTPS server 當 redirect_uri；(b) Meta Business Manager System User 跳過 OAuth dialog；(c) app 翻 Live mode 看限制是否放寬
-- 留存的 FB Apps（都是棄置狀態，要重戰直接重建）：`1950187462277347`（事業類型）、`1532682778272952`（消費者類型 + FBL4B 組態 `2054313972110634`）
