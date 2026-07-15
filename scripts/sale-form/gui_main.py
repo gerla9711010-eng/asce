@@ -202,9 +202,11 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
     put('N26', data.get('total_units'))
     fill({'空屋': 'Y26', '自住': 'AC26', '租賃': 'AG26'}.get(data.get('current_status')))
 
-    # ── 所有權 ──
+    # ── 所有權（沒選土地謄本 = 地上權，見 _combine_parcels）──
     if data.get('ownership') == '全部':
         fill('B36')
+    elif data.get('ownership') == '地上權':
+        fill('G38')
     else:
         fill('B38'); put('H38', data.get('land_share'))
 
@@ -569,10 +571,10 @@ class App(tk.Tk):
     def _open_104(self):
         if self._land_not_ready():
             return
-        if not self._land_paths() or not self._bldg_paths():
+        if not self._bldg_paths():
             messagebox.showwarning('請先選謄本',
-                '請先選土地與建物謄本 PDF，再開 104。\n'
-                '（程式會用第 1 筆建物謄本的門牌去搜尋 104）')
+                '請先選建物謄本 PDF，再開 104。\n'
+                '（程式會用第 1 筆建物謄本的門牌去搜尋 104；地上權案件可以不選土地謄本）')
             return
         self.btn_104_open.config(state='disabled')
         self.lbl_104_status.config(text='⏳ 啟動瀏覽器…', foreground='#888')
@@ -698,9 +700,18 @@ class App(tk.Tk):
         建物坪 = 所有建物謄本坪數加總（多建號：主建物＋增建＋車位建號…）
         其餘欄位（門牌/格局/樓層/社區…）取第 1 筆土地 + 第 1 筆建物。
         回傳 (data, land0)；land0 供使用分區查詢用（以第 1 筆地號為準）。
+
+        land_paths 可以是空的：地上權案件本來就沒有土地謄本（只有使用土地的
+        權利，不是所有權），這種案子跳過土地解析，所有權直接標「地上權」。
         """
-        land0 = parse_land(land_paths[0])
         bldg0 = parse_building(bldg_paths[0])
+        if not land_paths:
+            land0 = {}
+            data = merge(land0, bldg0)
+            data['ownership'] = '地上權'
+            self._log('  ⓘ 沒有選土地謄本 → 視為地上權案件，所有權標「地上權」')
+            return data, land0
+        land0 = parse_land(land_paths[0])
         data = merge(land0, bldg0)
 
         # ── 地坪加總 + 持分加總是否等於全部 ──
@@ -796,10 +807,11 @@ class App(tk.Tk):
                              args=(land_paths,), daemon=True).start()
             return
 
-        # ── 建物案：土地 + 建物謄本 ──
+        # ── 建物案：建物謄本必填，土地謄本可以不選（地上權案件沒有土地謄本）──
         bldg_paths = self._bldg_paths()
-        if not land_paths or not bldg_paths:
-            messagebox.showerror('錯誤', '請先選擇土地與建物謄本 PDF')
+        if not bldg_paths:
+            messagebox.showerror('錯誤', '請先選擇建物謄本 PDF'
+                                  '\n（地上權案件沒有土地謄本可以不選，其餘案件請選）')
             return
 
         self.btn_run.config(state='disabled')
@@ -811,7 +823,8 @@ class App(tk.Tk):
             self._log('── 解析謄本 ...')
             data, land = self._combine_parcels(land_paths, bldg_paths)
             data['building_type'] = self.bldg_type_var.get()   # 手動選的建物型態，蓋掉自動判斷
-            self._log(f"  地號：{land.get('district','')}{land.get('section','')} {land.get('land_no','')}")
+            if land:
+                self._log(f"  地號：{land.get('district','')}{land.get('section','')} {land.get('land_no','')}")
             self._log(f"  門牌：{data.get('address')}")
             if self.data_104:
                 self._apply_104(data, self.data_104)
