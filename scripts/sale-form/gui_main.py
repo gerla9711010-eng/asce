@@ -10,15 +10,16 @@ import sys
 import datetime
 
 # ── 路徑設定 ──────────────────────────────────────────
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE    = os.path.join(BASE_DIR, 'template', 'sale_template.xltx')
-OUTPUT_DIR  = os.path.join(BASE_DIR, 'output')
+BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE      = os.path.join(BASE_DIR, 'template', 'sale_template.xltx')
+TEMPLATE_LAND = os.path.join(BASE_DIR, 'template', 'land_template.xltx')
+OUTPUT_DIR    = os.path.join(BASE_DIR, 'output')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 sys.path.insert(0, BASE_DIR)
-from parser import parse_land, parse_building, merge
+from parser import parse_land, parse_building, merge, _to_ping, _share_to_float, is_full_ownership
 from bot_104 import Bot104, fetch_zoning
-from confirm_wizard import ConfirmWizard
+from confirm_wizard import ConfirmWizard, _build_land_steps
 
 
 # ─────────────────────────────────────────────────────
@@ -27,7 +28,12 @@ from confirm_wizard import ConfirmWizard
 #  - 只寫指定資料格；選項方格填黃色；函數格(F3 總建坪 / W3 單價)完全不碰
 #  - 儲存格座標依範本實際合併格對位（2026-05 重校）
 # ─────────────────────────────────────────────────────
-def fill_excel(data: dict, output_path: str):
+def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print):
+    """填售屋表 / 租賃表。
+    租賃表與售屋表同一張範本，唯一差別：把「總價款:」標籤換成「月租:」，
+    金額仍填 N3（單價 W3=TRUNC(N3/F3) 自動變成月租/坪）。其餘欄位完全一樣。
+    log：填表過程有需要人工核對的狀況（欄位放不下）時用來提醒，預設 print；
+    GUI 呼叫時應傳 self._log，不然警告會印到看不到的地方，等於沒提醒。"""
     from openpyxl import load_workbook
     from openpyxl.utils import coordinate_to_tuple
     from openpyxl.styles import PatternFill
@@ -37,6 +43,9 @@ def fill_excel(data: dict, output_path: str):
     wb = load_workbook(TEMPLATE)
     wb.template = False   # 範本是 .xltx，不關掉這旗標存出的 .xlsx 內部類型會是 template.main+xml，別台電腦 Excel 拒開
     ws = wb.active
+
+    if is_rental:
+        ws['L3'] = '月 租:'   # 售屋表的「總價款:」→ 租賃改成「月租:」（金額同樣填 N3）
 
     def put(addr, value):
         """寫值到合併格左上角"""
@@ -71,9 +80,35 @@ def fill_excel(data: dict, output_path: str):
         fill('AG4')
 
     # ── 坪數（F3 總建坪 = SUM(F7:J31) 自動算，勿填）──
-    put('F12', data.get('area_indoor'))    # 室內
+    # 主建物「室內」下面有 5 格（F12/F14/F16/F18/F20，E欄「室內／F」是範本固定標籤，
+    # 不是程式寫的）：謄本記載幾層就分別填幾格，不要全部擠進 F12 一格
+    # （超過 5 筆這個範本放不下，全數併進最後一格，並在 log 提醒要手動拆）
+    floor_pings = data.get('floor_pings') or []
+    floor_slots = ['F12', 'F14', 'F16', 'F18', 'F20']
+    if floor_pings:
+        overflow = floor_pings[len(floor_slots) - 1:]
+        shown = floor_pings[:len(floor_slots) - 1] if len(floor_pings) > len(floor_slots) else floor_pings
+        for addr, (_, ping) in zip(floor_slots, shown):
+            put(addr, ping)
+        if len(floor_pings) > len(floor_slots):
+            put(floor_slots[len(shown)], round(sum(p for _, p in overflow), 2))
+            log(f'⚠ 主建物層數({len(floor_pings)})超過範本5格，最後一格已合併{len(overflow)}筆，請人工核對拆分')
+    else:
+        put('F12', data.get('area_indoor'))    # 室內（沒有逐層資料時退回總數）
+
     put('F22', data.get('area_balcony'))   # 陽台
     put('F24', data.get('area_canopy'))    # 雨遮/花台
+
+    # 附屬建物裡謄本上有、但不是陽台/雨遮/花台的類型 → 填進「其他-」欄（只有一格，
+    # 超過一筆合併填同一格並在 log 提醒，避免默默漏掉某個坪數）
+    extra = data.get('extra_attachments') or []
+    if extra:
+        labels = '、'.join(lbl for lbl, _ in extra)
+        put('C26', f'其他-{labels}')
+        put('F26', round(sum(p for _, p in extra), 2))
+        if len(extra) > 1:
+            log(f'⚠ 附屬建物有{len(extra)}種未分類類型（{labels}），已合併填同一格，請人工核對拆分')
+
     put('F28', data.get('area_parking'))   # 車位
     put('F30', data.get('area_common'))    # 其他公設
     put('F32', data.get('area_land'))      # 地坪
@@ -211,6 +246,109 @@ def fill_excel(data: dict, output_path: str):
 
 
 # ─────────────────────────────────────────────────────
+#  土地表填寫（獨立版型，與售屋/租賃不同範本）
+#  規則同售屋表：值填標籤右格、打勾格填黃色、函數格不碰
+#  座標依 land_template.xltx 實際合併格對位
+# ─────────────────────────────────────────────────────
+def fill_land(data: dict, output_path: str, is_rental: bool = False):
+    from openpyxl import load_workbook
+    from openpyxl.utils import coordinate_to_tuple
+    from openpyxl.styles import PatternFill
+
+    YELLOW = PatternFill(fill_type='solid', fgColor='FFFF00')
+
+    wb = load_workbook(TEMPLATE_LAND)
+    wb.template = False   # 同售屋表：關掉範本旗標，別台電腦才開得了
+    ws = wb.active
+
+    def put(addr, value):
+        if value is None or value == '':
+            return
+        ws[addr] = value
+
+    def fill(addr):
+        if not addr:
+            return
+        r, c = coordinate_to_tuple(addr)
+        for mc in ws.merged_cells.ranges:
+            if mc.min_row <= r <= mc.max_row and mc.min_col <= c <= mc.max_col:
+                for rr in range(mc.min_row, mc.max_row + 1):
+                    for cc in range(mc.min_col, mc.max_col + 1):
+                        ws.cell(rr, cc).fill = YELLOW
+                return
+        ws[addr].fill = YELLOW
+
+    # ── 標頭 ──
+    put('D2', data.get('case_name'))       # 案名
+    put('L2', data.get('address'))         # 物件座落（土地：地段地號）
+    put('AL2', data.get('key_no'))         # 鑰匙編號
+
+    # ── 地坪 ──
+    put('E4', data.get('area_land'))       # 地坪（坪）
+
+    # ── 總價款 / 租金 ──
+    if is_rental:
+        put('J9', data.get('price'))       # 租金（萬）
+        put('J14', data.get('deposit'))    # 押金（萬）
+    else:
+        put('J4', data.get('price'))       # 總價款（萬）
+
+    # ── 貸款（他項權利）──
+    if data.get('mortgage'):
+        fill('Z5')                         # 有
+        put('AB4', data.get('mortgage_amount'))
+        put('AG4', data.get('mortgage_bank'))
+    else:
+        fill('V5')                         # 無
+
+    # ── 面前道路 ──
+    put('AG8', data.get('road_width'))
+
+    # ── 建蔽率 / 容積率 / 寬度 / 長度（外部來源或手動）──
+    put('E9',  data.get('coverage_ratio'))   # 建蔽率 %
+    put('E13', data.get('floor_ratio'))      # 容積率 %
+    put('E21', data.get('land_width'))       # 寬度 米
+    put('E25', data.get('land_depth'))       # 長度 米
+
+    # ── 土地分區（使用分區查詢補入）──
+    uz = data.get('usage_zone') or ''
+    sz = data.get('special_zone') or ''
+    put('E17', sz or uz)                     # 完整分區文字，例：第三種住宅區
+
+    # ── 用途（謄本使用地類別，預設建地）──
+    put('J21', data.get('usage_type') or '建地')
+
+    # ── 地上建物：有才填隔局（房/廳/衛）──
+    if data.get('_has_building') == '有':
+        put('S9',  data.get('lot_rooms'))
+        put('W9',  data.get('lot_halls'))
+        put('AA9', data.get('lot_baths'))
+
+    # ── 現況（空地 / 建物 / 租賃）──
+    cur = data.get('current_status') or ('租賃' if is_rental else '空地')
+    fill({'空地': 'T25', '建物': 'W25', '租賃': 'AA25'}.get(cur))
+
+    # ── 所有權 全部 / 持分（此表用實心■/空心□，非黃底）──
+    if data.get('ownership') == '全部':
+        ws['A31'] = '■'; ws['E31'] = '□'
+    else:
+        ws['A31'] = '□'; ws['E31'] = '■'
+
+    # ── 訴求重點（最多 9 欄，確認視窗逐欄輸入）──
+    for cell, pt in zip(['AD29', 'AD31', 'AD33', 'AD35', 'AD37',
+                         'AD39', 'AD41', 'AD43', 'AD45'],
+                        data.get('selling_points', [])):
+        put(cell, pt)
+
+    # ── 專員 ──
+    put('D39', data.get('agent_name', '薛力瑜'))
+    put('D41', data.get('agent_phone'))
+
+    wb.save(output_path)
+    return output_path
+
+
+# ─────────────────────────────────────────────────────
 #  數字工具（坪數加總用）
 # ─────────────────────────────────────────────────────
 def _to_num(v):
@@ -239,6 +377,42 @@ class App(tk.Tk):
     # ── UI 建立 ──────────────────────────────
     def _build_ui(self):
         pad = dict(padx=12, pady=6)
+
+        # 表格類型（一開始手動選：決定走哪條填表分支）
+        frame_type = ttk.LabelFrame(self, text='① 先選表格類型', padding=8)
+        frame_type.pack(fill='x', **pad)
+
+        self.trans_var     = tk.StringVar(value='買賣')   # 買賣 / 租賃
+        self.obj_kind_var  = tk.StringVar(value='建物')   # 建物 / 土地
+        self.bldg_type_var = tk.StringVar(value='大樓')   # 大樓 / 透天 / 公寓
+        self._DEF_BG = self.cget('bg')                    # 未選中時的底色
+
+        # 第一行：買賣 / 租賃
+        ttk.Label(frame_type, text='交易類型：').grid(row=0, column=0, sticky='w', pady=2)
+        row_t = ttk.Frame(frame_type); row_t.grid(row=0, column=1, sticky='w')
+        self._trans_btns = {}
+        for v in ('買賣', '租賃'):
+            b = tk.Button(row_t, text=v, width=8, relief='ridge', bd=2,
+                          command=lambda x=v: self._select_trans(x))
+            b.pack(side='left', padx=3)
+            self._trans_btns[v] = b
+
+        # 第二行：建物 / 土地（＋建物時的型態下拉）
+        ttk.Label(frame_type, text='物件類型：').grid(row=1, column=0, sticky='w', pady=2)
+        row_o = ttk.Frame(frame_type); row_o.grid(row=1, column=1, sticky='w')
+        self._obj_btns = {}
+        for v in ('建物', '土地'):
+            b = tk.Button(row_o, text=v, width=8, relief='ridge', bd=2,
+                          command=lambda x=v: self._select_obj(x))
+            b.pack(side='left', padx=3)
+            self._obj_btns[v] = b
+        self.cb_bldg_type = ttk.Combobox(row_o, textvariable=self.bldg_type_var,
+                                         values=['大樓', '透天', '公寓'],
+                                         state='readonly', width=8)
+        self.cb_bldg_type.pack(side='left', padx=(12, 0))
+
+        self._select_trans('買賣')   # 套用預設高亮
+        self._select_obj('建物')
 
         # 謄本選擇（多持分：土地/建物都可按 ＋新增 加列，坪數會自動加總）
         frame_pdf = ttk.LabelFrame(self, text='謄本 PDF（多持分可按 ＋新增，坪數自動加總）', padding=8)
@@ -326,6 +500,46 @@ class App(tk.Tk):
     def _bldg_paths(self):
         return [v.get().strip() for v in self.bldg_vars if v.get().strip()]
 
+    # ── 表格類型選擇（螢光黃高亮）────────────
+    def _select_trans(self, value):
+        self.trans_var.set(value)
+        self._highlight(self._trans_btns, value)
+
+    def _select_obj(self, value):
+        self.obj_kind_var.set(value)
+        self._highlight(self._obj_btns, value)
+        if value == '建物':          # 建物才顯示型態下拉（大樓/透天/公寓）
+            self.cb_bldg_type.pack(side='left', padx=(12, 0))
+        else:                        # 土地：收起下拉，走土地流程
+            self.cb_bldg_type.pack_forget()
+
+    def _highlight(self, btns, selected):
+        YELLOW = '#FFF200'           # 螢光黃
+        for v, b in btns.items():
+            if v == selected:
+                b.config(bg=YELLOW, activebackground=YELLOW, relief='solid',
+                         font=('TkDefaultFont', 9, 'bold'))
+            else:
+                b.config(bg=self._DEF_BG, activebackground=self._DEF_BG,
+                         relief='ridge', font=('TkDefaultFont', 9, 'normal'))
+
+    # ── 表格類型判斷 ────────────────────────
+    def _is_rental(self):
+        return self.trans_var.get() == '租賃'
+
+    def _is_land(self):
+        return self.obj_kind_var.get() == '土地'
+
+    def _land_not_ready(self):
+        """104 查詢只適用建物案；土地案不需要 104，擋下並提示。"""
+        if self._is_land():
+            messagebox.showinfo(
+                '土地案免 104',
+                '土地案不需要 104 社區查詢。\n'
+                '請直接選好土地謄本，按「開始產出售屋表」即可。')
+            return True
+        return False
+
     # ── 檔案選擇 ────────────────────────────
     def _pick_pdf(self, var):
         p = filedialog.askopenfilename(filetypes=[('PDF 檔案', '*.pdf')])
@@ -340,6 +554,8 @@ class App(tk.Tk):
 
     # ── 開啟 104 給使用者登入 ────────────────
     def _open_104(self):
+        if self._land_not_ready():
+            return
         if not self._land_paths() or not self._bldg_paths():
             messagebox.showwarning('請先選謄本',
                 '請先選土地與建物謄本 PDF，再開 104。\n'
@@ -374,7 +590,8 @@ class App(tk.Tk):
         try:
             self._log('── 解析謄本 ...')
             data, land = self._combine_parcels(self._land_paths(), self._bldg_paths())
-            self._log(f'  門牌：{data.get("address")}')
+            data['building_type'] = self.bldg_type_var.get()   # 手動選的建物型態，蓋掉自動判斷
+            self._log(f'  門牌：{data.get("address")}（建物型態：{data["building_type"]}）')
 
             # 用門牌跑 104
             self._log('── 自動搜尋 104 …')
@@ -428,12 +645,14 @@ class App(tk.Tk):
             self.lbl_104_status.config(text='（已關閉 104 視窗）', foreground='#888')
 
     def _produce(self, data: dict):
-        self._log('── 填寫售屋表 ...')
+        is_rental = self._is_rental()
+        kind = '租賃表' if is_rental else '售屋表'
+        self._log(f'── 填寫{kind} ...')
         ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         addr_short = (data.get('address') or '物件').replace('高雄市', '').replace('屏東縣', '')[:20]
-        out_name = f"售屋表_{addr_short}_{ts}.xlsx"
+        out_name = f"{kind}_{addr_short}_{ts}.xlsx"
         out_path = os.path.join(self.out_var.get(), out_name)
-        fill_excel(data, out_path)
+        fill_excel(data, out_path, is_rental=is_rental, log=self._log)
         self._log(f'✅ 完成！輸出：{out_path}')
         self._log('──────────────────────────────')
         if sys.platform == 'win32':
@@ -544,8 +763,19 @@ class App(tk.Tk):
     # ── 主流程 ──────────────────────────────
     def _run(self):
         land_paths = self._land_paths()
-        bldg_paths = self._bldg_paths()
 
+        # ── 土地案：只需土地謄本，走土地分支 ──
+        if self._is_land():
+            if not land_paths:
+                messagebox.showerror('錯誤', '請先選擇土地謄本 PDF')
+                return
+            self.btn_run.config(state='disabled')
+            threading.Thread(target=self._worker_land,
+                             args=(land_paths,), daemon=True).start()
+            return
+
+        # ── 建物案：土地 + 建物謄本 ──
+        bldg_paths = self._bldg_paths()
         if not land_paths or not bldg_paths:
             messagebox.showerror('錯誤', '請先選擇土地與建物謄本 PDF')
             return
@@ -558,6 +788,7 @@ class App(tk.Tk):
         try:
             self._log('── 解析謄本 ...')
             data, land = self._combine_parcels(land_paths, bldg_paths)
+            data['building_type'] = self.bldg_type_var.get()   # 手動選的建物型態，蓋掉自動判斷
             self._log(f"  地號：{land.get('district','')}{land.get('section','')} {land.get('land_no','')}")
             self._log(f"  門牌：{data.get('address')}")
             if self.data_104:
@@ -572,6 +803,87 @@ class App(tk.Tk):
             self._log(f'❌ 錯誤：{e}')
             self._log(traceback.format_exc())
             self.after(0, lambda: self._reset_after_run(close_bot=False))
+
+    # ── 土地案流程（只需土地謄本，無建物、無 104）──────────
+    def _build_land_data(self, land_paths):
+        """組土地表 data。座落用地段地號；多筆土地地坪加總。回傳 (data, land0)。"""
+        land0 = parse_land(land_paths[0])
+
+        # 地坪 = 面積 × 持分，多筆加總
+        total, got = 0.0, False
+        for i, lp in enumerate(land_paths):
+            li = land0 if i == 0 else parse_land(lp)
+            if li.get('land_area') and li.get('land_share'):
+                v = _to_ping(li['land_area'] * _share_to_float(li['land_share']))
+                self._log(f'   土地{i + 1} 地坪：{v}')
+                total += v; got = True
+        area_land = round(total, 2) if got else None
+        if got and len(land_paths) > 1:
+            self._log(f'  ✓ 地坪加總 {len(land_paths)} 筆 = {area_land} 坪')
+
+        data = {
+            'address': f"{land0.get('city','')}{land0.get('district','')}"
+                       f"{land0.get('section','')}{land0.get('land_no','')}",
+            'area_land': area_land,
+            'ownership': '全部' if is_full_ownership(land0.get('land_share')) else '持分',
+            'mortgage': bool(land0.get('mortgage_total')),
+            'mortgage_amount': land0.get('mortgage_total'),
+            'mortgage_bank': land0.get('mortgage_bank'),
+            'usage_type': land0.get('usage_type') or '建地',
+            'usage_zone_raw': land0.get('usage_zone_raw'),
+            # 給使用分區查詢
+            'district': land0.get('district', ''),
+            'section': land0.get('section', ''),
+            'land_no': land0.get('land_no', ''),
+            'agent_name': '薛力瑜',
+            'selling_points': [],
+        }
+        return data, land0
+
+    def _worker_land(self, land_paths):
+        try:
+            self._log('── 解析土地謄本 ...')
+            data, land = self._build_land_data(land_paths)
+            self._log(f"  地段：{data.get('address')}｜地坪：{data.get('area_land')}｜所有權：{data.get('ownership')}")
+            self._log('── 查詢使用分區 …')
+            self._apply_zoning(data, land, driver=None)
+            if data.get('usage_zone') or data.get('special_zone'):
+                self._log(f"  分區：{data.get('special_zone') or data.get('usage_zone')}")
+            self.after(0, lambda d=data: self._wizard_and_produce_land(d))
+        except Exception as e:
+            import traceback
+            self._log(f'❌ 錯誤：{e}')
+            self._log(traceback.format_exc())
+            self.after(0, self._reset_after_run)
+
+    def _wizard_and_produce_land(self, data: dict):
+        try:
+            self._log('── 跳出土地確認視窗，逐項確認 ...')
+            steps = _build_land_steps(is_rental=self._is_rental())
+            wiz = ConfirmWizard(self, data, log=self._log, steps=steps)
+            result = wiz.run()
+            if result is None:
+                return
+            self._produce_land(result)
+        except Exception as e:
+            import traceback
+            self._log(f'❌ 錯誤：{e}')
+            self._log(traceback.format_exc())
+        finally:
+            self._reset_after_run()
+
+    def _produce_land(self, data: dict):
+        is_rental = self._is_rental()
+        kind = '土地租賃表' if is_rental else '土地表'
+        self._log(f'── 填寫{kind} ...')
+        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        addr_short = (data.get('address') or '土地').replace('高雄市', '').replace('屏東縣', '')[:20]
+        out_path = os.path.join(self.out_var.get(), f"{kind}_{addr_short}_{ts}.xlsx")
+        fill_land(data, out_path, is_rental=is_rental)
+        self._log(f'✅ 完成！輸出：{out_path}')
+        self._log('──────────────────────────────')
+        if sys.platform == 'win32':
+            os.startfile(os.path.dirname(out_path))
 
 
 if __name__ == '__main__':

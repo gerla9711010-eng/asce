@@ -9,6 +9,7 @@
 - `gui_main.py`：主程式（tkinter GUI）+ 填表邏輯（`fill_excel`）
 - `bot_104.py`：Selenium 駕駛 104woo（自動登入、搜社區）+ 高雄市使用分區查詢（`fetch_zoning`）
 - `confirm_wizard.py`：開始產出前的逐項確認視窗
+- `parser.py`：謄本 PDF 解析（`parse_land` / `parse_building` / `merge`）——2026-07-15 起改進版控（之前只在本機，改壞了沒有版本可以回頭救）
 
 ## 執行
 ```
@@ -23,8 +24,7 @@ cp .env.example .env
 ```
 
 ## 本機相依（未進版控，在使用者本機 zip 內）
-- `parser.py`：謄本 PDF 解析（`parse_land` / `parse_building` / `merge`）
-- `template/sale_template.xltx`：售屋表 Excel 範本
+- `template/sale_template.xltx`：售屋表 Excel 範本（二進位檔，故意不進 git）
 - `output/`：產出資料夾
 - 套件：`selenium`、`openpyxl`、`python-dotenv`、Chrome + chromedriver
 
@@ -41,7 +41,9 @@ cp .env.example .env
 - 其他（市場用地等）→ G44 填整串文字並塗黃
 
 ## 注意
-- 104 登入帳密改放 `.env`（`WOO104_ACCOUNT` / `WOO104_PASSWORD`，已 gitignore）。⚠️ **舊版帳密曾寫死在 `bot_104.py` 並進了 git 歷史**（repo 是 public，等於已外洩）——2026-07-15 已改用 `.env`，但舊密碼本身務必去 104woo 換掉，改 code 救不回已外洩的舊密碼。
+- 104 登入帳密改放 `.env`（`WOO104_ACCOUNT` / `WOO104_PASSWORD`，已 gitignore）。舊版帳密曾寫死在 `bot_104.py` 並進了 git 歷史（repo 是 public，等於已外洩過）——2026-07-15 已改用 `.env`；使用者確認那是低價值公司共用帳號，不需要換密碼。
 - 謄本門牌須為含「縣市＋行政區」的完整格式；舊版謄本若門牌缺縣市區，地址會不完整。
 - **⚠️ 實際運行版在本機 `OneDrive\桌面\不動產售屋表工具_v3.4\zipinspect\`，git 這份只是副本**。改 git 不會影響本機在跑的工具，兩邊要同步改。
 - **`fill_excel()` 存檔前必須 `wb.template = False`**：範本是 `.xltx`，openpyxl 讀進來會記住範本旗標，不關掉存出的 `.xlsx` 內部類型會是 `template.main+xml`，嚴格版 Excel（別台電腦）直接拒開。已修（git + 本機兩份都改）。
+- **主建物坪數依謄本逐層列出**（2026-07-15 修）：`parse_building()` 舊版用 `re.search` 只抓第一筆「層次 X 層次面積 Y」，透天等多層建物的 2 樓以上、突出物全部漏掉，整棟坪數擠進 `F12`「室內」一格，`F14/F16/F18/F20`（範本的 4 個「F」列）永遠空白。改用 `re.finditer` 抓全部層次，`fill_excel()` 依序分別填進這 5 格；超過 5 筆（範本格數上限）會合併進最後一格並在 log 提醒人工核對。附屬建物若出現非「陽台/雨遮/花台」的類型，會另外填進「其他-」欄（`C26`/`F26`），不再默默漏掉。
+- **入口型式（車位）wizard 步驟已補 show 條件**（2026-07-15 修）：`confirm_wizard.py` 車位「有無」答「無」後會跳過車位細節（位置/樓層/編號/類型/機械層位），但舊版「入口型式」（坡道式/機械升降式，本來就是車位入口的敘述）沒有這個條件，沒車位還是會被問、答了還會填進表格，邏輯矛盾。已補 `show: _parking_yn == '有'`。
