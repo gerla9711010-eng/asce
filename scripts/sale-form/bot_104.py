@@ -10,6 +10,7 @@
 # data = {community_name, builder, total_units, school_primary, school_junior,
 #         special_zone, guard, floor_low_high}  或 None（查無）
 
+import os
 import re
 import time
 import urllib.parse
@@ -18,13 +19,17 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from dotenv import load_dotenv
 
+load_dotenv()
 
 LOGIN_URL = 'https://www.104woo.com.tw/price/index.asp?aver=104&sno=1'
 
-# 寫死的登入帳密（自動登入用）
-ACCOUNT  = '0921030914'
-PASSWORD = '888168'
+# 登入帳密放 .env（複製 .env.example 填入實際值，.env 已 gitignore 不會進版控）
+ACCOUNT = os.environ.get('WOO104_ACCOUNT', '')
+PASSWORD = os.environ.get('WOO104_PASSWORD', '')
+if not ACCOUNT or not PASSWORD:
+    print('⚠ 未設定 WOO104_ACCOUNT / WOO104_PASSWORD（複製 .env.example 成 .env 並填入），自動登入會失敗，需手動輸入帳密')
 
 # 高雄市土地使用分區查詢（免登入）
 ZONING_URL = 'https://urban-web.kcg.gov.tw/KDA/web_page/UBA020200.jsp'
