@@ -8,13 +8,15 @@ KEIS 公買搶單自動化（輕量無瀏覽器版）
 ⚠️ 這個功能 KEIS「僅限門市內使用」——伺服器會擋 IP，只有門市網路能用。
    所以本腳本要跑在「店裡、連門市網路、且一直開著」的電腦上（例如公司電腦不關機）。
 
-無人看管長期跑：watch 模式會一直循環，時段外閒置、時段內高頻掃；遇到暫時性錯誤
-（斷網、逾時）不會死，會自己重試。搭配 run.bat 開機自動啟動 + 掛掉自動重開。
+無人看管長期跑：watch 模式全天候循環，依 WATCH_TIERS 分時段用不同頻率掃(熱門時段高頻、
+一般時段中頻、深夜低頻)；遇到暫時性錯誤（斷網、逾時）不會死，會自己重試(3~8秒)；
+連續失敗夠多次(判斷是真的斷網而非開盤塞車)會自動拉長到5分鐘一次並推LINE告知，恢復時也會推。
+搭配 run.bat 開機自動啟動 + 掛掉自動重開。
 
 用法:
     python grab.py                 # 單次 dry-run：列出「這次會搶誰」，不送出
     python grab.py --apply         # 單次實搶
-    python grab.py --watch         # 常駐監控(dry-run)：早上時段高頻掃，只印不搶
+    python grab.py --watch         # 常駐監控(dry-run)：全天分層掃，只印不搶
     python grab.py --watch --apply # 常駐監控 + 實搶（正式；開機自動跑就是這個）
 
 環境變數（.env）:
@@ -56,16 +58,36 @@ MAX_APPLY_PER_RUN = None     # 單次執行最多搶幾筆；None = 搶到當日
 DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 
 # --- watch 常駐監控模式設定（本機時間，店裡電腦請設成 Asia/Taipei）---
-WATCH_WINDOWS = [("06:00", "09:30")]  # 只在這些時段高頻掃；(開始, 結束) 24h 制，可放多段。起點拉到06:00：讓上架偵測基準在釋出前就建好，量得到真實釋出時刻，也不錯過早於07:30的釋出（純觀測不吃配額）
-POLL_INTERVAL_SEC = 5       # 時段內每幾秒掃一次
+# 2026-07-15 改成全天分層輪詢，不再有「時段外」完全不看：熱門時段(早上開盤+晚上同業活躍)
+# 用高頻、白天一般時段用中頻、深夜幾乎沒人動用低頻。(開始, 結束, 間隔秒數)，24h 制、需連續涵蓋一整天。
+WATCH_TIERS = [
+    ("06:00", "10:00", 5),     # 熱門：早上開盤 + 觀察到的同業活躍窗口
+    ("10:00", "18:00", 60),    # 一般：白天，1 分鐘一次
+    ("18:00", "24:00", 5),     # 熱門：晚上同業活躍(實測 19:2x~19:5x 有申請潮)
+    ("00:00", "06:00", 1800),  # 深夜：30 分鐘一次，純安全網
+]
 POLL_JITTER_SEC = 3          # 每次再隨機 ±這個秒數，別像節拍器（越大越不規律）
-OFF_WINDOW_RECHECK_SEC = 600 # 時段外最久睡多久就醒來重算
-OBSERVE_INTERVAL_SEC = 30    # 配額用完後改「純觀測上架時間」，每幾秒掃一次（不搶、不吃配額）
+
+
+def _hhmm_to_min(s: str) -> int:
+    h, m = s.split(":")
+    return int(h) * 60 + int(m)
+
+
+def current_tier_interval(now: "datetime") -> int:
+    """回傳現在這一刻該用的輪詢間隔秒數。WATCH_TIERS 需連續涵蓋 00:00~24:00，沒對到就用保守的60秒。"""
+    minutes = now.hour * 60 + now.minute
+    for start, end, interval in WATCH_TIERS:
+        if _hhmm_to_min(start) <= minutes < _hhmm_to_min(end):
+            return interval
+    return 60
 
 # --- 低調 / 抗尖峰設定 ---
 HTTP_TIMEOUT_SEC = 30        # 單次請求逾時；開盤塞車時多等一下再放棄
 ERROR_RETRY_MIN = 3          # 時段內遇暫時性錯誤(逾時等)後，最短幾秒重試
 ERROR_RETRY_MAX = 8          # ...最長幾秒（隨機取，別死等 30s 錯過開盤）
+ERROR_ESCALATE_AFTER = 10    # 連續失敗這麼多次(約30~80秒)還沒好，判斷是真的斷網而非開盤塞車
+ERROR_LONG_RETRY_SEC = 300   # 判斷斷網後改用這個間隔重試，別整夜每幾秒瘋狂重試灌爆log
 # 註：抓到多筆時是「一次全搶」(秒搶)，中間不留間隔——刻意保留最高搶單成功率
 # ==============================
 
@@ -97,18 +119,35 @@ def load_accounts() -> list[tuple]:
     return accts
 
 GRABBED_CSV = Path(__file__).parent / "grabbed.csv"
-LOG_FILE = Path(__file__).parent / "watch.log"
 APPEAR_CSV = Path(__file__).parent / "appearances.csv"   # 上架偵測：新名單第一次出現的時刻
 APPEAR_STATE = Path(__file__).parent / "appear_state.txt"  # 記住今天觀測基準（撐過重啟）
+LOG_DIR = Path(__file__).parent / "logs"           # 每日一份 log，獨立資料夾（舊版 watch.log 停用但保留原檔）
+LOG_RETENTION_DAYS = 50                            # 最多留幾天，超過從最舊的開始刪
+
+
+def _prune_old_logs() -> None:
+    files = sorted(LOG_DIR.glob("*.log"))          # 檔名是 YYYY-MM-DD.log，字串排序=日期排序
+    for old in files[:-LOG_RETENTION_DAYS]:
+        try:
+            old.unlink()
+        except Exception:
+            pass
 
 
 def log(msg: str) -> None:
-    """印出來 + 存進 watch.log（無人看管時才查得到發生什麼事）"""
-    line = f"{datetime.now():%Y-%m-%d %H:%M:%S} {msg}"
+    """印出來 + 存進 logs/YYYY-MM-DD.log（無人看管時才查得到發生什麼事）。
+    每天一個檔，超過 50 天自動砍最舊的。"""
+    now = datetime.now()
+    line = f"{now:%Y-%m-%d %H:%M:%S} {msg}"
     print(line)
     try:
-        with LOG_FILE.open("a", encoding="utf-8-sig") as f:
+        LOG_DIR.mkdir(exist_ok=True)
+        day_file = LOG_DIR / f"{now:%Y-%m-%d}.log"
+        is_new_day = not day_file.exists()
+        with day_file.open("a", encoding="utf-8-sig") as f:
             f.write(line + "\n")
+        if is_new_day:
+            _prune_old_logs()
     except Exception:
         pass
 
@@ -347,6 +386,63 @@ def observe_appearances(records: list, ap_day, ap_max):
     return today, ap_max
 
 
+def observe_status_changes(records: list, status_seen: dict) -> dict:
+    """觀測既有名單的狀態轉換(CoolingDown/Available 互轉)，抓真正的釋出/被申請時間點。
+    跟 observe_appearances 不同：那個只抓「全新單號」，這個抓「已經在看的單號，狀態變了」——
+    2026-07-15 發現同業申請的時間點藏在 app_time 欄位、且不限早上，才加這個補上缺口。
+    2026-07-15 加強：改記(status, app_time)組合，不只記狀態字串——輪詢間隔拉長後，有可能兩次
+    輪詢之間名單整個「解封成Available→被別人申請走」被一次吃掉，前後狀態字串都是CoolingDown、
+    表面上看不出變化，但 app_time 換了，代表中間確實新發生過一次申請，用這個訊號抓出「輪詢間隔
+    太粗、真的漏接了」的情況，別再只靠建檔日期或能不能申請這種籠統依據判斷。
+    只記錄「這輪跟上輪不一樣」的變化；第一次看到的單號只記基準、不記變化(不知道從哪個狀態轉來的)，
+    純觀測、不吃配額、不影響搶單邏輯。狀態表只留在記憶體，重啟會清空(可接受，跟其他觀測狀態一致)。"""
+    for r in records:
+        sid = r.get("summary_id")
+        if sid is None:
+            continue
+        cur_status = r.get("status")
+        cur_app = r.get("app_time")
+        prev = status_seen.get(sid)
+        if prev is not None:
+            prev_status, prev_app = prev
+            if prev_status != cur_status:
+                log(f"🔄 狀態變化 id{sid} {prev_status}→{cur_status}"
+                    f"（建檔 {str(r.get('start_time'))[:16]}，app_time={str(cur_app)[:16]}）"
+                    f"{r.get('target_city') or ''}{r.get('property_category') or ''}")
+            elif cur_app and prev_app != cur_app:
+                log(f"⚠ 疑似輪詢間隔漏接 id{sid}：狀態沒變({cur_status})但申請時間換了"
+                    f"（{str(prev_app)[:16]} → {str(cur_app)[:16]}，建檔 {str(r.get('start_time'))[:16]}）"
+                    f"{r.get('target_city') or ''}{r.get('property_category') or ''}")
+        status_seen[sid] = (cur_status, cur_app)
+    return status_seen
+
+
+TOPID_CSV = Path(__file__).parent / "page1_track.csv"  # 每輪記錄page1最新單號，供事後判斷輪詢間隔有沒有漏接
+
+
+def track_top_id(records: list, also_ids: list[int] | None = None) -> None:
+    """每輪都記一筆(不只變化時才記)，累積成連續時間序列——才能事後回答「這個時間點最新到哪個單號」，
+    而不是只能盲目看建檔日期或狀態這種籠統依據。純觀測、獨立檔案，不影響其他邏輯。
+    2026-07-15 加 also_ids：query() 只用 clients[0] 的帳號查，而該帳號自己申請過的名單會從
+    自己的查詢結果裡消失(自己看不到自己搶到的)——如果剛好搶走的是當下最新那筆，算出來的
+    max_id 會不合理地變小。也把「這一輪自己剛搶到的id」一起納入計算，避免這種假降。"""
+    ids = [r.get("summary_id") or 0 for r in records]
+    if also_ids:
+        ids.extend(also_ids)
+    if not ids:
+        return
+    max_id = max(ids)
+    try:
+        is_new = not TOPID_CSV.exists()
+        with TOPID_CSV.open("a", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            if is_new:
+                w.writerow(["時間", "page1最大單號", "page1筆數"])
+            w.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), max_id, len(records)])
+    except Exception:
+        pass
+
+
 def notify(payload: dict) -> None:
     if not NOTIFY_WEBHOOK:
         return
@@ -580,37 +676,11 @@ def run_once(clients: list, dry_run: bool) -> int:
 
 # ---------- 常駐監控模式 ----------
 
-def _parse_hhmm(s: str):
-    h, m = s.split(":")
-    return int(h), int(m)
-
-
-def in_window(now: datetime) -> bool:
-    cur = now.hour * 60 + now.minute
-    for start, end in WATCH_WINDOWS:
-        sh, sm = _parse_hhmm(start)
-        eh, em = _parse_hhmm(end)
-        if sh * 60 + sm <= cur <= eh * 60 + em:
-            return True
-    return False
-
-
-def seconds_to_next_window(now: datetime) -> int:
-    cur = now.hour * 60 + now.minute
-    best = None
-    for start, _ in WATCH_WINDOWS:
-        sh, sm = _parse_hhmm(start)
-        delta = (sh * 60 + sm - cur) % (24 * 60)
-        delta = delta or 24 * 60
-        best = delta if best is None else min(best, delta)
-    return min((best or 1) * 60, OFF_WINDOW_RECHECK_SEC)
-
-
 def run_watch(clients: list, dry_run: bool) -> int:
     mode = "dry-run（只印不搶）" if dry_run else "實搶"
     labels = "、".join(c.label for c in clients)
     log(f"👁 watch 啟動（{mode}），帳號：{labels}（共 {len(clients)} 個，各 7 配額）")
-    log(f"   監控時段 {WATCH_WINDOWS}，每 ~{POLL_INTERVAL_SEC}s 掃一次。Ctrl+C 結束。")
+    log(f"   全天分層輪詢：{WATCH_TIERS}（開始,結束,間隔秒）。Ctrl+C 結束。")
     try:
         info = clients[0].check_ip()
         if info.get("allowed"):
@@ -631,55 +701,51 @@ def run_watch(clients: list, dry_run: bool) -> int:
         log(f"⚠ 啟動回查失敗（略過）：{type(e).__name__}")
 
     seen: set[int] = set()
-    seen_day = None
+    seen_day = None                  # 唯一的「今天是哪天」狀態，跨日時一次重置所有日累計
     done_accounts: set = set()       # 今日已用完配額的帳號 label
-    done_day = None
     all_done_logged_day = None
-    was_in_window = False            # 用來偵測「剛收盤」的瞬間，收盤時回查對帳一次
     last_alert = 0.0
     # 今日戰果累計（跨日歸零）。counted_today 專門給「新名單計數」用，跟搶單的 seen 分開——
     # seen 只在真的搶到/明確被拒才標，才能讓逾時中斷的單留給下一輪補搶；日累計不能干擾它。
     day_new = 0                      # 今日符合條件的新名單累計（不管搶到沒）
     day_grabbed = 0                  # 今日實際搶到累計
     counted_today: set = set()       # 今日已計數過的 summary_id（避免重複算 day_new）
-    counter_day = None
     appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
+    status_seen: dict = {}                          # 狀態變化觀測（記憶體，重啟會清空）
+    consecutive_errors = 0           # 連續失敗次數；判斷是暫時塞車還是真的斷網
 
     while True:
         try:
             now = datetime.now()
-            if seen_day != now.date():       # 跨日重置
+            today = now.date()
+            if seen_day is not None and seen_day != today:
+                # 跨日：全天分層輪詢不再有「離開時段」這個時間點，改成每天換日的瞬間結算一次昨天。
+                try:
+                    rec = reconcile_applications(clients, dry_run)
+                    if rec:
+                        log(f"↩ 跨日回查補回 {len(rec)} 筆漏記名單")
+                        notify_grabbed(rec, 0)
+                    notify_daily_summary(day_new, day_grabbed + len(rec), recovered=len(rec))
+                except Exception as e:
+                    log(f"⚠ 跨日收尾失敗（略過）：{type(e).__name__}")
                 seen.clear()
-                seen_day = now.date()
-            if done_day != now.date():
                 done_accounts.clear()
-                done_day = now.date()
-            if counter_day != now.date():    # 跨日把今日戰果歸零
                 day_new = 0
                 day_grabbed = 0
                 counted_today.clear()
-                counter_day = now.date()
-
-            inw = in_window(now)
-            if was_in_window and not inw:
-                # 剛收盤（離開時段的瞬間）：此刻沒在搶單，回查各帳號申請、補回漏記的幽靈搶單
-                rec = reconcile_applications(clients, dry_run)
-                if rec:
-                    log(f"↩ 收盤回查補回 {len(rec)} 筆漏記名單")
-                    notify_grabbed(rec, 0)
-                # 收盤保底通知：不管今天有沒有搶到都推一則今日戰果（掛 0 那天也一定有訊息）
-                notify_daily_summary(day_new, day_grabbed + len(rec), recovered=len(rec))
-            was_in_window = inw
-            if not inw:
-                time.sleep(seconds_to_next_window(now))
-                continue
+            seen_day = today
 
             body = clients[0].query()
+            if consecutive_errors >= ERROR_ESCALATE_AFTER:
+                log(f"✅ 網路恢復（先前連續失敗 {consecutive_errors} 次），回到正常監控頻率")
+                notify({"event": "alert", "text": f"✅ KEIS 搶單：網路已恢復（先前斷線約連續失敗 {consecutive_errors} 次），回到正常監控頻率"})
+            consecutive_errors = 0
             cands, _ = pick_candidates(body)
             appear_day, appear_max = observe_appearances(
                 body.get("data", []), appear_day, appear_max)  # 記錄新名單上架時刻
+            status_seen = observe_status_changes(body.get("data", []), status_seen)  # 記錄狀態轉換(誰、幾點被申請)
 
-            # 先算今日新名單累計——就算配額用完、還沒搶，也要算得到，這樣收盤/搶到時 LINE
+            # 先算今日新名單累計——就算配額用完、還沒搶，也要算得到，這樣結算/搶到時 LINE
             # 才能顯示「新名單 N 筆卻只搶到 M 筆」，一眼分辨貨少 vs 搶輸/配額滿。用獨立的
             # counted_today，不動搶單的 seen。
             for r in cands:
@@ -687,15 +753,19 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     counted_today.add(r["summary_id"])
                     day_new += 1
 
+            interval = current_tier_interval(now)  # 全天分層：熱門時段5秒、一般1分鐘、深夜5分鐘
+
             active = [c for c in clients if c.label not in done_accounts]
             if not active:                    # 所有帳號配額都用完
-                if all_done_logged_day != now.date():
-                    log("🈵 所有帳號配額用完，改為純觀測上架時間（不搶），直到時段結束")
-                    all_done_logged_day = now.date()
-                time.sleep(OBSERVE_INTERVAL_SEC)   # 留在時段內繼續觀測，不離開
+                if all_done_logged_day != today:
+                    log("🈵 所有帳號配額用完，改為純觀測上架時間（不搶）")
+                    all_done_logged_day = today
+                track_top_id(body.get("data", []))  # 每輪記錄page1最新單號，供事後判斷輪詢間隔有沒有漏接
+                time.sleep(interval)   # 繼續依分層頻率觀測，不離開
                 continue
 
             fresh = [r for r in cands if r["summary_id"] not in seen]
+            grabbed_ids_this_round: list[int] = []
             if fresh:
                 log(f"🔔 發現 {len(fresh)} 筆新名單（可搶帳號：{'、'.join(c.label for c in active)}）")
                 # 逐筆搶：搶到就馬上寫 CSV + 標 seen；中途逾時不弄丟、剩下的下一輪自動補搶
@@ -703,10 +773,15 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     active, fresh, dry_run, seen=seen, persist=True)
                 done_accounts |= newly_done
                 day_grabbed += len(grabbed)
+                grabbed_ids_this_round = [g["summary_id"] for g in grabbed]
                 if grabbed:
                     notify_grabbed(grabbed, qleft, day_new, day_grabbed)
 
-            time.sleep(POLL_INTERVAL_SEC + random.uniform(-POLL_JITTER_SEC, POLL_JITTER_SEC))
+            # 這一輪自己剛搶到的id也一起納入，避免clients[0]自己申請過的名單從自己視野消失、
+            # 造成 max_id 誤判變小（見 track_top_id 說明）
+            track_top_id(body.get("data", []), also_ids=grabbed_ids_this_round)
+
+            time.sleep(interval + random.uniform(-POLL_JITTER_SEC, POLL_JITTER_SEC))
 
         except KeyboardInterrupt:
             log("👋 手動停止監控")
@@ -718,8 +793,20 @@ def run_watch(clients: list, dry_run: bool) -> int:
             log("⛔ IP 被擋，60s 後重試")
             time.sleep(60)
         except Exception as e:
-            # 開盤尖峰逾時是常態；別死等，短間隔隨機重試，才不會錯過剛放出的名單
-            retry = random.uniform(ERROR_RETRY_MIN, ERROR_RETRY_MAX)
+            # 開盤尖峰逾時是常態；別死等，短間隔隨機重試，才不會錯過剛放出的名單。
+            # 但連續失敗太多次（約30~80秒還沒好）就判斷是真的斷網，改成5分鐘一次，
+            # 別整夜每幾秒瘋狂重試灌爆log，並推一次LINE告知（節流：30分鐘內只推一次）。
+            consecutive_errors += 1
+            if consecutive_errors >= ERROR_ESCALATE_AFTER:
+                retry = float(ERROR_LONG_RETRY_SEC)
+                if consecutive_errors == ERROR_ESCALATE_AFTER:
+                    log(f"⚠ 連續失敗 {consecutive_errors} 次，判斷是斷線中，改成每 {retry:.0f}s 重試一次")
+                    if time.time() - last_alert > 1800:
+                        notify({"event": "alert",
+                                "text": f"⚠ KEIS 搶單：疑似斷線，已連續失敗 {consecutive_errors} 次，改成每 {int(retry // 60)} 分鐘重試"})
+                        last_alert = time.time()
+            else:
+                retry = random.uniform(ERROR_RETRY_MIN, ERROR_RETRY_MAX)
             log(f"⚠ 暫時性錯誤，{retry:.1f}s 後重試：{type(e).__name__}: {e}")
             time.sleep(retry)
 
