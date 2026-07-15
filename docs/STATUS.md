@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-14（公買搶單監控起跑 07:30→06:00，接住早釋出並讓上架偵測量得到真實釋出時刻；待今晚重啟 watch 生效）
+最後更新：2026-07-15（公買搶單改成全天分層輪詢 `WATCH_TIERS`，取代單一早上時段；新增斷網退避＋LINE告警。桌面版跟 GitHub `scripts/keis/` 同步習慣：使用者說「收工」就雙邊同步）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -172,7 +172,7 @@ Skill 會自動：
 
 | 工具 | 狀態 | 深度文件 |
 |---|---|---|
-| **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦）；🟡 06:00 起跑待驗證，見下方待辦 | `scripts/keis/README.md` |
+| **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦），全天分層輪詢 | `scripts/keis/README.md` |
 | **KEIS 廣告上架** `scripts/keis/publish.py` | 🟡 待第一次實跑驗 selector，見下方待辦 | `scripts/keis/README.md` |
 | **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 全流程實測通過（少數座標待驗） | `scripts/sale-form/README.md` |
@@ -180,7 +180,7 @@ Skill 會自動：
 ## 接下來要做
 
 ### 立刻能做
-- **公買搶單 — 驗證 06:00 起跑**（機制全在 `scripts/keis/README.md`）：① 今晚重啟一次 watch 讓 `WATCH_WINDOWS` 06:00 生效（現跑的那支載入的還是舊 07:30）② 連看幾天 `appearances.csv` 的時間戳＝真實釋出時刻，確認釋出到底幾點、穩不穩，穩定後可把起點收窄回去。
+- **公買搶單 — 收斂分層時段邊界**（機制全在 `scripts/keis/README.md`）：連看幾天 `logs/` + `page1_track.csv` + `appearances.csv`，確認熱門時段（06:00-10:00／18:00-24:00）邊界抓得對不對，樣本夠了再跟使用者一起調窄/調寬。
   - 未驗的另一半：07-14 對帳時薛力瑜 7 筆已在 KEIS 頁面逐號驗過；**周珈伊 7 筆需登入她帳號才能核**（密碼類使用者自己登入）。
 - **驗證 `scripts/keis/publish.py`（KEIS 廣告上架）**：照 README 設定 → `python publish.py --login` 手動登入一次 → `python publish.py YC1868650` 看能不能自動上架。selector 大機率第一次會錯（通用 `get_by_label` 寫法），失敗截圖 `keis_error_*.png`，下次 session 拿截圖調。**YC1868650 KEIS 還沒上架**，跑通就順便補上。
 - 下架偵測 cron 目前在 n8n 上 disabled，等 6/1 LINE 月額度重置後手動打開（手動 webhook `/yc-check-removed` 不吃 push 額度，現在就能測）
