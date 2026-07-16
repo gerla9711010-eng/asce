@@ -535,6 +535,30 @@ def load_recorded_sids() -> set:
     return sids
 
 
+def load_today_grabbed() -> tuple[int, set]:
+    """讀 grabbed.csv 裡「今天搶到」的筆數與 summary_id 集合。
+    watch 啟動時用來回填當日累計——計數器存記憶體，白天重啟過的話跨日結算
+    會少算重啟前搶到的（2026-07-15 實際發生：全天 13 筆只報 6）。"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    count, sids = 0, set()
+    if not GRABBED_CSV.exists():
+        return count, sids
+    try:
+        with GRABBED_CSV.open(encoding="utf-8-sig", newline="") as f:
+            for row in csv.reader(f):
+                if not row or row[0].startswith("搶到時間"):
+                    continue
+                if not row[0].startswith(today):
+                    continue
+                sid = row[2] if len(row) >= 9 else ""
+                if sid:
+                    count += 1
+                    sids.add(int(sid) if str(sid).strip().isdigit() else sid)
+    except Exception as e:
+        log(f"⚠ 讀 grabbed.csv 回填當日累計失敗（從 0 起算）：{type(e).__name__}")
+    return count, sids
+
+
 def record_from_application(app: dict, label: str) -> dict:
     """用『我的申請』回傳的未遮罩資料組出一筆搶到紀錄（欄位同 grab_record）。
     搶到時間優先用伺服器的 app_time（較準），拿不到才用現在時間。"""
@@ -711,9 +735,16 @@ def run_watch(clients: list, dry_run: bool) -> int:
     last_alert = 0.0
     # 今日戰果累計（跨日歸零）。counted_today 專門給「新名單計數」用，跟搶單的 seen 分開——
     # seen 只在真的搶到/明確被拒才標，才能讓逾時中斷的單留給下一輪補搶；日累計不能干擾它。
-    day_new = 0                      # 今日符合條件的新名單累計（不管搶到沒）
-    day_grabbed = 0                  # 今日實際搶到累計
-    counted_today: set = set()       # 今日已計數過的 summary_id（避免重複算 day_new）
+    # 啟動時從 grabbed.csv 回填「今天已搶」——計數器存記憶體，白天重啟過的話跨日結算
+    # 會少算重啟前搶到的（07-15 實際發生：全天 13 筆只報 6）。day_new 沒有可靠的落地
+    # 來源可回讀（appearances.csv 沒存預算、也含不符篩選的），用「已搶筆數」當下限起算：
+    # 每筆搶到的當時都算過一次新名單，重啟後頂多少算「看過但沒搶到」的，不會多算。
+    day_grabbed, _today_sids = load_today_grabbed()
+    day_new = day_grabbed
+    counted_today: set = set(_today_sids)   # 回填過的不再重複算 day_new
+    seen |= _today_sids                      # 也不用再嘗試搶（本來就已搶到）
+    if day_grabbed:
+        log(f"↺ 回填當日累計：今天已搶 {day_grabbed} 筆（重啟不歸零）")
     appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
     status_seen: dict = {}                          # 狀態變化觀測（記憶體，重啟會清空）
     consecutive_errors = 0           # 連續失敗次數；判斷是暫時塞車還是真的斷網
