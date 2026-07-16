@@ -7,7 +7,7 @@
 
 ## 進度勾選（做完一步就打勾、commit）
 
-- [ ] 步驟 1：FB 永久金鑰（需使用者在電腦前，約 30-60 分鐘）
+- [x] 步驟 1：FB 永久金鑰（已完成：粉專「買房不費力,賣房好給力」FB_PAGE_ID=1041868522352339，FB_PAGE_TOKEN 已存進 n8n Credential「FB Page Token」）
 - [ ] 步驟 2：n8n 發文線（AI 寫 workflow JSON，使用者 import + 測試）
 - [ ] 步驟 3：下架線（AI 改 yc-removal-detector，使用者 import + 開 cron）
 - [ ] 步驟 4：KEIS 腳本驗證（使用者在門市電腦跑兩個指令）

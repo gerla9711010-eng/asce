@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-15（廣告系統 v2 改造計畫拍板，見「接下來要做」）
+最後更新：2026-07-16（v2 步驟 1 FB 永久金鑰完成，下一步是 `docs/v2-handoff.md` 步驟 2 n8n 發文線）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -20,6 +20,7 @@
 | Notion 客戶名單 DB | `3eb9902989534654976e2f677b6957b3` |
 | 薛力瑜 LINE userId | `Ufab42c56b2eb9b9a9ff18c367b85a6dd`（下架偵測 Push 用）|
 | Drive 物件資料夾父層 | `1pn-tXugI8hlmVZJf2amWs9gnrj9-YhqC`（建檔器比對用）|
+| FB 粉專 | 買房不費力,賣房好給力（`FB_PAGE_ID=1041868522352339`）|
 
 ## Credentials
 
@@ -31,6 +32,7 @@
 | `Gemini API Key` | `zTIA89pDJJs0Ad29` | HTTP Header Auth | Gemini（Header `x-goog-api-key`）|
 | `Google Drive account` | `0TSq1oyqs4BHQxWa` | Google Drive OAuth2 | 建檔器列 Drive 子資料夾用 |
 | `Google Calendar account` | **待建** | Google Calendar OAuth2 | 行事曆建立器寫 primary 行事曆用 |
+| `FB Page Token` | 已建立 | HTTP Header Auth | `Authorization: Bearer <永久粉專權杖>`，發文/刪文用 |
 
 ## LINE 指令一覽
 
@@ -192,8 +194,8 @@ Skill 會自動：
 5. 下架：n8n cron 偵測永慶連結失效 → FB API 自動刪粉專文（分享連帶全滅）→ Notion 標下架 → LINE 通知 + 原生文手刪清單
 
 **建置順序**（每步獨立可用）：
-1. **FB 永久 token**（卡整座架構，最先做，需使用者出席約 1 小時）：走 Meta 企業管理平台 System User 發永久 Page token（`pages_manage_posts` 等），繞過前兩輪卡死的 redirect URI 問題（歷史見 git log 搜 `FBL4B`；舊 FB Apps 已棄置，直接重建）
-2. n8n 發文線：建檔 workflow 接「文案 → LINE 預覽 → 回『發』→ Graph API 發文（多照片）→ 存 permalink」
+1. ~~FB 永久 token~~ **已完成**（2026-07-16）：粉專「買房不費力,賣房好給力」，App `kaixuan-ad-bot`、系統使用者 `n8n-bot`（Employee，僅指派此粉專內容權限+此 App），權杖存進 n8n Credential `FB Page Token`
+2. n8n 發文線（**下一步**）：建檔 workflow 接「文案 → LINE 預覽 → 回『發』→ Graph API 發文（多照片）→ 存 permalink」
 3. 下架線：`yc-removal-detector` 接「Graph API 刪 post」+ 重新啟用 cron（舊的「等 6/1 額度」理由早已過期）
 4. KEIS 駐守：先驗證 `scripts/keis/publish.py` 能跑（`--login` 一次 → `publish.py YC1868650`，YC1868650 尚未上架），再改成輪詢模式駐店電腦
 5. 清舊：砍 `yc-rewrite-copy` workflow + router `生成文案` 出口；yc-ad skill 降級為維修工具（調文案/查狀態），改寫 SKILL.md
@@ -208,6 +210,8 @@ Skill 會自動：
 - 退路（真不夠再啟用，零元）：非緊急通知改走 Notion @mention（Notion App 免費推播）
 
 ## 其他待辦（非廣告系統）
+
+- **FB 權杖輪替**（🔴 優先，5 分鐘）：步驟 1 建置時權杖曾進 AI 對話記錄，需作廢重發。照 `docs/fb-token-rotate.md` 做，做完刪該檔和本條。
 
 - **LINE 訊息瘦身案收尾（2026-07-16 已全部部署）**：3 支 workflow（心跳檢查/戰果查詢/router 加「戰果」）已由 Claude 直接操作瀏覽器匯入 n8n 並發布，webhook 外部實測全過（「戰果」路由 200、心跳 200）。grab.py 已上線（16:30 重啟，心跳每 10 分鐘一跳）。剩兩件：①使用者拿手機 LINE 打「戰果」做最終驗收（需真實 replyToken，模擬不了）②n8n 裡有兩個同名「LINE 指令分流器」，舊的已停用未刪，新版跑幾天沒問題後刪掉舊的。教訓：在 Windows 終端機用 curl 直接帶中文測 webhook 會被 cp950 弄壞字元造成假故障，測中文 payload 一律用 python httpx。
 - **公買搶單 — 收斂分層時段邊界**（機制全在 `scripts/keis/README.md`）：連看幾天 `logs/` + `page1_track.csv` + `appearances.csv`，確認熱門時段（06:00-10:00／18:00-24:00）邊界抓得對不對，樣本夠了再跟使用者一起調窄/調寬。
