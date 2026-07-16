@@ -68,10 +68,27 @@ WATCH_TIERS = [
 ]
 POLL_JITTER_SEC = 3          # 每次再隨機 ±這個秒數，別像節拍器（越大越不規律）
 
+# 已知的每晚斷網時段：門市 IP 半夜到清晨會斷網（2026-07-16 實測 00:00:04→07:22:22
+# 整整 7.4 小時連不上，白天則完全沒有空窗）。這段時間連不上是「預期行為」，不是故障：
+#   1. 不推斷線/恢復告警——否則每天早上網路一回來就噴一則假警報
+#   2. 直接用低頻重試，別每 3~8 秒狂試洗掉整夜的 log
+# 注意：斷網時任何 LINE 通知本來就送不出去（推播也要網路），所以這裡的重點是
+# 「網路回來後不要倒過來告訴使用者剛剛斷過」，那對每晚必斷的環境沒有資訊量。
+EXPECTED_OFFLINE = ("00:00", "08:00")
+
 
 def _hhmm_to_min(s: str) -> int:
     h, m = s.split(":")
     return int(h) * 60 + int(m)
+
+
+def in_expected_offline(now: "datetime") -> bool:
+    """現在是不是落在「已知每晚斷網」時段（支援跨午夜的區間）。"""
+    minutes = now.hour * 60 + now.minute
+    start, end = (_hhmm_to_min(x) for x in EXPECTED_OFFLINE)
+    if start <= end:
+        return start <= minutes < end
+    return minutes >= start or minutes < end
 
 
 def current_tier_interval(now: "datetime") -> int:
@@ -443,13 +460,21 @@ def track_top_id(records: list, also_ids: list[int] | None = None) -> None:
         pass
 
 
-def notify(payload: dict) -> None:
+def notify(payload: dict) -> bool:
+    """推一則到 n8n → LINE。回傳有沒有真的送出去。
+    舊版把失敗吞掉又用 print（不進 log 檔），呼叫端還照樣寫「已推」——等於 log 會騙人說
+    送出去了。斷網時推播本來就送不出去，這件事必須看得見，所以改成 log + 回傳成功與否。"""
     if not NOTIFY_WEBHOOK:
-        return
+        return False
     try:
-        httpx.post(NOTIFY_WEBHOOK, json=payload, timeout=15)
+        r = httpx.post(NOTIFY_WEBHOOK, json=payload, timeout=15)
+        if r.status_code >= 400:
+            log(f"⚠ LINE 通知被拒 HTTP {r.status_code}: {r.text[:120]}")
+            return False
+        return True
     except Exception as e:
-        print(f"⚠ LINE 通知失敗: {e}")
+        log(f"⚠ LINE 通知送不出去（斷網時屬正常）：{type(e).__name__}")
+        return False
 
 
 def notify_grabbed(grabbed: list[dict], quota_left: int,
@@ -748,6 +773,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
     appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
     status_seen: dict = {}                          # 狀態變化觀測（記憶體，重啟會清空）
     consecutive_errors = 0           # 連續失敗次數；判斷是暫時塞車還是真的斷網
+    alerted_disconnect = False       # 「斷線警告」有沒有真的送達；沒送達就別推恢復通知
 
     while True:
         try:
@@ -774,7 +800,11 @@ def run_watch(clients: list, dry_run: bool) -> int:
             body = clients[0].query()
             if consecutive_errors >= ERROR_ESCALATE_AFTER:
                 log(f"✅ 網路恢復（先前連續失敗 {consecutive_errors} 次），回到正常監控頻率")
-                notify({"event": "alert", "text": f"✅ KEIS 搶單：網路已恢復（先前斷線約連續失敗 {consecutive_errors} 次），回到正常監控頻率"})
+                # 只有「斷線警告真的推出去過」才推恢復通知：每晚必斷的時段推不出警告
+                # （斷網時推播也送不出去），這時再推恢復等於每天早上噴一則沒資訊量的假警報。
+                if alerted_disconnect:
+                    notify({"event": "alert", "text": f"✅ KEIS 搶單：網路已恢復（先前斷線約連續失敗 {consecutive_errors} 次），回到正常監控頻率"})
+                alerted_disconnect = False
             consecutive_errors = 0
             cands, _ = pick_candidates(body)
             appear_day, appear_max = observe_appearances(
@@ -830,16 +860,28 @@ def run_watch(clients: list, dry_run: bool) -> int:
             time.sleep(60)
         except Exception as e:
             # 開盤尖峰逾時是常態；別死等，短間隔隨機重試，才不會錯過剛放出的名單。
-            # 但連續失敗太多次（約30~80秒還沒好）就判斷是真的斷網，改成5分鐘一次，
-            # 別整夜每幾秒瘋狂重試灌爆log，並推一次LINE告知（節流：30分鐘內只推一次）。
+            # 但連續失敗太多次（約30~80秒還沒好）就判斷是真的斷網，改成低頻重試。
             consecutive_errors += 1
-            if consecutive_errors >= ERROR_ESCALATE_AFTER:
+            offline_ok = in_expected_offline(datetime.now())   # 每晚必斷的時段 → 預期行為
+            if offline_ok:
+                # 已知斷網時段：直接低頻重試、完全不告警（斷網時也推不出去），log 只在
+                # 剛進入時記一行，別整夜每 5 分鐘洗一次。
+                retry = float(ERROR_LONG_RETRY_SEC)
+                if consecutive_errors == ERROR_ESCALATE_AFTER:
+                    log(f"🌙 已知深夜斷網時段（{EXPECTED_OFFLINE[0]}~{EXPECTED_OFFLINE[1]}）連不上，"
+                        f"屬預期行為：改每 {retry:.0f}s 靜靜重試，不告警")
+                elif consecutive_errors > ERROR_ESCALATE_AFTER:
+                    time.sleep(retry)
+                    continue                    # 靜默重試，不再寫 log
+            elif consecutive_errors >= ERROR_ESCALATE_AFTER:
                 retry = float(ERROR_LONG_RETRY_SEC)
                 if consecutive_errors == ERROR_ESCALATE_AFTER:
                     log(f"⚠ 連續失敗 {consecutive_errors} 次，判斷是斷線中，改成每 {retry:.0f}s 重試一次")
                     if time.time() - last_alert > 1800:
-                        notify({"event": "alert",
-                                "text": f"⚠ KEIS 搶單：疑似斷線，已連續失敗 {consecutive_errors} 次，改成每 {int(retry // 60)} 分鐘重試"})
+                        # 記住「警告有沒有真的送達」——沒送達就別在網路回來後推恢復通知
+                        if notify({"event": "alert",
+                                   "text": f"⚠ KEIS 搶單：疑似斷線，已連續失敗 {consecutive_errors} 次，改成每 {int(retry // 60)} 分鐘重試"}):
+                            alerted_disconnect = True
                         last_alert = time.time()
             else:
                 retry = random.uniform(ERROR_RETRY_MIN, ERROR_RETRY_MAX)
