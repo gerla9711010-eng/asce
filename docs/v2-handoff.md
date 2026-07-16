@@ -8,7 +8,7 @@
 ## 進度勾選（做完一步就打勾、commit）
 
 - [x] 步驟 1：FB 永久金鑰（已完成：粉專「買房不費力,賣房好給力」FB_PAGE_ID=1041868522352339，FB_PAGE_TOKEN 已存進 n8n Credential「FB Page Token」）
-- [ ] 步驟 2：n8n 發文線（AI 寫 workflow JSON，使用者 import + 測試）
+- [ ] 步驟 2：n8n 發文線（AI 部分**已完成**：`workflows/yc-fb-publish.json` + router 加「發」出口都寫好了；剩使用者 import + 測試，見下方步驟 2「使用者做」）
 - [ ] 步驟 3：下架線（AI 改 yc-removal-detector，使用者 import + 開 cron）
 - [ ] 步驟 4：KEIS 腳本驗證（使用者在門市電腦跑兩個指令）
 - [ ] 步驟 5：KEIS 駐守模式（步驟 4 通過後才做）
@@ -48,6 +48,10 @@
 
 **使用者做**：n8n 開**新的空白 workflow** → Import from File 貼 JSON（⚠️ 絕對不要在現有 workflow 裡 import，會覆蓋）→ router 同樣方式更新 → 挑一個真實物件測試整條線。
 
+**匯入後注意（yc-fb-publish）**：「FB 上傳照片」「FB 發佈貼文」兩個節點的 credential 是佔位符，匯入後手動改選現有的「FB Page Token」credential；其他 credential（Notion/Gemini/LINE）用實際 ID 應該會自動綁上，確認一下即可。
+
+**已寫進 workflow 的行為細節**：文案兩欄都有值就直接用（不重產）；空的才跑 Gemini 產兩版（規格同 yc-ad skill，含法規 footer）並回寫 Notion（文案版本 +1）。照片抓不到（網頁掛了或永慶改版）不會卡住，會改發純文字貼文並在 LINE 回覆裡提醒手動補照片。全線只用 LINE Reply，沒有 Push，所以額度守門員不在這條線做（見步驟 3）。
+
 **驗收**：LINE 傳「發 YCxxx」→ 粉專出現含照片貼文 → Notion 連結/狀態正確 → LINE 收到回覆。
 
 ## 步驟 3：下架線
@@ -56,6 +60,7 @@
 1. 若 `粉專貼文連結` 有值 → 從 URL 取 post id → `DELETE /v21.0/{post_id}`（用 `FB Page Token` credential）
 2. 成功 → PATCH Notion `狀態=下架` 照舊，LINE Push 文案改為：「YCxxx 已下架，粉專貼文已自動刪除（分享文已全部失效）。你貼過原生文的社團：{廣告貼文紀錄}」
 3. 刪文失敗 → 不要標下架，LINE Push 故障通知（附錯誤訊息）
+4. 額度守門員在這步做（發文線全是 Reply 沒 Push，守門員只對 Push 有意義）：Push 前查 LINE quota consumption API，>160 擋非緊急、>190 只留故障+下架
 
 **使用者做**：import（開新空白 workflow 同上）→ 把 cron（每日 09:00）打開——舊的「等額度」理由早就過期，直接開。
 
