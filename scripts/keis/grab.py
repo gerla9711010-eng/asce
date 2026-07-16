@@ -463,13 +463,17 @@ def notify_grabbed(grabbed: list[dict], quota_left: int,
     log(f"📲 已推 {len(grabbed)} 筆到 LINE{extra}")
 
 
-def notify_daily_summary(new_today: int, grabbed_today: int, recovered: int = 0) -> None:
-    """收盤保底通知：不管有沒有搶到，時段結束都推一則今日戰果，讓手機一眼看出
-    「今天沒貨」vs「系統掛了」vs「搶輸」。這是掛 0 保底——0 搶到那天也一定有訊息。"""
+def notify_daily_summary(new_today: int, grabbed_today: int, recovered: int = 0,
+                         date_str: str | None = None) -> None:
+    """跨日結算保底通知：每天換日瞬間推一則「前一天」的戰果，讓手機一眼看出
+    「沒貨」vs「系統掛了」vs「搶輸」。這是掛 0 保底——0 搶到那天也一定有訊息。
+    date_str 要傳「被結算的那一天」——通知在午夜過後才發，用 datetime.now()
+    蓋日期章會蓋成新的一天（2026-07-16 使用者收到『今日收工 07-16』但內容是
+    07-15 戰果，誤以為系統要停了），呼叫端必須把跨日前記住的日期傳進來。"""
     notify({"event": "daily_summary", "new_today": new_today,
             "grabbed_today": grabbed_today, "recovered": recovered,
-            "date": datetime.now().strftime("%Y-%m-%d")})
-    log(f"📲 已推收盤戰果到 LINE（今日新名單 {new_today}／搶到 {grabbed_today}"
+            "date": date_str or datetime.now().strftime("%Y-%m-%d")})
+    log(f"📲 已推跨日結算到 LINE（{date_str or '今日'} 新名單 {new_today}／搶到 {grabbed_today}"
         f"{f'／補回 {recovered}' if recovered else ''}）")
 
 
@@ -725,7 +729,8 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     if rec:
                         log(f"↩ 跨日回查補回 {len(rec)} 筆漏記名單")
                         notify_grabbed(rec, 0)
-                    notify_daily_summary(day_new, day_grabbed + len(rec), recovered=len(rec))
+                    notify_daily_summary(day_new, day_grabbed + len(rec), recovered=len(rec),
+                                         date_str=seen_day.isoformat())  # 結算的是「昨天」，別蓋成今天的日期
                 except Exception as e:
                     log(f"⚠ 跨日收尾失敗（略過）：{type(e).__name__}")
                 seen.clear()
