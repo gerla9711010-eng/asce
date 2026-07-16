@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-16（v2 步驟 2 發文線 workflow JSON 已寫好，待使用者 import + 測試，見 `docs/v2-handoff.md` 步驟 2）
+最後更新：2026-07-16（v2 步驟 1 FB 永久金鑰完成，下一步是 `docs/v2-handoff.md` 步驟 2 n8n 發文線）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -45,7 +45,6 @@
 | `客戶 <自由描述>` | Gemini 抽姓名/電話/公司/需求 → 寫進 Notion 客戶名單 DB | `line-customer-create` |
 | （純圖片，無前綴） | Gemini Vision 自動分類 → 轉發到行事曆或客戶 | `line-image-dispatcher` |
 | `戰果` / `今日戰果` | 查 Notion 搶單名單 DB 今天的紀錄 → 回筆數＋名單（reply 不吃 push 額度） | `keis-battle-report`（🟡 待匯入） |
-| `發 YCxxx` | 查 Notion（文案空的先 Gemini 產兩版）→ 抓永慶照片 → FB Graph API 自動發粉專文 → permalink 回寫 Notion → Reply 社團版文案 | `yc-fb-publish`（🟡 待匯入 + router 待更新） |
 | `天氣` | 目前 router 認得但沒接下游（佔位） | — |
 
 > 風格描述可以是任意自由文字，例如「精簡」、「投資客口吻強調學區」。`生成文案` 跟 `YC` 之間空白可省略，全形/半形空白都接受。
@@ -196,7 +195,7 @@ Skill 會自動：
 
 **建置順序**（每步獨立可用）：
 1. ~~FB 永久 token~~ **已完成**（2026-07-16）：粉專「買房不費力,賣房好給力」，App `kaixuan-ad-bot`、系統使用者 `n8n-bot`（Employee，僅指派此粉專內容權限+此 App），權杖存進 n8n Credential `FB Page Token`
-2. n8n 發文線（**AI 部分已完成 2026-07-16，剩使用者 import + 測試**）：`workflows/yc-fb-publish.json` 已寫好（LINE「發 YCxxx」→ 查 Notion → 文案空的先 Gemini 產兩版 → 抓照片 → FB 發文 → 回寫 Notion → Reply 社團文案），router 已加「發」出口。使用者要做：兩支都開**新空白 workflow** import（router 匯完把舊 router 停用），yc-fb-publish 匯入後把兩個 FB 節點的 credential 手動改選「FB Page Token」，然後挑真實物件測「發 YCxxx」整條線
+2. n8n 發文線（**下一步**）：建檔 workflow 接「文案 → LINE 預覽 → 回『發』→ Graph API 發文（多照片）→ 存 permalink」
 3. 下架線：`yc-removal-detector` 接「Graph API 刪 post」+ 重新啟用 cron（舊的「等 6/1 額度」理由早已過期）
 4. KEIS 駐守：先驗證 `scripts/keis/publish.py` 能跑（`--login` 一次 → `publish.py YC1868650`，YC1868650 尚未上架），再改成輪詢模式駐店電腦
 5. 清舊：砍 `yc-rewrite-copy` workflow + router `生成文案` 出口；yc-ad skill 降級為維修工具（調文案/查狀態），改寫 SKILL.md
