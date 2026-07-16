@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 解析 LINE 訊息：判斷文字前綴或圖片\nconst body = $input.first().json.body || $input.first().json;\nconst events = body.events || [];\n\nif (events.length === 0) {\n  return [{ json: { command: 'noop', text: '', replyToken: null, rawBody: body } }];\n}\n\nconst event = events[0];\nconst msg = event.message || {};\nconst msgType = msg.type || '';\nconst replyToken = event.replyToken || null;\n\nif (msgType === 'image') {\n  return [{ json: { command: 'image', text: '', replyToken, rawBody: body } }];\n}\n\nconst text = (msg.text || '').trim();\nlet command = 'unknown';\nif      (text.startsWith('建檔'))     command = 'create';\nelse if (text.startsWith('已撤除'))   command = 'remove';\nelse if (text.startsWith('生成文案')) command = 'rewrite';\nelse if (text.startsWith('行事曆'))   command = 'calendar';\nelse if (text.startsWith('客戶'))     command = 'customer';\nelse if (text === '天氣')             command = 'weather';\n\nreturn [{ json: { command, text, replyToken, rawBody: body } }];"
+        "jsCode": "// 解析 LINE 訊息：判斷文字前綴或圖片\nconst body = $input.first().json.body || $input.first().json;\nconst events = body.events || [];\n\nif (events.length === 0) {\n  return [{ json: { command: 'noop', text: '', replyToken: null, rawBody: body } }];\n}\n\nconst event = events[0];\nconst msg = event.message || {};\nconst msgType = msg.type || '';\nconst replyToken = event.replyToken || null;\n\nif (msgType === 'image') {\n  return [{ json: { command: 'image', text: '', replyToken, rawBody: body } }];\n}\n\nconst text = (msg.text || '').trim();\nlet command = 'unknown';\nif      (text.startsWith('建檔'))     command = 'create';\nelse if (text.startsWith('已撤除'))   command = 'remove';\nelse if (text.startsWith('生成文案')) command = 'rewrite';\nelse if (text.startsWith('行事曆'))   command = 'calendar';\nelse if (text.startsWith('客戶'))     command = 'customer';\nelse if (text === '戰果' || text === '今日戰果') command = 'battle';\nelse if (text === '天氣')             command = 'weather';\n\nreturn [{ json: { command, text, replyToken, rawBody: body } }];"
       },
       "id": "fb843294-3b70-47c4-9de0-e9618bb9309e",
       "name": "解析 LINE 指令",
@@ -34,7 +34,8 @@
             { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c3", "leftValue": "={{ $json.command }}", "rightValue": "rewrite",  "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "生成文案" },
             { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c4", "leftValue": "={{ $json.command }}", "rightValue": "calendar", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "行事曆" },
             { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c5", "leftValue": "={{ $json.command }}", "rightValue": "customer", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "客戶" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c6", "leftValue": "={{ $json.command }}", "rightValue": "image",    "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "圖片" }
+            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c6", "leftValue": "={{ $json.command }}", "rightValue": "image",    "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "圖片" },
+            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c7", "leftValue": "={{ $json.command }}", "rightValue": "battle",   "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "戰果" }
           ]
         },
         "options": { "fallbackOutput": "extra", "renameFallbackOutput": "其他" }
@@ -137,13 +138,28 @@
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: { replyToken: $('解析 LINE 指令').first().json.replyToken, message: '❓ 無效指令\\n\\n可用指令：\\n• 建檔 [永慶網址]\\n• 已撤除 YCxxx\\n• 生成文案 YCxxx [風格描述]\\n• 行事曆 [日期 時間 標題 地點 說明]\\n• 客戶 [姓名 電話 需求 …]\\n\\n直接傳圖片：自動判斷是「行事曆」或「客戶」' } }];"
+        "method": "POST",
+        "url": "https://primary-production-68428.up.railway.app/webhook/keis-battle-report",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
+        "options": {}
+      },
+      "id": "f3a91c40-2b5e-4a8f-9c1d-5e2d1c4a7b05",
+      "name": "轉發到戰果查詢",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 608]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { replyToken: $('解析 LINE 指令').first().json.replyToken, message: '❓ 無效指令\\n\\n可用指令：\\n• 建檔 [永慶網址]\\n• 已撤除 YCxxx\\n• 生成文案 YCxxx [風格描述]\\n• 行事曆 [日期 時間 標題 地點 說明]\\n• 客戶 [姓名 電話 需求 …]\\n• 戰果（查今天 KEIS 搶單）\\n\\n直接傳圖片：自動判斷是「行事曆」或「客戶」' } }];"
       },
       "id": "cc7fd522-66f8-423c-8c07-71bcedf14832",
       "name": "未知指令處理",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [0, 608]
+      "position": [0, 736]
     },
     {
       "parameters": {
@@ -177,6 +193,7 @@
         [{ "node": "轉發到行事曆建立",       "type": "main", "index": 0 }],
         [{ "node": "轉發到客戶建檔",         "type": "main", "index": 0 }],
         [{ "node": "轉發到圖片分流",         "type": "main", "index": 0 }],
+        [{ "node": "轉發到戰果查詢",         "type": "main", "index": 0 }],
         [{ "node": "未知指令處理",           "type": "main", "index": 0 }]
       ]
     },

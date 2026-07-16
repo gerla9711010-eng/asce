@@ -42,6 +42,7 @@
 | `行事曆 <自由描述>` | Gemini 解析時間/地點/說明 → 建到 Google primary 行事曆 | `line-calendar-create` |
 | `客戶 <自由描述>` | Gemini 抽姓名/電話/公司/需求 → 寫進 Notion 客戶名單 DB | `line-customer-create` |
 | （純圖片，無前綴） | Gemini Vision 自動分類 → 轉發到行事曆或客戶 | `line-image-dispatcher` |
+| `戰果` / `今日戰果` | 查 Notion 搶單名單 DB 今天的紀錄 → 回筆數＋名單（reply 不吃 push 額度） | `keis-battle-report`（🟡 待匯入） |
 | `天氣` | 目前 router 認得但沒接下游（佔位） | — |
 
 > 風格描述可以是任意自由文字，例如「精簡」、「投資客口吻強調學區」。`生成文案` 跟 `YC` 之間空白可省略，全形/半形空白都接受。
@@ -208,5 +209,6 @@ Skill 會自動：
 
 ## 其他待辦（非廣告系統）
 
+- **⚠ 匯入 2+1 支 workflow（LINE 訊息瘦身案，2026-07-16）**：`桌面\json\` 已放好 ①`keis-heartbeat-check.json`（新：心跳收集＋每天10:00~22:00每2小時檢查，超過2小時沒心跳才推告警）②`keis-battle-report.json`（新：LINE 打「戰果」查今日搶單）③`line-command-router.json`（改版：加「戰果」指令；照老規矩開新空白匯入、啟用後停舊的）。匯入前：心跳撲空（grab.py 靜默忽略，無害）、「戰果」不會回、系統死掉沒有告警。grab.py 端已上線（07-16 16:30 重啟）：跨日結算改寫本機 `daily_summary.csv`，LINE 不再天天推。
 - **公買搶單 — 收斂分層時段邊界**（機制全在 `scripts/keis/README.md`）：連看幾天 `logs/` + `page1_track.csv` + `appearances.csv`，確認熱門時段（06:00-10:00／18:00-24:00）邊界抓得對不對，樣本夠了再跟使用者一起調窄/調寬。
   - 未驗的另一半：07-14 對帳時薛力瑜 7 筆已在 KEIS 頁面逐號驗過；**周珈伊 7 筆需登入她帳號才能核**（密碼類使用者自己登入）。

@@ -113,6 +113,15 @@ API = f"{KEIS_BASE}/api/v1"
 
 NOTIFY_WEBHOOK = os.environ.get("KEIS_NOTIFY_WEBHOOK", "").strip()
 
+# 心跳：讓 n8n 知道「這個程序還活著」。每 10 分鐘 POST 一次到 n8n webhook（沒設就跳過），
+# n8n 端排程檢查超過 2 小時沒心跳才推 LINE 告警——把「系統死了沒人知道」變成主動通知，
+# 換掉原本每天固定推的跨日結算。失敗完全靜默（斷網時本來就送不出去，屬正常）。
+HEARTBEAT_WEBHOOK = os.environ.get("KEIS_HEARTBEAT_WEBHOOK", "").strip()
+HEARTBEAT_INTERVAL_SEC = 600
+
+# 跨日結算改落地到本機 CSV（一天一行），LINE 不再天天推；要查戰果用 LINE 打「戰果」隨時查
+DAILY_SUMMARY_CSV = Path(__file__).parent / "daily_summary.csv"
+
 # Notion 同步（可選）：設了 token + 資料庫 id 才會把搶到的名單寫進 Notion
 # token 可沿用其他工具的 NOTION_TOKEN（同一把 integration 分享這個資料庫即可）
 NOTION_TOKEN = (os.environ.get("KEIS_NOTION_TOKEN") or os.environ.get("NOTION_TOKEN", "")).strip()
@@ -488,17 +497,33 @@ def notify_grabbed(grabbed: list[dict], quota_left: int,
     log(f"📲 已推 {len(grabbed)} 筆到 LINE{extra}")
 
 
-def notify_daily_summary(new_today: int, grabbed_today: int, recovered: int = 0,
-                         date_str: str | None = None) -> None:
-    """跨日結算保底通知：每天換日瞬間推一則「前一天」的戰果，讓手機一眼看出
-    「沒貨」vs「系統掛了」vs「搶輸」。這是掛 0 保底——0 搶到那天也一定有訊息。
-    date_str 要傳「被結算的那一天」——通知在午夜過後才發，用 datetime.now()
-    蓋日期章會蓋成新的一天（2026-07-16 使用者收到『今日收工 07-16』但內容是
-    07-15 戰果，誤以為系統要停了），呼叫端必須把跨日前記住的日期傳進來。"""
-    notify({"event": "daily_summary", "new_today": new_today,
-            "grabbed_today": grabbed_today, "recovered": recovered,
-            "date": date_str or datetime.now().strftime("%Y-%m-%d")})
-    log(f"📲 已推跨日結算到 LINE（{date_str or '今日'} 新名單 {new_today}／搶到 {grabbed_today}"
+def push_heartbeat() -> None:
+    """對 n8n 打一下心跳（fire-and-forget）。timeout 短、失敗靜默——
+    斷網時段送不出去屬正常，絕不能拖慢搶單迴圈。"""
+    if not HEARTBEAT_WEBHOOK:
+        return
+    try:
+        httpx.post(HEARTBEAT_WEBHOOK,
+                   json={"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                   timeout=5)
+    except Exception:
+        pass
+
+
+def write_daily_summary(date_str: str, new_today: int, grabbed_today: int, recovered: int = 0) -> None:
+    """跨日結算落地到本機 CSV（一天一行）。取代原本每天推 LINE 的跨日結算——
+    使用者嫌訊息多，改成：戰果想查用 LINE 打「戰果」；系統死活靠心跳告警；
+    事後稽核看這個檔。date_str 是「被結算的那一天」（跨日前記住的昨天）。"""
+    try:
+        new = not DAILY_SUMMARY_CSV.exists()
+        with DAILY_SUMMARY_CSV.open("a", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["日期", "新名單", "搶到", "補回"])
+            w.writerow([date_str, new_today, grabbed_today, recovered])
+    except Exception as e:
+        log(f"⚠ 寫 daily_summary.csv 失敗：{type(e).__name__}")
+    log(f"📒 跨日結算已落地（{date_str} 新名單 {new_today}／搶到 {grabbed_today}"
         f"{f'／補回 {recovered}' if recovered else ''}）")
 
 
@@ -774,11 +799,15 @@ def run_watch(clients: list, dry_run: bool) -> int:
     status_seen: dict = {}                          # 狀態變化觀測（記憶體，重啟會清空）
     consecutive_errors = 0           # 連續失敗次數；判斷是暫時塞車還是真的斷網
     alerted_disconnect = False       # 「斷線警告」有沒有真的送達；沒送達就別推恢復通知
+    last_heartbeat = 0.0             # 上次心跳時刻；0=啟動後第一輪就先打一下
 
     while True:
         try:
             now = datetime.now()
             today = now.date()
+            if time.time() - last_heartbeat >= HEARTBEAT_INTERVAL_SEC:
+                push_heartbeat()               # 放在查詢之前：就算 KEIS 掛了，程序活著也照報
+                last_heartbeat = time.time()
             if seen_day is not None and seen_day != today:
                 # 跨日：全天分層輪詢不再有「離開時段」這個時間點，改成每天換日的瞬間結算一次昨天。
                 try:
@@ -786,8 +815,8 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     if rec:
                         log(f"↩ 跨日回查補回 {len(rec)} 筆漏記名單")
                         notify_grabbed(rec, 0)
-                    notify_daily_summary(day_new, day_grabbed + len(rec), recovered=len(rec),
-                                         date_str=seen_day.isoformat())  # 結算的是「昨天」，別蓋成今天的日期
+                    write_daily_summary(seen_day.isoformat(), day_new,
+                                        day_grabbed + len(rec), recovered=len(rec))  # 結算的是「昨天」
                 except Exception as e:
                     log(f"⚠ 跨日收尾失敗（略過）：{type(e).__name__}")
                 seen.clear()
