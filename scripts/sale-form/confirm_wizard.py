@@ -7,9 +7,11 @@
 #       fill_excel(new_data, out_path)
 #
 # 規則：
-#   - 每個視窗都有「← 上一步」「略過」「取消」
-#   - 輸入型（數字/文字/下拉）按 Enter = 下一步
-#   - 勾選型（Radio）勾下去就直接跳下一步
+#   - 每個視窗左右各一個 ◀/▶ 箭頭做上一步/下一步（第 1 步 ◀ 反灰不可按）
+#   - 輸入型（數字/文字/下拉）按 Enter = ▶；欄位清空按 ▶ = 該欄不填
+#   - 勾選型（Radio）勾下去就直接跳下一步；也可不勾直接按 ▶/Enter 留空跳過
+#   - ◀ 上一步不會弄丟已輸入的內容：回退時靜默存檔，數字格式打到一半也不擋
+#   - 訴求重點：「先不填」清空全部訴求重點欄位；「填寫完畢」存目前欄、保留其餘已填欄位
 #   - 條件式：車位「無」之後不再問車位細節；機械才問上中下橫移
 
 import tkinter as tk
@@ -130,7 +132,7 @@ def _build_steps():
     ]
 
     # 訴求重點 5 欄（售屋表 AL30/32/34/36/38）：逐欄輸入，
-    # 三鈕（先不填 / 填下一個 / 填寫完畢），同土地表的作法
+    # 「先不填 / 填寫完畢」，同土地表的作法
     for i in range(BLDG_SELLING_SLOTS):
         steps.append({
             'title': f'訴求重點 {i + 1}/{BLDG_SELLING_SLOTS}',
@@ -196,7 +198,7 @@ def _build_land_steps(is_rental=False):
          'options': [('空地', '空地'), ('建物', '建物'), ('租賃', '租賃')]},
     ]
 
-    # 訴求重點 9 欄：逐欄輸入，三鈕（先不填 / 填下一個 / 填寫完畢）
+    # 訴求重點 9 欄：逐欄輸入，「先不填 / 填寫完畢」
     for i in range(SELLING_SLOTS):
         steps.append({
             'title': f'訴求重點 {i + 1}/{SELLING_SLOTS}',
@@ -222,7 +224,9 @@ class ConfirmWizard:
             if step.get('show') and not step['show'](self.data):
                 self.idx += 1
                 continue
-            dlg = StepDialog(self.parent, step, self.data, self.idx + 1, n)
+            is_first = (self.idx == 0)
+            dlg = StepDialog(self.parent, step, self.data, self.idx + 1, n,
+                              is_first=is_first)
             self.parent.wait_window(dlg)
             r = dlg.result
             if r == 'next':
@@ -238,8 +242,6 @@ class ConfirmWizard:
                     self.idx -= 1
                 if self.idx < 0:
                     self.idx = 0
-            elif r == 'skip':
-                self.idx += 1
             else:
                 self.log('🚫 已取消產出')
                 return None
@@ -264,30 +266,46 @@ class ConfirmWizard:
 
 
 class StepDialog(tk.Toplevel):
-    def __init__(self, parent, step, data, cur_idx, total):
+    def __init__(self, parent, step, data, cur_idx, total, is_first=False):
         super().__init__(parent)
         self.step = step
         self.data = data
         self.result = 'cancel'
         self.vars = []
         self.entries = []
+        self.is_first = is_first
 
         self.title(f'確認 ({cur_idx}/{total}) - {step["title"]}')
         self.transient(parent)
         self.grab_set()
         self.resizable(False, False)
-        self.configure(padx=20, pady=15)
+        self.configure(padx=12, pady=15)
 
-        ttk.Label(self, text=step.get('prompt', step['title']),
+        nav = ttk.Frame(self)
+        nav.pack(fill='both', expand=True)
+
+        self.btn_back = ttk.Button(nav, text='◀', width=3,
+                                    command=self._on_back)
+        self.btn_back.pack(side='left', fill='y', padx=(0, 12))
+        if self.is_first:
+            self.btn_back.state(['disabled'])
+
+        self.btn_forward = ttk.Button(nav, text='▶', width=3,
+                                       command=self._on_next)
+        self.btn_forward.pack(side='right', fill='y', padx=(12, 0))
+
+        center = ttk.Frame(nav)
+        center.pack(side='left', fill='both', expand=True)
+
+        ttk.Label(center, text=step.get('prompt', step['title']),
                   font=('Microsoft JhengHei', 12, 'bold')
                   ).pack(anchor='w', pady=(0, 8))
 
-        self._build_body()
+        self._build_body(center)
         self._build_buttons()
 
         self.bind('<Escape>', lambda e: self._on_cancel())
-        if step['type'] != 'choice':
-            self.bind('<Return>', lambda e: self._on_next())
+        self.bind('<Return>', lambda e: self._on_next())
 
         self.protocol('WM_DELETE_WINDOW', self._on_cancel)
 
@@ -308,9 +326,9 @@ class StepDialog(tk.Toplevel):
         v = self.data.get(key)
         return '' if v is None else str(v)
 
-    def _build_body(self):
+    def _build_body(self, parent):
         s = self.step
-        body = ttk.Frame(self); body.pack(fill='x')
+        body = ttk.Frame(parent); body.pack(fill='x')
         t = s['type']
 
         if t == 'number':
@@ -323,7 +341,7 @@ class StepDialog(tk.Toplevel):
             for prompt, key in zip(s['prompts'], s['keys']):
                 self._row_text(body, key, label=prompt, width=22)
             if s.get('hint'):
-                ttk.Label(self, text=s['hint'], foreground='#888',
+                ttk.Label(parent, text=s['hint'], foreground='#888',
                           font=('Microsoft JhengHei', 9)
                           ).pack(anchor='w', pady=(4, 0))
 
@@ -361,7 +379,9 @@ class StepDialog(tk.Toplevel):
 
         elif t == 'selling':
             self._row_text(body, s['key'], width=40)
-            ttk.Label(self, text='填下一個＝存這欄繼續；填寫完畢＝存並產出；先不填＝不填直接產出',
+            ttk.Label(parent,
+                      text='▶／Enter＝存這欄繼續；填寫完畢＝存並產出；'
+                           '先不填＝清空全部訴求重點並直接產出',
                       foreground='#888',
                       font=('Microsoft JhengHei', 9)).pack(anchor='w', pady=(4, 0))
 
@@ -394,7 +414,7 @@ class StepDialog(tk.Toplevel):
         self.result = 'next'
         self.destroy()
 
-    def _commit(self) -> bool:
+    def _commit(self, silent=False) -> bool:
         for k, var, vt in self.vars:
             raw = (var.get() or '').strip()
             if not raw:
@@ -407,6 +427,9 @@ class StepDialog(tk.Toplevel):
                     try:
                         self.data[k] = float(raw)
                     except ValueError:
+                        if silent:
+                            # ◀ 上一步:格式錯誤不擋回退,該欄維持回退前的原值
+                            continue
                         messagebox.showerror('格式錯誤', '請輸入數字')
                         return False
             else:
@@ -414,26 +437,25 @@ class StepDialog(tk.Toplevel):
         return True
 
     def _on_finish(self):
-        """訴求重點『填寫完畢』：存這欄後結束產出。"""
+        """訴求重點『填寫完畢』：存這欄、保留其餘已填欄位，結束產出。"""
         if not self._commit():
             return
         self.result = 'finish'
         self.destroy()
 
     def _on_finish_blank(self):
-        """訴求重點『先不填』：這欄不存，直接結束產出。"""
-        self.data.pop(self.step['key'], None)
+        """訴求重點『先不填』：清空全部訴求重點欄位，直接結束產出。"""
+        total = self.step.get('total', 1)
+        for i in range(total):
+            self.data.pop(f'sp_{i}', None)
         self.result = 'finish'
         self.destroy()
 
     def _on_back(self):
+        if self.is_first:
+            return
+        self._commit(silent=True)
         self.result = 'back'
-        self.destroy()
-
-    def _on_skip(self):
-        for k, _, _ in self.vars:
-            self.data.pop(k, None)
-        self.result = 'skip'
         self.destroy()
 
     def _on_cancel(self):
@@ -444,7 +466,7 @@ class StepDialog(tk.Toplevel):
     def _build_buttons(self):
         bf = ttk.Frame(self); bf.pack(pady=(12, 0), fill='x')
 
-        # 訴求重點：填下一個 / 填寫完畢；「先不填」只在第 1 欄出現
+        # 訴求重點：先不填（只在第 1 欄）/ 填寫完畢 / 取消；上一步/下一步走左右箭頭
         if self.step['type'] == 'selling':
             if self.step.get('idx') == 1:
                 ttk.Button(bf, text='先不填',
@@ -453,16 +475,7 @@ class StepDialog(tk.Toplevel):
                        command=self._on_cancel).pack(side='right')
             ttk.Button(bf, text='填寫完畢',
                        command=self._on_finish).pack(side='right', padx=4)
-            ttk.Button(bf, text='填下一個 (Enter)',
-                       command=self._on_next).pack(side='right', padx=4)
             return
 
-        ttk.Button(bf, text='← 上一步',
-                   command=self._on_back).pack(side='left')
-        ttk.Button(bf, text='略過',
-                   command=self._on_skip).pack(side='left', padx=8)
         ttk.Button(bf, text='取消',
                    command=self._on_cancel).pack(side='right')
-        if self.step['type'] != 'choice':
-            ttk.Button(bf, text='下一步 (Enter)',
-                       command=self._on_next).pack(side='right', padx=4)
