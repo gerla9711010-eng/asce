@@ -1,0 +1,426 @@
+{
+  "_note": "v2 發文線：LINE『發 YCxxx』→ 查 Notion →（粉專文案空的就 Gemini 產粉專版+社團版）→ 抓來源連結照片 → FB Graph API 發多圖貼文 → 回寫 Notion permalink/狀態/KEIS同步 → LINE Reply（免費）。\n匯入前必讀：\n1. FB_PAGE_ID 已硬寫 1041868522352339（非機密，可改）。發文/傳圖節點綁 credential『FB Page Token』（HTTP Header Auth，Authorization: Bearer <永久粉專權杖>）。\n2. Gemini / Notion / LINE credential 沿用現有（見 STATUS.md）。\n3. 一律開新空白 workflow 再 Import from File，不要蓋現有 workflow。",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "yc-fb-publish", "responseMode": "lastNode", "options": {} },
+      "id": "fbp-0001-webhook",
+      "name": "Webhook 接收",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-2000, 200],
+      "webhookId": "yc-fb-publish"
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $input.first().json.events?.[0] || $input.first().json.body?.events?.[0];\nconst messageText = event?.message?.text || '';\nconst replyToken = event?.replyToken || '';\nconst userId = event?.source?.userId || '';\n\n// 格式：發 YCxxxxxxx（發跟 YC 之間空白可省略，全形半形皆可）\nconst m = messageText.match(/^發[\\s\\u3000]*([A-Za-z]{2}\\d{4,})/);\nif (!m) {\n  return [{ json: {\n    _isError: true,\n    replyToken,\n    replyText: `❌ 指令格式錯誤\\n\\n正確格式：\\n發 YC編號\\n例：發 YC1835328\\n\\n收到：「${messageText}」`\n  }}];\n}\nconst caseId = m[1].toUpperCase();\nreturn [{ json: { _isError: false, caseId, replyToken, userId, rawMessage: messageText } }];"
+      },
+      "id": "fbp-0002-parse",
+      "name": "解析 LINE 指令",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1790, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            { "id": "err1", "leftValue": "={{ $json._isError }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fbp-0003-iferr",
+      "name": "格式錯誤?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-1600, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { property: '案件編號', rich_text: { equals: $json.caseId } }, page_size: 1 }) }}",
+        "options": {}
+      },
+      "id": "fbp-0004-query",
+      "name": "查 Notion 找物件",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1410, 320],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cmd = $('解析 LINE 指令').first().json;\nconst page = ($json.results || [])[0];\nif (!page) {\n  return [{ json: { _notFound: true, replyToken: cmd.replyToken, replyText: `❌ Notion 找不到 ${cmd.caseId}\\n\\n請先用「建檔 永慶網址」把物件建進來，再發廣告。` } }];\n}\nconst props = page.properties || {};\nconst rt = k => (props[k]?.rich_text?.[0]?.plain_text) || '';\nconst tt = k => (props[k]?.title?.[0]?.plain_text) || '';\nconst sel = k => props[k]?.select?.name || '';\nconst num = k => props[k]?.number ?? null;\nconst chk = k => !!props[k]?.checkbox;\nconst url = k => props[k]?.url || '';\nconst 粉專文案 = rt('粉專文案');\nconst 社團文案 = rt('社團文案');\nreturn [{ json: {\n  _notFound: false,\n  notionPageId: page.id,\n  existingVersion: num('文案版本') || 0,\n  needCopy: !粉專文案,\n  粉專文案, 社團文案,\n  案名: tt('案名'), 案件編號: rt('案件編號'), 社區名稱: rt('社區名稱'), 地址: rt('地址'),\n  建物類型: sel('建物類型'), 格局: rt('格局'), 樓層: rt('樓層'), 屋齡: num('屋齡'),\n  總價: rt('總價'), 單價: rt('單價'), 建物坪數: num('建物坪數'), 主建物坪數: num('主建物坪數'),\n  公設坪數: num('公設坪數'), 附屬建物: rt('附屬建物'), 土地坪數: num('土地坪數'),\n  有無車位: chk('有無車位'), 車位類型: sel('車位類型'), 特色說明: rt('特色說明'),\n  來源連結: url('來源連結') || rt('來源連結'),\n  replyToken: cmd.replyToken, userId: cmd.userId, caseId: cmd.caseId\n}}];"
+      },
+      "id": "fbp-0005-extract",
+      "name": "取出物件資料",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1200, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            { "id": "nf1", "leftValue": "={{ $json._notFound }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fbp-0006-ifnf",
+      "name": "物件不存在?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-1010, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            { "id": "nc1", "leftValue": "={{ $json.needCopy }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fbp-0007-ifcopy",
+      "name": "需要產文案?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-820, 440]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "content-type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是台灣資深房仲文案寫手。根據物件資料，寫兩段 Facebook 廣告文案『主體』。\n\n【物件資料】\n案名：${$json['案名']}\n社區：${$json['社區名稱']}\n地址：${$json['地址']}\n建物類型：${$json['建物類型']}\n格局：${$json['格局']}\n樓層：${$json['樓層']}\n屋齡：${$json['屋齡']} 年\n總價：${$json['總價']}\n單價：${$json['單價']}\n建物坪數：${$json['建物坪數']}\n主建物坪數：${$json['主建物坪數']}\n公設坪數：${$json['公設坪數']}\n附屬建物：${$json['附屬建物']}\n土地坪數：${$json['土地坪數']}\n車位：${$json['有無車位'] ? ($json['車位類型'] || '有') : '無'}\n特色說明：${$json['特色說明']}\n\n【粉專主體規格】200-300 字\n- 第一行吸睛標題，用【】框住，含地段+房型+賣點+價格\n- 規格區：每行一個 emoji（📍地址 🏠格局 📐坪數 🏢屋齡+樓層 💰開價），缺的那行省略\n- 空一行\n- ✨亮點 3-4 條，每條用「・」開頭，取材自特色說明並可合理補充學區/生活機能/交通\n- 台灣房仲真實口吻，禁官腔（不要「歡迎您」「快來看看」），不捏造數據，不放物件編號 hashtag，不放外部連結\n\n【社團主體規格】50-80 字\n- 一行 emoji 開頭標題：地段+房型+1 個關鍵賣點\n- 1-2 行重點賣點\n- 結尾引導語（「詳情看留言」或「私訊索取完整資料」擇一）\n- 不寫具體價格（可用「2字頭」這種概略），不放任何連結\n\n兩段都不要自己加聯絡電話、公司名、經紀業字號（系統會自動補，你補了會重複）。\n\n只回傳 JSON：{\"粉專主體\":\"\",\"社團主體\":\"\"}\n不要 markdown code block、不要多餘說明。` }] }],\n  generationConfig: { temperature: 0.8, maxOutputTokens: 2048, responseMimeType: \"application/json\" }\n}) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "fbp-0008-gemini",
+      "name": "Gemini 產文案",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-620, 560],
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); } catch (e) { parsed = { 粉專主體: aiText.trim(), 社團主體: aiText.trim() }; }\nconst src = $('取出物件資料').first().json;\nconst 粉專footer = '\\n\\n📞 薛先生 0912877583（同 LINE）\\nLINE：https://line.me/ti/p/kg1pMk4vX8\\n\\n—\\n凱璿誼峰不動產有限公司\\n經紀業特許字號：高市地政籍字第11034791100號\\n證照字號：（111）登字第417208號';\nconst 社團footer = '\\n\\n—\\n凱璿誼峰不動產有限公司｜薛先生 0912877583\\n經紀業特許字號：高市地政籍字第11034791100號';\nconst 粉專文案 = String(parsed['粉專主體'] || '').trim() + 粉專footer;\nconst 社團文案 = String(parsed['社團主體'] || '').trim() + 社團footer;\nreturn [{ json: { ...src, 粉專文案, 社團文案, newVersion: (src.existingVersion || 0) + 1 } }];"
+      },
+      "id": "fbp-0009-parsecopy",
+      "name": "解析文案",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-420, 560]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $json.notionPageId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { '粉專文案': { rich_text: [{ text: { content: String($json['粉專文案'] || '') } }] }, '社團文案': { rich_text: [{ text: { content: String($json['社團文案'] || '') } }] }, '文案版本': { number: $json.newVersion } } }) }}",
+        "options": {}
+      },
+      "id": "fbp-0010-patchcopy",
+      "name": "回寫文案",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-220, 560],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $('解析文案').first().json }];"
+      },
+      "id": "fbp-0011-restore",
+      "name": "還原文案資料",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-20, 560]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.first().json }];"
+      },
+      "id": "fbp-0012-merge",
+      "name": "整合文案",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 440]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('整合文案').first().json['來源連結'] }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "User-Agent", "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+          { "name": "Accept", "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+          { "name": "Accept-Language", "value": "zh-TW,zh;q=0.9,en;q=0.8" }
+        ]},
+        "options": {
+          "redirect": { "redirect": { "maxRedirects": 5 } },
+          "response": { "response": { "responseFormat": "text" } },
+          "timeout": 15000
+        }
+      },
+      "id": "fbp-0013-fetchhtml",
+      "name": "抓照片 HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 440],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $('抓照片 HTML').first().json || {};\nconst html = raw.data || raw.body || '';\nconst ctx = $('整合文案').first().json;\n\nconst og = [];\nconst metaRe = /<meta[^>]*(?:property|name)=[\"'](?:og:image(?::secure_url)?|twitter:image)[\"'][^>]*>/gi;\nlet m;\nwhile ((m = metaRe.exec(html))) {\n  const c = m[0].match(/content=[\"']([^\"']+)[\"']/i);\n  if (c) og.push(c[1]);\n}\n\nconst imgs = [];\nconst imgRe = /<img[^>]*?(?:data-src|data-original|data-lazy|src)=[\"']([^\"']+)[\"']/gi;\nwhile ((m = imgRe.exec(html))) imgs.push(m[1]);\n\n// srcset 也撈（取第一個 URL）\nconst setRe = /(?:data-srcset|srcset)=[\"']([^\"']+)[\"']/gi;\nwhile ((m = setRe.exec(html))) {\n  const first = m[1].split(',')[0].trim().split(/\\s+/)[0];\n  if (first) imgs.push(first);\n}\n\nconst norm = u => (u || '').startsWith('//') ? 'https:' + u : u;\nconst bad = /(logo|icon|avatar|sprite|blank|placeholder|loading|qrcode|\\.svg|badge|banner)/i;\nconst isPhoto = u => /^https?:\\/\\//.test(u) && !bad.test(u) && (/\\.(jpe?g|png|webp)(\\?|$)/i.test(u) || /(yungching|ycimg|kshouse|kinghouse|houseprice|cloudfront|akamai|amazonaws)/i.test(u));\n\nlet list = [...og.map(norm), ...imgs.map(norm)].filter(isPhoto);\nlist = [...new Set(list)].slice(0, 6);\n\nreturn [{ json: { ...ctx, photoUrls: list, photoCount: list.length } }];"
+      },
+      "id": "fbp-0014-photos",
+      "name": "整理照片",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 440]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            { "id": "ph1", "leftValue": "={{ $json.photoCount }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fbp-0015-ifphoto",
+      "name": "有照片?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [800, 440]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "photoUrls",
+        "options": {}
+      },
+      "id": "fbp-0016-split",
+      "name": "拆解照片",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [1000, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/1041868522352339/photos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ url: $json.photoUrls, published: false }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "fbp-0017-uploadphoto",
+      "name": "FB 上傳照片",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 320],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "FB_PAGE_TOKEN_CRED_ID", "name": "FB Page Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst fbids = items.map(i => i.json?.id).filter(Boolean);\nconst ctx = $('整合文案').first().json;\nreturn [{ json: { ...ctx, fbids } }];"
+      },
+      "id": "fbp-0018-collect",
+      "name": "收集 media id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/1041868522352339/feed",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(($json.fbids && $json.fbids.length) ? { message: $('整合文案').first().json['粉專文案'], attached_media: $json.fbids.map(id => ({ media_fbid: id })) } : { message: $('整合文案').first().json['粉專文案'] }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "fbp-0019-feedimg",
+      "name": "FB 發貼文（附圖）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1600, 320],
+      "credentials": { "httpHeaderAuth": { "id": "FB_PAGE_TOKEN_CRED_ID", "name": "FB Page Token" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/1041868522352339/feed",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $('整合文案').first().json['粉專文案'] }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "fbp-0020-feedtext",
+      "name": "FB 發貼文（純文字）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 560],
+      "credentials": { "httpHeaderAuth": { "id": "FB_PAGE_TOKEN_CRED_ID", "name": "FB Page Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst id = resp.id || resp.post_id || '';\nconst ctx = $('整合文案').first().json;\nconst permalink = id ? `https://www.facebook.com/${id}` : '';\nreturn [{ json: { ...ctx, fbPostId: id, permalink } }];"
+      },
+      "id": "fbp-0021-postresult",
+      "name": "取得貼文結果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 440]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $json.notionPageId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { '粉專貼文連結': { url: $json.permalink || null }, '狀態': { select: { name: '已發布' } }, 'KEIS同步': { select: { name: '未同步' } } } }) }}",
+        "options": {}
+      },
+      "id": "fbp-0022-patchnotion",
+      "name": "回寫 Notion 狀態",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2020, 440],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $('取得貼文結果').first().json;\nconst permalink = s.permalink || '（未取得連結，請到粉專確認貼文）';\nconst replyText = `✅ 已發布 → ${permalink}\\n\\n━━━ 社團簡短版（複製整段貼原生文）━━━\\n${s['社團文案'] || ''}\\n\\n撒網社團：直接按這篇粉專貼文的「分享」。\\n重點社團：複製上面社團版貼原生文，發完回我「發到 X 社團」。`;\nreturn [{ json: { replyToken: s.replyToken, replyText } }];"
+      },
+      "id": "fbp-0023-buildreply",
+      "name": "組 LINE 回覆",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 440]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.replyText }] }) }}",
+        "options": {}
+      },
+      "id": "fbp-0024-linereply",
+      "name": "LINE 回覆",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2440, 320],
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+    }
+  ],
+  "connections": {
+    "Webhook 接收":     { "main": [[{ "node": "解析 LINE 指令", "type": "main", "index": 0 }]] },
+    "解析 LINE 指令":   { "main": [[{ "node": "格式錯誤?", "type": "main", "index": 0 }]] },
+    "格式錯誤?": {
+      "main": [
+        [{ "node": "LINE 回覆", "type": "main", "index": 0 }],
+        [{ "node": "查 Notion 找物件", "type": "main", "index": 0 }]
+      ]
+    },
+    "查 Notion 找物件": { "main": [[{ "node": "取出物件資料", "type": "main", "index": 0 }]] },
+    "取出物件資料":     { "main": [[{ "node": "物件不存在?", "type": "main", "index": 0 }]] },
+    "物件不存在?": {
+      "main": [
+        [{ "node": "LINE 回覆", "type": "main", "index": 0 }],
+        [{ "node": "需要產文案?", "type": "main", "index": 0 }]
+      ]
+    },
+    "需要產文案?": {
+      "main": [
+        [{ "node": "Gemini 產文案", "type": "main", "index": 0 }],
+        [{ "node": "整合文案", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gemini 產文案":    { "main": [[{ "node": "解析文案", "type": "main", "index": 0 }]] },
+    "解析文案":         { "main": [[{ "node": "回寫文案", "type": "main", "index": 0 }]] },
+    "回寫文案":         { "main": [[{ "node": "還原文案資料", "type": "main", "index": 0 }]] },
+    "還原文案資料":     { "main": [[{ "node": "整合文案", "type": "main", "index": 0 }]] },
+    "整合文案":         { "main": [[{ "node": "抓照片 HTML", "type": "main", "index": 0 }]] },
+    "抓照片 HTML":      { "main": [[{ "node": "整理照片", "type": "main", "index": 0 }]] },
+    "整理照片":         { "main": [[{ "node": "有照片?", "type": "main", "index": 0 }]] },
+    "有照片?": {
+      "main": [
+        [{ "node": "拆解照片", "type": "main", "index": 0 }],
+        [{ "node": "FB 發貼文（純文字）", "type": "main", "index": 0 }]
+      ]
+    },
+    "拆解照片":         { "main": [[{ "node": "FB 上傳照片", "type": "main", "index": 0 }]] },
+    "FB 上傳照片":      { "main": [[{ "node": "收集 media id", "type": "main", "index": 0 }]] },
+    "收集 media id":    { "main": [[{ "node": "FB 發貼文（附圖）", "type": "main", "index": 0 }]] },
+    "FB 發貼文（附圖）": { "main": [[{ "node": "取得貼文結果", "type": "main", "index": 0 }]] },
+    "FB 發貼文（純文字）": { "main": [[{ "node": "取得貼文結果", "type": "main", "index": 0 }]] },
+    "取得貼文結果":     { "main": [[{ "node": "回寫 Notion 狀態", "type": "main", "index": 0 }]] },
+    "回寫 Notion 狀態": { "main": [[{ "node": "組 LINE 回覆", "type": "main", "index": 0 }]] },
+    "組 LINE 回覆":     { "main": [[{ "node": "LINE 回覆", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+}

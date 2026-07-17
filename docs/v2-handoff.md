@@ -8,7 +8,7 @@
 ## 進度勾選（做完一步就打勾、commit）
 
 - [x] 步驟 1：FB 永久金鑰（已完成：粉專「買房不費力,賣房好給力」FB_PAGE_ID=1041868522352339，FB_PAGE_TOKEN 已存進 n8n Credential「FB Page Token」）
-- [ ] 步驟 2：n8n 發文線（AI 寫 workflow JSON，使用者 import + 測試）
+- [x] 步驟 2：n8n 發文線（AI 已寫 `workflows/yc-fb-publish.json` + router 加「發」出口；⏳ 待使用者 import 兩支 JSON、設 FB Page Token credential、挑真實物件測試）
 - [ ] 步驟 3：下架線（AI 改 yc-removal-detector，使用者 import + 開 cron）
 - [ ] 步驟 4：KEIS 腳本驗證（使用者在門市電腦跑兩個指令）
 - [ ] 步驟 5：KEIS 駐守模式（步驟 4 通過後才做）
@@ -48,7 +48,17 @@
 
 **使用者做**：n8n 開**新的空白 workflow** → Import from File 貼 JSON（⚠️ 絕對不要在現有 workflow 裡 import，會覆蓋）→ router 同樣方式更新 → 挑一個真實物件測試整條線。
 
-**驗收**：LINE 傳「發 YCxxx」→ 粉專出現含照片貼文 → Notion 連結/狀態正確 → LINE 收到回覆。
+**AI 已完成**（2026-07-17）：`workflows/yc-fb-publish.json`（24 節點：查 Notion → 缺文案就 Gemini 產粉專+社團兩版並回寫 → 抓來源連結照片取前 6 張 → FB `/photos` 逐張上傳拿 media id → `/feed` 發多圖貼文 → 回寫 Notion `粉專貼文連結`/`狀態=已發布`/`KEIS同步=未同步` → LINE Reply 帶社團文案）＋ router 加「發」出口。兩支 JSON 已複製到 `桌面\json\`。
+
+**使用者要做（照順序）**：
+1. n8n 開**新空白 workflow** → Import from File → `桌面\json\yc-fb-publish.json`。
+2. 進 workflow，點三個 FB 節點（「FB 上傳照片」「FB 發貼文（附圖）」「FB 發貼文（純文字）」）→ Credential 欄各選一次 `FB Page Token`（import 時是紅色未綁，因為 JSON 裡放的是佔位 id）→ Save → **啟用**。
+3. router：開**另一個新空白 workflow** import `桌面\json\line-command-router.json`（或在現有 router 手動加，但 SOP 是開新的）→ 確認 credential 都在 → 啟用；舊 router 停用。
+4. 挑一個**已建檔、狀態還不是已發布**的真實物件，LINE 傳「發 YCxxx」測。
+
+**測試注意**：第一次測若粉專貼文沒帶照片或帶到 logo，是照片抽取 regex 沒對到永慶該頁的圖片網址格式——把那個物件的永慶網址貼給 AI 調 `整理照片` 節點即可，其餘流程不受影響。
+
+**驗收**：LINE 傳「發 YCxxx」→ 粉專出現含照片貼文 → Notion 連結/狀態正確 → LINE 收到回覆（含社團版文案）。
 
 ## 步驟 3：下架線
 

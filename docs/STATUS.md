@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-17（FB 權杖輪替完成，新粉專權杖已存入 n8n `FB Page Token`；下一步是 `docs/v2-handoff.md` 步驟 2 n8n 發文線）
+最後更新：2026-07-17（v2 發文線 workflow 已寫好：`yc-fb-publish.json` + router 加「發」出口，🟡 待使用者匯入 n8n＋綁 FB Page Token credential＋真實物件測試；細節見 `docs/v2-handoff.md` 步驟 2。通過後接步驟 3 下架線）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -41,6 +41,7 @@
 | `建檔 <永慶網址>` | 抓 HTML → AI 解析 → 寫進 Notion（新建或 PATCH，文案版本 +1） | `yc-property-create` |
 | `已撤除 YCxxx` | 標記該物件「已撤除確認 = true」 | `yc-property-remove` |
 | `生成文案 YCxxx <風格描述>` | 用 Notion 既有資料 + 自由風格描述，AI 重產文案（版本 +1） | `yc-rewrite-copy`（**桌面端改用 `/yc-ad` skill**，本指令暫保留） |
+| `發 YCxxx` | 缺文案先 Gemini 產粉專+社團版 → 抓照片 → FB Graph API 發多圖粉專貼文 → 回寫 permalink/狀態=已發布/KEIS同步=未同步 → LINE Reply 帶社團版 | `yc-fb-publish`（🟡 待匯入測試） |
 | `行事曆 <自由描述>` | Gemini 解析時間/地點/說明 → 建到 Google primary 行事曆 | `line-calendar-create` |
 | `客戶 <自由描述>` | Gemini 抽姓名/電話/公司/需求 → 寫進 Notion 客戶名單 DB | `line-customer-create` |
 | （純圖片，無前綴） | Gemini Vision 自動分類 → 轉發到行事曆或客戶 | `line-image-dispatcher` |
