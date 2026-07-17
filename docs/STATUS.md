@@ -178,7 +178,7 @@ Skill 會自動：
 | **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦），全天分層輪詢 | `scripts/keis/README.md` |
 | **KEIS 廣告上架** `scripts/keis/publish.py` | 🟡 待第一次實跑驗 selector，見下方待辦 | `scripts/keis/README.md` |
 | **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
-| **售屋表填寫** `scripts/sale-form/` | 🟢 全流程實測通過；2026-07-15 大修坪數逐層/所有權/地上權 | `scripts/sale-form/README.md` |
+| **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-17 修大樓公設分算（共有部分逐建號、車位拆 F28/其他公設 F30）、貸款金額多格式（AL3）、補回訴求重點 wizard（AL30~38）、無車位塗 AN16、不再跳資料夾視窗。⚠️ 待使用者把 git 版複製到本機 `不動產售屋表工具_v3.4\zipinspect\` 並拿莊敬路店面謄本實測 | `scripts/sale-form/README.md` |
 
 ## 廣告系統 v2 改造計畫（2026-07-15 拍板，取代所有舊的廣告流程待辦）
 

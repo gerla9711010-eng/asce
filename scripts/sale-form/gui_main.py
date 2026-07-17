@@ -155,6 +155,8 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
     put('AI12', data.get('door_facing'))    # 大門朝
 
     # ── 車位 ──
+    if data.get('_parking_yn') == '無':
+        fill('AN16')                       # 車位:無（也要塗黃，不是留白）
     if data.get('_parking_yn') == '有':
         fill('AN14')                       # 車位:有
         fill('AU14')                       # 公設內含（謄本車位登記於共有部分）
@@ -672,8 +674,7 @@ class App(tk.Tk):
         fill_excel(data, out_path, is_rental=is_rental, log=self._log)
         self._log(f'✅ 完成！輸出：{out_path}')
         self._log('──────────────────────────────')
-        if sys.platform == 'win32':
-            os.startfile(os.path.dirname(out_path))
+        # 產出後不再自動開檔案總管視窗（使用者要求），路徑看上面 log
 
     @staticmethod
     def _apply_104(data: dict, d104: dict):
@@ -712,9 +713,11 @@ class App(tk.Tk):
             data = merge(land0, bldg0)
             data['ownership'] = '地上權'
             self._log('  ⓘ 沒有選土地謄本 → 視為地上權案件，所有權標「地上權」')
+            self._log_parse_summary(data, bldg0)
             return data, land0
         land0 = parse_land(land_paths[0])
         data = merge(land0, bldg0)
+        self._log_parse_summary(data, bldg0)
 
         # ── 地坪加總 + 持分加總是否等於全部 ──
         # 每張土地謄本的 area_land 已經是「這個所有權人的持分坪數」（merge() 用
@@ -766,6 +769,26 @@ class App(tk.Tk):
                       + (f'（{dup} 張為同一間持分，已略過）' if dup else ''))
 
         return data, land0
+
+    def _log_parse_summary(self, data: dict, bldg: dict):
+        """解析後把公設分算與他項權利明細印出來，出成品前就能對謄本核對。"""
+        parts = bldg.get('common_parts') or []
+        if parts:
+            for p in parts:
+                pk = f'，含車位持分 {"、".join(p["parking_shares"])}' if p['parking_shares'] else ''
+                self._log(f'   共有部分 {p["no"]}：{p["area"]} m² × {p["share"]}{pk}')
+        if data.get('area_common') is not None or data.get('area_parking') is not None:
+            park = data.get('area_parking')
+            comm = data.get('area_common') or 0
+            total = round((park or 0) + comm, 2)
+            self._log(f'  ✓ 公設分算：車位(F28) {park if park is not None else "無"} 坪'
+                      f'＋其他公設(F30) {comm} 坪＝共有部分合計 {total} 坪')
+        elif parts == []:
+            self._log('  ⚠ 沒抓到共有部分（公設），若謄本有記載請人工核對 F28/F30')
+        items = data.get('mortgage_items') or []
+        if items:
+            self._log(f'  ✓ 他項權利 {len(items)} 筆：'
+                      f'{" + ".join(str(i) for i in items)} = {data.get("mortgage_amount")} 萬（填 AL3）')
 
     def _apply_zoning(self, data: dict, land: dict, driver=None):
         """查高雄市使用分區，覆蓋 usage_zone / special_zone（官網最準）。"""
@@ -926,8 +949,7 @@ class App(tk.Tk):
         fill_land(data, out_path, is_rental=is_rental)
         self._log(f'✅ 完成！輸出：{out_path}')
         self._log('──────────────────────────────')
-        if sys.platform == 'win32':
-            os.startfile(os.path.dirname(out_path))
+        # 產出後不再自動開檔案總管視窗（使用者要求），路徑看上面 log
 
 
 if __name__ == '__main__':

@@ -28,6 +28,26 @@ def _to_float(s):
 def _roc_to_ad(year, month, day):
     return int(year) + 1911, int(month), int(day)
 
+# 國字大寫金額（舊制他項權利設定金額常用，例：肆佰捌拾萬）
+_CN_D = {'零': 0, '壹': 1, '貳': 2, '參': 3, '叁': 3, '肆': 4,
+         '伍': 5, '陸': 6, '柒': 7, '捌': 8, '玖': 9}
+_CN_U = {'拾': 10, '佰': 100, '仟': 1000}
+_CN_B = {'萬': 10 ** 4, '億': 10 ** 8}
+
+def _cn_amount(s: str) -> int:
+    """'肆佰捌拾萬' → 4800000；'壹仟肆佰壹拾萬' → 14100000"""
+    total = section = num = 0
+    for ch in s:
+        if ch in _CN_D:
+            num = _CN_D[ch]
+        elif ch in _CN_U:
+            section += (num if num else 1) * _CN_U[ch]
+            num = 0
+        elif ch in _CN_B:
+            total += (section + num) * _CN_B[ch]
+            section = num = 0
+    return total + section + num
+
 # ─────────────────────────────────────────
 #  土地謄本解析
 # ─────────────────────────────────────────
@@ -84,11 +104,20 @@ def parse_land(path: str) -> dict:
                and not any(k in val for k in bad_kw):
                 d['owner_address'] = val
 
-    # 他項權利（全部抓，合計）
+    # 他項權利（全部抓，合計）——格式歷代不一，全都要認得，漏認一種就少加一筆：
+    # 關鍵字「擔保債權總金額」/舊制「設定金額」、「新台幣」/「新臺幣」（也可能省略）、
+    # 金額用阿拉伯數字（可能帶千分位逗號）或國字大寫（肆佰捌拾萬元）
     mortgages = []
-    for m in re.finditer(r'擔保債權總金額\s*新台幣\s*([\d]+)元正', text):
-        mortgages.append(int(m.group(1)))
+    for m in re.finditer(
+            r'(?:擔保債權總金額|設定金額)[\s\S]{0,20}?(?:新[台臺]幣)?\s*'
+            r'([\d,]+|[零壹貳參叁肆伍陸柒捌玖拾佰仟萬億]+)\s*元',
+            text):
+        raw = m.group(1)
+        amt = int(raw.replace(',', '')) if raw[0].isdigit() else _cn_amount(raw)
+        if amt:
+            mortgages.append(amt)
     if mortgages:
+        d['mortgage_items'] = [a // 10000 for a in mortgages]  # 各筆（萬元），log 核對用
         d['mortgage_total'] = sum(mortgages) // 10000  # 轉萬元
 
     # 銀行名稱（第一筆）
@@ -169,26 +198,61 @@ def parse_building(path: str) -> dict:
         else:
             d['extra_attachments'].append((purpose, area))
 
-    # 共有部分 — 建號、面積、權利範圍分散在不同行
-    # 格式：建號行 → 「共有部分 權利範圍xxx」行 → 面積行（或反之）
-    m = re.search(
-        r'共有部分資料.*?(\d{5}-\d{3})建號\n'
-        r'共有部分\s*權利範圍\s*(\d+分之\d+)\n'
-        r'([\d.]+)\s*平方公尺',
-        text, re.DOTALL
-    )
-    if not m:
-        # 舊格式：面積與建號同行或鄰行
-        m = re.search(
-            r'共有部分[^\n]*([\d.]+)\s*平方公尺\s*權利範圍\s*(\d+分之\d+)',
-            text
-        )
-        if m:
-            d['common_area']  = float(m.group(1))
-            d['common_share'] = m.group(2)
+    # 共有部分 — 大樓常常不只一筆（大公/小公/停車場各自一個建號），每筆有
+    # 自己的面積與權利範圍，而且面積行/權利範圍行的先後順序、換行位置各版
+    # 謄本不固定（舊版只認一種固定行序，格式不同整段抓不到、公設直接漏算）。
+    # 改成：從「共有部分」關鍵字往後逐建號切塊，塊內各自找面積與權利範圍；
+    # 「含停車位」的持分屬於登記它的那個建號（車位坪 = 該建號面積 × 車位持分）。
+    d['common_parts'] = []   # [{'no','area','share','parking_shares'}]
+    sec = re.search(r'共\s*有\s*部\s*分', text)
+    if sec:
+        tail = text[sec.start():]
+        stop = re.search(r'建物所有權部|土地所有權部|他項權利部', tail)
+        if stop:
+            tail = tail[:stop.start()]
+        anchors = list(re.finditer(r'(\d{4,5}-\d{3})\s*建號', tail))
+        for i, am in enumerate(anchors):
+            if d.get('building_no') and am.group(1) == d['building_no']:
+                continue   # 主建物建號誤入區塊，跳過
+            end = anchors[i + 1].start() if i + 1 < len(anchors) else len(tail)
+            block = tail[am.start():end]
+            # 車位持分先抓、再從塊裡拿掉，下面找共有部分本身的權利範圍
+            # 才不會抓到「含停車位…權利範圍…」那行的車位持分
+            park_pat = r'含停車位[\s\S]{0,80}?權利範圍\s*(\d+分之\d+)'
+            parking_shares = re.findall(park_pat, block)
+            block_np = re.sub(park_pat, '', block)
+            area_m  = re.search(r'([\d,]+(?:\.\d+)?)\s*平方公尺', block_np)
+            share_m = re.search(r'權利範圍\s*(全部|\d+分之\d+)', block_np)
+            if not area_m:
+                continue
+            d['common_parts'].append({
+                'no': am.group(1),
+                'area': float(area_m.group(1).replace(',', '')),
+                'share': share_m.group(1) if share_m else None,
+                'parking_shares': parking_shares,
+            })
+    if d['common_parts']:
+        d['common_area']  = d['common_parts'][0]['area']
+        d['common_share'] = d['common_parts'][0]['share']
     else:
-        d['common_area']  = float(m.group(3))
-        d['common_share'] = m.group(2)
+        # 逐塊抓不到時退回舊版兩種固定格式
+        m = re.search(
+            r'共有部分資料.*?(\d{5}-\d{3})建號\n'
+            r'共有部分\s*權利範圍\s*(\d+分之\d+)\n'
+            r'([\d.]+)\s*平方公尺',
+            text, re.DOTALL
+        )
+        if not m:
+            m = re.search(
+                r'共有部分[^\n]*([\d.]+)\s*平方公尺\s*權利範圍\s*(\d+分之\d+)',
+                text
+            )
+            if m:
+                d['common_area']  = float(m.group(1))
+                d['common_share'] = m.group(2)
+        else:
+            d['common_area']  = float(m.group(3))
+            d['common_share'] = m.group(2)
 
     # 停車位（含全形字元）
     m = re.search(r'含停車位\s*編號\s*([A-Za-zＡ-Ｚａ-ｚ０-９Ｂ\u4e00-\u9fa5A-Z0-9－\-]+)\s*權利範圍', text)
@@ -294,10 +358,23 @@ def merge(land: dict, building: dict) -> dict:
     data['extra_attachments'] = [(label, _to_ping(area))
                                   for label, area in building.get('extra_attachments', [])]
 
-    # 公設分攤：其他公設 = 共有部分 − 停車位（兩者皆為共有部分的一部分）
+    # 公設分攤：共有部分可能有多筆建號，各筆 面積×權利範圍 加總 = 這戶分到的
+    # 全部共有坪數。車位持分包含在其登記建號的權利範圍內，車位坪 = 該建號
+    # 面積 × 車位持分，單獨拆出填 F28；其他公設 = 全部共有 − 車位，填 F30
+    # （F28 + F30 必須等於謄本共有部分權利範圍換算的合計）
+    parts = building.get('common_parts') or []
     comm_area  = building.get('common_area')
     comm_share = building.get('common_share')
-    if comm_area and comm_share:
+    if parts:
+        full = sum(p['area'] * _share_to_float(p['share'])
+                   for p in parts if p['share'])
+        park = sum(p['area'] * _share_to_float(ps)
+                   for p in parts for ps in p['parking_shares'])
+        if not park and building.get('parking_share'):
+            park = parts[0]['area'] * _share_to_float(building['parking_share'])
+        data['area_common']  = _to_ping(full - park)
+        data['area_parking'] = _to_ping(park) if park else None
+    elif comm_area and comm_share:
         comm_full_area = comm_area * _share_to_float(comm_share)
         park_share = building.get('parking_share')
         park_area  = comm_area * _share_to_float(park_share) if park_share else 0
@@ -325,6 +402,7 @@ def merge(land: dict, building: dict) -> dict:
     # 他項權利
     data['mortgage']        = bool(land.get('mortgage_total'))
     data['mortgage_amount'] = land.get('mortgage_total')
+    data['mortgage_items']  = land.get('mortgage_items')   # 各筆明細（萬），log 核對用
     data['mortgage_bank']   = land.get('mortgage_bank')
 
     # 車位

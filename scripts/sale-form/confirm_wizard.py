@@ -43,7 +43,7 @@ LRT = [
 
 
 def _build_steps():
-    return [
+    steps = [
         {'title': '總價', 'type': 'number',
          'prompt': '總價（萬）：', 'key': 'price', 'unit': '萬'},
 
@@ -129,8 +129,19 @@ def _build_steps():
          'show': lambda d: d.get('_parking_yn') == '有'},
     ]
 
+    # 訴求重點 5 欄（售屋表 AL30/32/34/36/38）：逐欄輸入，
+    # 三鈕（先不填 / 填下一個 / 填寫完畢），同土地表的作法
+    for i in range(BLDG_SELLING_SLOTS):
+        steps.append({
+            'title': f'訴求重點 {i + 1}/{BLDG_SELLING_SLOTS}',
+            'type': 'selling', 'key': f'sp_{i}',
+            'idx': i + 1, 'total': BLDG_SELLING_SLOTS,
+        })
+    return steps
 
-SELLING_SLOTS = 9   # 訴求重點欄數（AD29/31/.../45）
+
+BLDG_SELLING_SLOTS = 5   # 售屋表訴求重點欄數（AL30/32/.../38）
+SELLING_SLOTS = 9        # 土地表訴求重點欄數（AD29/31/.../45），收集迴圈也用這個上限
 
 
 def _build_land_steps(is_rental=False):
