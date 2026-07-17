@@ -221,7 +221,10 @@ def parse_building(path: str) -> dict:
             park_pat = r'含停車位[\s\S]{0,80}?權利範圍\s*(\d+分之\d+)'
             parking_shares = re.findall(park_pat, block)
             block_np = re.sub(park_pat, '', block)
-            area_m  = re.search(r'([\d,]+(?:\.\d+)?)\s*平方公尺', block_np)
+            # 「尺」可省：真實謄本 pdfplumber 會把「…平方公」和「尺」拆到不同行
+            # （面積數字在建號行末、「尺」被擠到權利範圍行後），要求「平方公尺」
+            # 相連就整筆共有部分抓不到、公設漏算。用「平方公」當錨、尺設為可選。
+            area_m  = re.search(r'([\d,]+(?:\.\d+)?)\s*平方公尺?', block_np)
             share_m = re.search(r'權利範圍\s*(全部|\d+分之\d+)', block_np)
             if not area_m:
                 continue
