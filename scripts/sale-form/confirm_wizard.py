@@ -53,7 +53,11 @@ def _build_steps(is_rental=False):
     steps = [
         {'title': '月租' if is_rental else '總價', 'type': 'number',
          'prompt': ('月租（萬）：' if is_rental else '總價（萬）：'),
-         'key': 'price', 'unit': '萬'},
+         'key': 'price', 'unit': '萬',
+         # 金額防呆（軟提醒）：租賃>100萬疑似填成元、買賣<10萬疑似單位錯
+         'sanity': ((lambda v: f'月租 {v} 萬？單位是「萬」，是不是填成元了？' if v > 100 else None)
+                    if is_rental else
+                    (lambda v: f'總價 {v} 萬？金額偏低，確定單位是「萬」嗎？' if v < 10 else None))},
     ] + _mortgage_steps() + [
         {'title': '格局 - 房', 'type': 'number',
          'prompt': '格局：幾房？', 'key': 'layout_rooms', 'unit': '房'},
@@ -175,18 +179,22 @@ def _build_land_steps(is_rental=False):
     寬度/深度手動。訴求重點 9 欄逐欄輸入（見 'selling' 型）。"""
     steps = [
         {'title': '案名', 'type': 'text', 'prompt': '案名：', 'key': 'case_name'},
+        {'title': '鑰匙編號', 'type': 'text',
+         'prompt': '鑰匙編號（可留空）：', 'key': 'key_no'},   # 填 AL2，之前從沒人問、永遠空白
     ]
     if is_rental:
         steps += [
             {'title': '租金', 'type': 'number',
-             'prompt': '租金（萬）：', 'key': 'price', 'unit': '萬'},
+             'prompt': '租金（萬）：', 'key': 'price', 'unit': '萬',
+             'sanity': lambda v: f'租金 {v} 萬？單位是「萬」，是不是填成元了？' if v > 100 else None},
             {'title': '押金', 'type': 'number',
              'prompt': '押金（萬）：', 'key': 'deposit', 'unit': '萬'},
         ]
     else:
         steps += [
             {'title': '總價', 'type': 'number',
-             'prompt': '總價款（萬）：', 'key': 'price', 'unit': '萬'},
+             'prompt': '總價款（萬）：', 'key': 'price', 'unit': '萬',
+             'sanity': lambda v: f'總價 {v} 萬？金額偏低，確定單位是「萬」嗎？' if v < 10 else None},
         ]
     steps += _mortgage_steps()
     steps += [
@@ -253,7 +261,12 @@ class ConfirmWizard:
                 self.idx += 1
                 continue
             is_first = (self.idx == 0)
-            dlg = StepDialog(self.parent, step, self.data, self.idx + 1, n,
+            # 進度計數只算「目前會顯示」的步驟：車位選「無」後被跳過的細節
+            # 不佔分母，標題 (7/22) 才對得上實際要走的視窗數
+            visible = [i for i, s in enumerate(self.steps)
+                       if not s.get('show') or s['show'](self.data)]
+            cur = visible.index(self.idx) + 1 if self.idx in visible else self.idx + 1
+            dlg = StepDialog(self.parent, step, self.data, cur, len(visible),
                               is_first=is_first)
             self.parent.wait_window(dlg)
             r = dlg.result
@@ -620,6 +633,14 @@ class StepDialog(tk.Toplevel):
     def _on_next(self):
         if not self._commit():
             return
+        # 金額防呆（軟提醒）：明顯可疑的金額問一聲，按「是」照樣過、「否」留在原視窗改
+        s = self.step
+        if s.get('sanity'):
+            v = self.data.get(s['key'])
+            if isinstance(v, (int, float)):
+                msg = s['sanity'](v)
+                if msg and not messagebox.askyesno('確認金額', msg):
+                    return
         self.result = 'next'
         self.destroy()
 

@@ -15,18 +15,11 @@ def _read_pdf(path: str) -> str:
                 lines.append(t)
     return "\n".join(lines)
 
-def _find(pattern, text, group=1, default=None):
-    m = re.search(pattern, text)
-    return m.group(group).strip() if m else default
-
 def _to_float(s):
     try:
         return float(re.sub(r'[^\d.]', '', s))
     except Exception:
         return None
-
-def _roc_to_ad(year, month, day):
-    return int(year) + 1911, int(month), int(day)
 
 # 國字大寫金額（舊制他項權利設定金額常用，例：肆佰捌拾萬）
 _CN_D = {'零': 0, '壹': 1, '貳': 2, '參': 3, '叁': 3, '肆': 4,
@@ -107,15 +100,27 @@ def parse_land(path: str) -> dict:
     # 他項權利（全部抓，合計）——格式歷代不一，全都要認得，漏認一種就少加一筆：
     # 關鍵字「擔保債權總金額」/舊制「設定金額」、「新台幣」/「新臺幣」（也可能省略）、
     # 金額用阿拉伯數字（可能帶千分位逗號）或國字大寫（肆佰捌拾萬元）
-    mortgages = []
+    mortgages, voided, last_end = [], 0, 0
     for m in re.finditer(
             r'(?:擔保債權總金額|設定金額)[\s\S]{0,20}?(?:新[台臺]幣)?\s*'
             r'([\d,]+|[零壹貳參叁肆伍陸柒捌玖拾佰仟萬億]+)\s*元',
             text):
+        # 已塗銷（清償註銷）的舊設定不能加進貸款總額：看「這一筆自己的前文」
+        # 有沒有「塗銷」。前文範圍以上一筆金額結尾為界（不能只用固定 200 字回看，
+        # 否則上一筆的「塗銷」會污染到下一筆、害正常筆也被跳過），再取最後一個
+        # 「登記次序」（每筆他項權利的起頭）之後的段落判斷。
+        ctx = text[max(last_end, m.start() - 200):m.start()]
+        last_end = m.end()
+        seg = ctx.rsplit('登記次序', 1)[-1] if '登記次序' in ctx else ctx
+        if '塗銷' in seg:
+            voided += 1
+            continue
         raw = m.group(1)
         amt = int(raw.replace(',', '')) if raw[0].isdigit() else _cn_amount(raw)
         if amt:
             mortgages.append(amt)
+    if voided:
+        d['mortgage_voided'] = voided
     if mortgages:
         d['mortgage_items'] = [a // 10000 for a in mortgages]  # 各筆（萬元），log 核對用
         d['mortgage_total'] = sum(mortgages) // 10000  # 轉萬元
@@ -407,6 +412,7 @@ def merge(land: dict, building: dict) -> dict:
     data['mortgage_amount'] = land.get('mortgage_total')
     data['mortgage_items']  = land.get('mortgage_items')   # 各筆明細（萬），log 核對用
     data['mortgage_bank']   = land.get('mortgage_bank')
+    data['mortgage_voided'] = land.get('mortgage_voided')  # 跳過的塗銷筆數，log 核對用
 
     # 車位
     data['parking_no']    = building.get('parking_no')
