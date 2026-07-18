@@ -22,6 +22,22 @@ from bot_104 import Bot104, fetch_zoning
 from confirm_wizard import ConfirmWizard, _build_land_steps, _build_steps
 
 
+def _log_crash(text: str):
+    """未捕捉例外寫進 output/crash.log——啟動工具.vbs 改用 pythonw 無視窗執行後，
+    crash 沒有 console 可看，全靠這個檔案留紀錄。"""
+    try:
+        with open(os.path.join(OUTPUT_DIR, 'crash.log'), 'a', encoding='utf-8') as f:
+            f.write(f'\n[{datetime.datetime.now()}]\n{text}')
+    except Exception:
+        pass
+
+
+def _excepthook(etype, value, tb):
+    import traceback
+    _log_crash(''.join(traceback.format_exception(etype, value, tb)))
+    sys.__excepthook__(etype, value, tb)
+
+
 def _clean_floor_label(label: str) -> str:
     """謄本『層次』欄位有些格式是『突出物一層：２５．７２平方公尺』，
     後面那段是面積重複帶出來的，不是樓層名稱，填表只要冒號前面那段。"""
@@ -38,6 +54,33 @@ def _amount_fmt(v):
         return '#,##0'
 
 
+def _make_putfill(ws):
+    """填表共用小工具（售屋表/土地表同一套，改塗法只改這裡）：
+    put＝寫值到合併格左上角；fill＝把選項方格（含整個合併範圍）塗黃。"""
+    from openpyxl.utils import coordinate_to_tuple
+    from openpyxl.styles import PatternFill
+    yellow = PatternFill(fill_type='solid', fgColor='FFFF00')
+
+    def put(addr, value):
+        if value is None or value == '':
+            return
+        ws[addr] = value
+
+    def fill(addr):
+        if not addr:
+            return
+        r, c = coordinate_to_tuple(addr)
+        for mc in ws.merged_cells.ranges:
+            if mc.min_row <= r <= mc.max_row and mc.min_col <= c <= mc.max_col:
+                for rr in range(mc.min_row, mc.max_row + 1):
+                    for cc in range(mc.min_col, mc.max_col + 1):
+                        ws.cell(rr, cc).fill = yellow
+                return
+        ws[addr].fill = yellow
+
+    return put, fill
+
+
 # ─────────────────────────────────────────────────────
 #  填表邏輯
 #  - 直接讀 .xltx 範本（openpyxl），不需 LibreOffice
@@ -51,36 +94,14 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
     log：填表過程有需要人工核對的狀況（欄位放不下）時用來提醒，預設 print；
     GUI 呼叫時應傳 self._log，不然警告會印到看不到的地方，等於沒提醒。"""
     from openpyxl import load_workbook
-    from openpyxl.utils import coordinate_to_tuple
-    from openpyxl.styles import PatternFill
-
-    YELLOW = PatternFill(fill_type='solid', fgColor='FFFF00')
 
     wb = load_workbook(TEMPLATE)
     wb.template = False   # 範本是 .xltx，不關掉這旗標存出的 .xlsx 內部類型會是 template.main+xml，別台電腦 Excel 拒開
     ws = wb.active
+    put, fill = _make_putfill(ws)
 
     if is_rental:
         ws['L3'] = '月 租:'   # 售屋表的「總價款:」→ 租賃改成「月租:」（金額同樣填 N3）
-
-    def put(addr, value):
-        """寫值到合併格左上角"""
-        if value is None or value == '':
-            return
-        ws[addr] = value
-
-    def fill(addr):
-        """把選項方格（含整個合併範圍）填滿黃色"""
-        if not addr:
-            return
-        r, c = coordinate_to_tuple(addr)
-        for mc in ws.merged_cells.ranges:
-            if mc.min_row <= r <= mc.max_row and mc.min_col <= c <= mc.max_col:
-                for rr in range(mc.min_row, mc.max_row + 1):
-                    for cc in range(mc.min_col, mc.max_col + 1):
-                        ws.cell(rr, cc).fill = YELLOW
-                return
-        ws[addr].fill = YELLOW
 
     # ── 標頭 ──
     put('A1',  data.get('case_name'))      # 案名
@@ -285,31 +306,11 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
 # ─────────────────────────────────────────────────────
 def fill_land(data: dict, output_path: str, is_rental: bool = False):
     from openpyxl import load_workbook
-    from openpyxl.utils import coordinate_to_tuple
-    from openpyxl.styles import PatternFill
-
-    YELLOW = PatternFill(fill_type='solid', fgColor='FFFF00')
 
     wb = load_workbook(TEMPLATE_LAND)
     wb.template = False   # 同售屋表：關掉範本旗標，別台電腦才開得了
     ws = wb.active
-
-    def put(addr, value):
-        if value is None or value == '':
-            return
-        ws[addr] = value
-
-    def fill(addr):
-        if not addr:
-            return
-        r, c = coordinate_to_tuple(addr)
-        for mc in ws.merged_cells.ranges:
-            if mc.min_row <= r <= mc.max_row and mc.min_col <= c <= mc.max_col:
-                for rr in range(mc.min_row, mc.max_row + 1):
-                    for cc in range(mc.min_col, mc.max_col + 1):
-                        ws.cell(rr, cc).fill = YELLOW
-                return
-        ws[addr].fill = YELLOW
+    put, fill = _make_putfill(ws)
 
     # ── 標頭 ──
     put('D2', data.get('case_name'))       # 案名
@@ -380,7 +381,7 @@ def fill_land(data: dict, output_path: str, is_rental: bool = False):
 
     # ── 專員 ──
     put('D39', data.get('agent_name', '薛力瑜'))
-    put('D41', data.get('agent_phone'))
+    put('D41', data.get('agent_phone', '0912877583'))   # 之前沒人填、永遠空白
 
     wb.save(output_path)
     return output_path
@@ -403,6 +404,8 @@ def _to_num(v):
 #  GUI
 # ─────────────────────────────────────────────────────
 class App(tk.Tk):
+    LAST_CASE = os.path.join(OUTPUT_DIR, 'last_case.json')   # 重編上一案的快取
+
     def __init__(self):
         super().__init__()
         self.title('不動產售屋表自動填寫工具')
@@ -410,7 +413,18 @@ class App(tk.Tk):
         self.geometry('600x600')
         self.bot = None           # Bot104 instance
         self.data_104 = None      # 104 抓到的社區資料
+        self._last_output = None  # 最近一次成品路徑（開啟鈕用）
         self._build_ui()
+
+    def report_callback_exception(self, exc, val, tb):
+        """tkinter 事件回呼裡的未捕捉例外：pythonw 無視窗執行時看不到，
+        寫進 output/crash.log 並在執行記錄提示，不然出事無聲無息。"""
+        import traceback
+        _log_crash(''.join(traceback.format_exception(exc, val, tb)))
+        try:
+            self._log(f'❌ 介面錯誤（詳情已寫 output\\crash.log）：{val}')
+        except Exception:
+            pass
 
     # ── UI 建立 ──────────────────────────────
     def _build_ui(self):
@@ -497,9 +511,18 @@ class App(tk.Tk):
         ttk.Button(frame_out, text='選擇', width=6,
                    command=self._pick_out).pack(side='left')
 
-        # 執行按鈕
-        self.btn_run = ttk.Button(self, text='▶  開始產出售屋表', command=self._run)
-        self.btn_run.pack(pady=8)
+        # 執行按鈕列：產出 / 重編上一案 / 開啟上次檔案
+        row_run = ttk.Frame(self)
+        row_run.pack(pady=8)
+        self.btn_run = ttk.Button(row_run, text='▶  開始產出售屋表', command=self._run)
+        self.btn_run.pack(side='left')
+        self.btn_reedit = ttk.Button(
+            row_run, text='✎ 重新編輯上一案', command=self._reedit_last,
+            state='normal' if os.path.exists(self.LAST_CASE) else 'disabled')
+        self.btn_reedit.pack(side='left', padx=8)
+        self.btn_open_last = ttk.Button(row_run, text='📂 開啟上次檔案',
+                                        command=self._open_last, state='disabled')
+        self.btn_open_last.pack(side='left')
 
         # 進度 / 日誌
         frame_log = ttk.LabelFrame(self, text='執行記錄', padding=4)
@@ -703,18 +726,24 @@ class App(tk.Tk):
             self.bot = None
             self.lbl_104_status.config(text='（已關閉 104 視窗）', foreground='#888')
 
-    def _produce(self, data: dict):
-        is_rental = self._is_rental()
+    def _produce(self, data: dict, is_rental=None):
+        if is_rental is None:                 # 重編上一案會直接指定，平常讀 UI
+            is_rental = self._is_rental()
         kind = '租賃表' if is_rental else '售屋表'
         self._log(f'── 填寫{kind} ...')
         ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         addr_short = (data.get('address') or '物件').replace('高雄市', '').replace('屏東縣', '')[:20]
         out_name = f"{kind}_{addr_short}_{ts}.xlsx"
         out_path = os.path.join(self.out_var.get(), out_name)
-        fill_excel(data, out_path, is_rental=is_rental, log=self._log)
+        try:
+            fill_excel(data, out_path, is_rental=is_rental, log=self._log)
+        except PermissionError:
+            self._log('⚠ 檔案存不進去：請關閉開著的 Excel（或檢查輸出資料夾權限）後，重按「開始產出售屋表」')
+            return
         self._log(f'✅ 完成！輸出：{out_path}')
         self._log('──────────────────────────────')
-        # 產出後不再自動開檔案總管視窗（使用者要求），路徑看上面 log
+        # 產出後不自動開檔案總管（使用者要求）；想看按「📂 開啟上次檔案」
+        self._after_produce(data, 'building', is_rental, out_path)
 
     @staticmethod
     def _apply_104(data: dict, d104: dict):
@@ -829,6 +858,8 @@ class App(tk.Tk):
         if items:
             self._log(f'  ✓ 他項權利 {len(items)} 筆：'
                       f'{" + ".join(str(i) for i in items)} = {data.get("mortgage_amount")} 萬（填 AL3）')
+        if data.get('mortgage_voided'):
+            self._log(f'  ⓘ 他項權利另有 {data["mortgage_voided"]} 筆已塗銷，未計入（請對謄本核對）')
 
     def _apply_zoning(self, data: dict, land: dict, driver=None):
         """查高雄市使用分區，覆蓋 usage_zone / special_zone（官網最準）。"""
@@ -891,10 +922,9 @@ class App(tk.Tk):
             if land:
                 self._log(f"  地號：{land.get('district','')}{land.get('section','')} {land.get('land_no','')}")
             self._log(f"  門牌：{data.get('address')}")
-            if self.data_104:
-                self._apply_104(data, self.data_104)
-                self._log(f'  ✓ 已套用 104：{self.data_104.get("community_name")}')
             # 查使用分區（無 104，開自己的無頭瀏覽器）
+            #（舊版這裡有 self.data_104 分支，但 104 流程走的是 _worker_with_104，
+            #  這條路徑上永遠是 None——死碼已移除）
             self._log('── 查詢使用分區 …')
             self._apply_zoning(data, land, driver=None)
             self.after(0, lambda d=data: self._wizard_and_produce(d, close_bot=False))
@@ -927,6 +957,8 @@ class App(tk.Tk):
         if len(land_paths) > 1 and abs(share_total - 1.0) < 0.01:
             ownership = '全部'
             self._log(f'  ✓ 持分加總 ≈ {share_total:.3f}（等於全部），所有權改標「全部」而非「持分」')
+        if land0.get('mortgage_voided'):
+            self._log(f'  ⓘ 他項權利另有 {land0["mortgage_voided"]} 筆已塗銷，未計入（請對謄本核對）')
 
         data = {
             'address': f"{land0.get('city','')}{land0.get('district','')}"
@@ -979,19 +1011,87 @@ class App(tk.Tk):
         finally:
             self._reset_after_run()
 
-    def _produce_land(self, data: dict):
-        is_rental = self._is_rental()
+    def _produce_land(self, data: dict, is_rental=None):
+        if is_rental is None:
+            is_rental = self._is_rental()
         kind = '土地租賃表' if is_rental else '土地表'
         self._log(f'── 填寫{kind} ...')
         ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         addr_short = (data.get('address') or '土地').replace('高雄市', '').replace('屏東縣', '')[:20]
         out_path = os.path.join(self.out_var.get(), f"{kind}_{addr_short}_{ts}.xlsx")
-        fill_land(data, out_path, is_rental=is_rental)
+        try:
+            fill_land(data, out_path, is_rental=is_rental)
+        except PermissionError:
+            self._log('⚠ 檔案存不進去：請關閉開著的 Excel（或檢查輸出資料夾權限）後，重按「開始產出售屋表」')
+            return
         self._log(f'✅ 完成！輸出：{out_path}')
         self._log('──────────────────────────────')
-        # 產出後不再自動開檔案總管視窗（使用者要求），路徑看上面 log
+        self._after_produce(data, 'land', is_rental, out_path)
+
+    # ── 產出成功收尾 + 重編上一案 / 開啟上次檔案 ──────────
+    def _after_produce(self, data: dict, kind: str, is_rental: bool, out_path: str):
+        """記住成品路徑（開啟鈕）＋整包資料存 JSON 快取（重編上一案）。"""
+        self._last_output = out_path
+        self.btn_open_last.config(state='normal')
+        try:
+            import json
+            with open(self.LAST_CASE, 'w', encoding='utf-8') as f:
+                json.dump({'kind': kind, 'is_rental': is_rental,
+                           'output': out_path,
+                           'saved_at': datetime.datetime.now().isoformat(),
+                           'data': data}, f, ensure_ascii=False, indent=1, default=str)
+            self.btn_reedit.config(state='normal')
+        except Exception as e:
+            self._log(f'（存重編快取失敗：{e}，不影響成品）')
+
+    def _open_last(self):
+        p = self._last_output
+        if p and os.path.exists(p):
+            os.startfile(p)
+        else:
+            self._log('⚠ 找不到上次輸出的檔案')
+
+    def _reedit_last(self):
+        """載回上次產出的整包資料直接進精靈（不重解析謄本、不跑 104），
+        改幾格重新產出一份——以前成品錯一格只能整個流程重來。"""
+        import json
+        try:
+            with open(self.LAST_CASE, encoding='utf-8') as f:
+                saved = json.load(f)
+        except Exception as e:
+            self._log(f'⚠ 讀不到上一案快取：{e}')
+            return
+        data = saved.get('data') or {}
+        kind = saved.get('kind', 'building')
+        is_rental = bool(saved.get('is_rental'))
+        # selling_points 拆回 sp_0..，精靈/總覽才會逐欄顯示
+        for i, v in enumerate(data.pop('selling_points', []) or []):
+            data[f'sp_{i}'] = v
+        self._log(f'── 重新編輯上一案（{os.path.basename(saved.get("output") or "")}）...')
+        self.btn_run.config(state='disabled')
+        try:
+            if kind == 'land':
+                wiz = ConfirmWizard(self, data, log=self._log,
+                                    steps=_build_land_steps(is_rental=is_rental))
+                result = wiz.run()
+                if result is not None:
+                    self._produce_land(result, is_rental=is_rental)
+            else:
+                self._prefill_parking(data)
+                wiz = ConfirmWizard(self, data, log=self._log,
+                                    steps=_build_steps(is_rental=is_rental))
+                result = wiz.run()
+                if result is not None:
+                    self._produce(result, is_rental=is_rental)
+        except Exception as e:
+            import traceback
+            self._log(f'❌ 錯誤：{e}')
+            self._log(traceback.format_exc())
+        finally:
+            self._reset_after_run()
 
 
 if __name__ == '__main__':
+    sys.excepthook = _excepthook   # pythonw 無視窗執行時 crash 也留得下紀錄
     app = App()
     app.mainloop()

@@ -74,26 +74,7 @@ def parse_address(addr: str) -> dict:
     return out
 
 
-def _td_label_map(driver) -> dict:
-    """掃所有 <td>，若文字結尾為「：」則下一個 <td> 為值"""
-    cells = driver.find_elements(By.TAG_NAME, 'td')
-    texts = []
-    for c in cells:
-        try: texts.append((c.text or '').strip())
-        except Exception: texts.append('')
-    m = {}
-    for i, t in enumerate(texts):
-        if re.search(r'[：:]\s*$', t):
-            k = re.sub(r'[：:]\s*$', '', t).strip()
-            if k and k not in m and i + 1 < len(texts):
-                m[k] = texts[i + 1].strip()
-    return m, texts
-
-
 def _clean(s):  return re.sub(r'[★☆■]', '', re.sub(r'\s+', '', s or '')).strip()
-def _num(s):
-    m = re.search(r'\d+', s or '')
-    return int(m.group()) if m else None
 
 
 # 社區導覽頁的綠色標籤集合（用來判斷哪一列是「標籤列」）
