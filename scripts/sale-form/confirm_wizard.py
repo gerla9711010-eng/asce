@@ -9,10 +9,13 @@
 # 規則：
 #   - 每個視窗左右各一個 ◀/▶ 箭頭做上一步/下一步（第 1 步 ◀ 反灰不可按）
 #   - 輸入型（數字/文字/下拉）按 Enter = ▶；欄位清空按 ▶ = 該欄不填
-#   - 勾選型（Radio）勾下去就直接跳下一步；也可不勾直接按 ▶/Enter 留空跳過
+#   - 勾選型（Radio）：數字鍵 1/2/3… 或滑鼠點選 = 選定直接跳下一步；
+#     未選按 Enter 不前進（防一路 Enter 誤跳）；真的要留空用滑鼠點 ▶
 #   - ◀ 上一步不會弄丟已輸入的內容：回退時靜默存檔，數字格式打到一半也不擋
+#   - 貸款三步（有無/金額/銀行）預填謄本解析值，只確認不重問；選「無」清金額銀行
 #   - 訴求重點：「先不填」清空全部訴求重點欄位；「填寫完畢」存目前欄、保留其餘已填欄位
 #   - 條件式：車位「無」之後不再問車位細節；機械才問上中下橫移
+#   - 全部走完 → 總覽確認頁：逐欄核對，「改」跳回該步，「確認產出」才出檔
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -44,11 +47,14 @@ LRT = [
 ]
 
 
-def _build_steps():
+def _build_steps(is_rental=False):
+    # 租賃案金額是月租不是總價：標籤要跟著換，不然趕件時容易填成總價
+    #（填進去的 key 同樣是 price → N3，數字流向不變，只有顯示文字不同）
     steps = [
-        {'title': '總價', 'type': 'number',
-         'prompt': '總價（萬）：', 'key': 'price', 'unit': '萬'},
-
+        {'title': '月租' if is_rental else '總價', 'type': 'number',
+         'prompt': ('月租（萬）：' if is_rental else '總價（萬）：'),
+         'key': 'price', 'unit': '萬'},
+    ] + _mortgage_steps() + [
         {'title': '格局 - 房', 'type': 'number',
          'prompt': '格局：幾房？', 'key': 'layout_rooms', 'unit': '房'},
         {'title': '格局 - 廳', 'type': 'number',
@@ -146,6 +152,23 @@ BLDG_SELLING_SLOTS = 5   # 售屋表訴求重點欄數（AL30/32/.../38）
 SELLING_SLOTS = 9        # 土地表訴求重點欄數（AD29/31/.../45），收集迴圈也用這個上限
 
 
+def _mortgage_steps():
+    """貸款（他項權利）確認三步——建物表、土地表共用。
+    以前完全沒確認步驟、全靠謄本解析：解析漏抓時表格直接勾「無設定」，
+    是成品最不容易發現的錯。有無/金額/銀行都預填解析值，看一眼 Enter 就過。"""
+    return [
+        {'title': '貸款', 'type': 'choice',
+         'prompt': '貸款（他項權利）：', 'key': '_mortgage_yn',
+         'options': [('有', '有'), ('無', '無')]},
+        {'title': '貸款金額', 'type': 'number',
+         'prompt': '貸款金額（萬）：', 'key': 'mortgage_amount', 'unit': '萬',
+         'show': lambda d: d.get('_mortgage_yn') == '有'},
+        {'title': '貸款銀行', 'type': 'text',
+         'prompt': '貸款銀行：', 'key': 'mortgage_bank',
+         'show': lambda d: d.get('_mortgage_yn') == '有'},
+    ]
+
+
 def _build_land_steps(is_rental=False):
     """土地表確認步驟。
     建蔽率/容積率日後由 v523 自動查詢預填（查到就帶入、可改）；查不到則手動。
@@ -165,6 +188,7 @@ def _build_land_steps(is_rental=False):
             {'title': '總價', 'type': 'number',
              'prompt': '總價款（萬）：', 'key': 'price', 'unit': '萬'},
         ]
+    steps += _mortgage_steps()
     steps += [
         {'title': '建蔽率', 'type': 'number',
          'prompt': '建蔽率（%）：', 'key': 'coverage_ratio', 'unit': '%'},
@@ -215,6 +239,10 @@ class ConfirmWizard:
         self.log = log
         self.steps = steps if steps is not None else _build_steps()
         self.idx = 0
+        # 貸款有無：把解析結果（bool mortgage）預填成 choice 的值，精靈只確認不重問
+        if any(s.get('key') == '_mortgage_yn' for s in self.steps):
+            self.data.setdefault('_mortgage_yn',
+                                 '有' if self.data.get('mortgage') else '無')
 
     def run(self):
         n = len(self.steps)
@@ -246,6 +274,20 @@ class ConfirmWizard:
                 self.log('🚫 已取消產出')
                 return None
 
+        # ── 總覽確認頁：產出前把所有欄位攤開看一次，錯的點「改」跳回該步 ──
+        if not self._summary_confirm():
+            self.log('🚫 已取消產出')
+            return None
+
+        # 貸款 choice 值回寫成 fill_excel 用的欄位；選「無」清掉金額/銀行，
+        # 不然解析預填的殘值還是會被填進表
+        yn = self.data.pop('_mortgage_yn', None)
+        if yn is not None:
+            self.data['mortgage'] = (yn == '有')
+            if yn != '有':
+                self.data.pop('mortgage_amount', None)
+                self.data.pop('mortgage_bank', None)
+
         # 合併捷運/輕軌 → mrt_nearby（給 fill_excel 用）
         parts = [self.data.pop('mrt_red', None),
                  self.data.pop('mrt_orange', None),
@@ -263,6 +305,142 @@ class ConfirmWizard:
         if sps:
             self.data['selling_points'] = sps
         return self.data
+
+    def _summary_confirm(self) -> bool:
+        """總覽 → 確認產出 True；取消 False；點「改」開該步視窗改完回總覽。"""
+        while True:
+            dlg = SummaryDialog(self.parent, self.steps, self.data)
+            self.parent.wait_window(dlg)
+            r = dlg.result
+            if r == 'ok':
+                return True
+            if isinstance(r, tuple) and r[0] == 'edit':
+                step = self.steps[r[1]]
+                # 編輯模式：◀ 反灰（is_first），改完任何動作都回總覽
+                edlg = StepDialog(self.parent, step, self.data,
+                                  r[1] + 1, len(self.steps), is_first=True)
+                self.parent.wait_window(edlg)
+                if edlg.result == 'cancel':
+                    return False
+                continue
+            return False
+
+
+def _summary_rows(steps, data):
+    """組總覽列：[(step_index, 標題, 顯示值), ...]。
+    被條件跳過的步驟不列；訴求重點只列已填的＋一格空的（想補就點那格的「改」）。"""
+    rows = []
+    empty_selling_added = False
+    for i, s in enumerate(steps):
+        if s.get('show') and not s['show'](data):
+            continue
+        if s['type'] == 'selling':
+            v = data.get(s['key'])
+            if v:
+                rows.append((i, s['title'], str(v)))
+            elif not empty_selling_added:
+                empty_selling_added = True
+                rows.append((i, s['title'], '—'))
+            continue
+        if 'keys' in s:
+            vals = []
+            if 'suffixes' in s:   # two_number_inline：12戶、2部
+                for k, sfx in zip(s['keys'], s['suffixes']):
+                    v = data.get(k)
+                    if v not in (None, ''):
+                        vals.append(f'{v}{sfx}')
+            else:                 # two_text / three_dropdown
+                labels = s.get('prompts') or [''] * len(s['keys'])
+                for k, lbl in zip(s['keys'], labels):
+                    v = data.get(k)
+                    if v not in (None, ''):
+                        vals.append(f'{lbl} {v}'.strip())
+            rows.append((i, s['title'], '、'.join(vals) if vals else '—'))
+        else:
+            v = data.get(s['key'])
+            unit = s.get('unit', '')
+            rows.append((i, s['title'],
+                         f'{v} {unit}'.strip() if v not in (None, '') else '—'))
+    return rows
+
+
+class SummaryDialog(tk.Toplevel):
+    """產出前總覽：所有欄位一頁看完，錯的按「改」跳回該步，確認才產出。
+    這是出成品前的最後一道防線——以前精靈走完直接出檔，填錯只能翻 Excel 手改。"""
+    def __init__(self, parent, steps, data):
+        super().__init__(parent)
+        self.result = 'cancel'
+        self.title('產出前總覽確認')
+        self.transient(parent)
+        self.grab_set()
+        self.configure(padx=16, pady=12)
+
+        ttk.Label(self, text='請核對以下內容，「—」代表該欄留空',
+                  font=('Microsoft JhengHei', 12, 'bold')).pack(anchor='w', pady=(0, 8))
+
+        rows = _summary_rows(steps, data)
+
+        # 捲動容器：欄位多、小螢幕也放得下
+        wrap = ttk.Frame(self)
+        wrap.pack(fill='both', expand=True)
+        canvas = tk.Canvas(wrap, width=440,
+                           height=min(460, 30 * len(rows) + 8),
+                           highlightthickness=0)
+        sb = ttk.Scrollbar(wrap, orient='vertical', command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind('<Configure>',
+                   lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side='left', fill='both', expand=True)
+        sb.pack(side='right', fill='y')
+        canvas.bind_all('<MouseWheel>',
+                        lambda e: canvas.yview_scroll(-1 * (e.delta // 120), 'units'))
+
+        for idx, title, val in rows:
+            row = ttk.Frame(inner)
+            row.pack(fill='x', pady=1)
+            ttk.Label(row, text=title, width=13, foreground='#666',
+                      font=('Microsoft JhengHei', 9)).pack(side='left')
+            ttk.Button(row, text='改', width=3,
+                       command=lambda i=idx: self._edit(i)).pack(side='right', padx=(6, 0))
+            ttk.Label(row, text=val, font=('Microsoft JhengHei', 10),
+                      wraplength=260, justify='left'
+                      ).pack(side='left', fill='x', expand=True)
+
+        bf = ttk.Frame(self)
+        bf.pack(fill='x', pady=(10, 0))
+        ttk.Button(bf, text='取消', command=self._on_cancel).pack(side='left')
+        ttk.Button(bf, text='✔ 確認產出 (Enter)',
+                   command=self._ok).pack(side='right')
+
+        self.bind('<Return>', lambda e: self._ok())
+        self.bind('<Escape>', lambda e: self._on_cancel())
+        self.protocol('WM_DELETE_WINDOW', self._on_cancel)
+
+        parent.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - 250
+        y = parent.winfo_rooty() + 40
+        self.geometry(f'+{max(0, x)}+{max(0, y)}')
+        self.focus_set()
+
+    def _close(self, result):
+        self.result = result
+        try:
+            self.unbind_all('<MouseWheel>')   # 還原滾輪，不影響主視窗
+        except Exception:
+            pass
+        self.destroy()
+
+    def _edit(self, i):
+        self._close(('edit', i))
+
+    def _ok(self):
+        self._close('ok')
+
+    def _on_cancel(self):
+        if messagebox.askyesno('取消', '取消整個產出流程？'):
+            self._close('cancel')
 
 
 class StepDialog(tk.Toplevel):
@@ -305,7 +483,7 @@ class StepDialog(tk.Toplevel):
         self._build_buttons()
 
         self.bind('<Escape>', lambda e: self._on_cancel())
-        self.bind('<Return>', lambda e: self._on_next())
+        self.bind('<Return>', lambda e: self._on_enter())
 
         self.protocol('WM_DELETE_WINDOW', self._on_cancel)
 
@@ -319,6 +497,12 @@ class StepDialog(tk.Toplevel):
                 self.entries[0].focus_set()
                 if hasattr(self.entries[0], 'select_range'):
                     self.entries[0].select_range(0, 'end')
+            except Exception:
+                pass
+        else:
+            # choice 型沒有輸入框：視窗本身要拿到鍵盤焦點，Enter/數字鍵才接得到
+            try:
+                self.focus_set()
             except Exception:
                 pass
 
@@ -359,10 +543,17 @@ class StepDialog(tk.Toplevel):
         elif t == 'choice':
             v = tk.StringVar(value=self.data.get(s['key'], '') or '')
             self.vars.append((s['key'], v, 'str'))
-            for lbl, val in s['options']:
-                ttk.Radiobutton(body, text=lbl, variable=v, value=val,
+            for i, (lbl, val) in enumerate(s['options'], 1):
+                ttk.Radiobutton(body, text=f'{i}. {lbl}', variable=v, value=val,
                                 command=lambda val=val: self._on_choice(val)
                                 ).pack(anchor='w', pady=3)
+                # 數字鍵快選：按 1/2/3… 直接選定並跳下一步，全程不用滑鼠
+                if i <= 9:
+                    self.bind(str(i), lambda e, val=val: self._on_choice(val))
+            self._choice_hint = ttk.Label(
+                parent, text='按數字鍵快選；要留空跳過請點 ▶',
+                foreground='#888', font=('Microsoft JhengHei', 9))
+            self._choice_hint.pack(anchor='w', pady=(4, 0))
 
         elif t == 'three_dropdown':
             for prompt, key, opts in zip(s['prompts'], s['keys'],
@@ -407,6 +598,24 @@ class StepDialog(tk.Toplevel):
         self.data[self.step['key']] = val
         self.result = 'next'
         self.destroy()
+
+    def _on_enter(self):
+        """Enter 鍵專用入口：choice 未選就按 Enter → 不前進、提示一下。
+        防的是一路 Enter 衝太快，把「車位有無」這種選項靜默跳過（表上有/無
+        兩格都不塗，成品看不出漏）。真的要留空：滑鼠點 ▶（deliberate 動作）。"""
+        s = self.step
+        if s['type'] == 'choice' and self.vars:
+            _, var, _ = self.vars[0]
+            if not (var.get() or '').strip():
+                self.bell()
+                try:
+                    self._choice_hint.config(
+                        text='⚠ 尚未選擇：按數字鍵或點選項；要留空請點 ▶',
+                        foreground='#c33')
+                except Exception:
+                    pass
+                return
+        self._on_next()
 
     def _on_next(self):
         if not self._commit():

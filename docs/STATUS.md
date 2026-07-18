@@ -179,7 +179,7 @@ Skill 會自動：
 | **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦），全天分層輪詢 | `scripts/keis/README.md` |
 | **KEIS 廣告上架** `scripts/keis/publish.py` | 🟡 待第一次實跑驗 selector，見下方待辦 | `scripts/keis/README.md` |
 | **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
-| **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-17 修大樓公設分算（共有部分逐建號、車位拆 F28/其他公設 F30）、貸款金額多格式（AL3）、補回訴求重點 wizard（AL30~38）、無車位塗 AN16、不再跳資料夾視窗；確認 wizard 改左右箭頭導航（◀/▶ 取代按鈕、移除略過、回退不丟資料）。⚠️ 待使用者把 git 版複製到本機 `不動產售屋表工具_v3.4\zipinspect\` 並拿莊敬路店面謄本實測（含新的箭頭導航） | `scripts/sale-form/README.md` |
+| **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-18 健檢第1+2批完成（工單：桌面 `售屋表v3.5健檢評估_工作單.md`）：租賃整數不再顯「6.」、建物租賃標籤改「月租」、貸款確認三步（預填解析值）、謄本車位資料預填精靈、choice 未選 Enter 不誤跳＋數字鍵快選、產出前總覽確認頁、_open_104 執行緒安全。**桌面已同步**（gui_main+confirm_wizard 已複製到 `zipinspect\`），格式行為已用真範本驗過。⚠️ 待門市拿真實案件實測整條流程（箭頭導航+貸款步驟+總覽頁）；工單第3批（A7~A11、B3~B6）未做、待使用者點名 | `scripts/sale-form/README.md` |
 
 ## 廣告系統 v2 改造計畫（2026-07-15 拍板，取代所有舊的廣告流程待辦）
 
