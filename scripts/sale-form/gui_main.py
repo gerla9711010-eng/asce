@@ -19,13 +19,23 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 sys.path.insert(0, BASE_DIR)
 from parser import parse_land, parse_building, merge, _to_ping, _share_to_float, is_full_ownership
 from bot_104 import Bot104, fetch_zoning
-from confirm_wizard import ConfirmWizard, _build_land_steps
+from confirm_wizard import ConfirmWizard, _build_land_steps, _build_steps
 
 
 def _clean_floor_label(label: str) -> str:
     """謄本『層次』欄位有些格式是『突出物一層：２５．７２平方公尺』，
     後面那段是面積重複帶出來的，不是樓層名稱，填表只要冒號前面那段。"""
     return re.split(r'[：:]', label, maxsplit=1)[0].strip()
+
+
+def _amount_fmt(v):
+    """租賃金額的儲存格數字格式：整數→'#,##0'（6 就是 6，不會出現「6.」），
+    帶小數→'#,##0.#'（5.8 顯示 5.8）。固定用 '#,##0.#' 的話 Excel 對整數
+    會顯示成「6.」——小數點會留著，所以要依值動態選格式。"""
+    try:
+        return '#,##0' if float(v).is_integer() else '#,##0.#'
+    except (TypeError, ValueError):
+        return '#,##0'
 
 
 # ─────────────────────────────────────────────────────
@@ -78,6 +88,10 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
     put('AS1', data.get('builder'))        # 建設公司
     put('AS2', data.get('building_name'))  # 大樓名稱
     put('N3',  data.get('price'))          # 總價款（W3 單價自動算，勿填）
+    if is_rental and data.get('price') is not None:
+        # 租賃月租常帶小數（如 5.8 萬）；範本 N3 是整數格式 #,##0 會把 5.8 四捨五入成 6。
+        # 依值動態選格式：5.8→5.8、6→6（不是 6.0 也不是「6.」）。只動租賃。
+        ws['N3'].number_format = _amount_fmt(data['price'])
 
     # ── 設定（抵押）──
     if data.get('mortgage'):
@@ -309,6 +323,11 @@ def fill_land(data: dict, output_path: str, is_rental: bool = False):
     if is_rental:
         put('J9', data.get('price'))       # 租金（萬）
         put('J14', data.get('deposit'))    # 押金（萬）
+        # 租金/押金常帶小數（如 5.8 萬）→ 依值動態選格式（整數不會出現「6.」）
+        if data.get('price') is not None:
+            ws['J9'].number_format = _amount_fmt(data['price'])
+        if data.get('deposit') is not None:
+            ws['J14'].number_format = _amount_fmt(data['deposit'])
     else:
         put('J4', data.get('price'))       # 總價款（萬）
 
@@ -584,17 +603,23 @@ class App(tk.Tk):
         self.lbl_104_status.config(text='⏳ 啟動瀏覽器…', foreground='#888')
 
         def worker():
+            # tkinter 非執行緒安全：worker 執行緒不可直接 config 元件（偶發閃退），
+            # UI 更新一律 self.after 丟回主執行緒（跟 _log 同一套做法）
             try:
                 self.bot = Bot104(log=self._log)
                 self.bot.open_login()
-                self.lbl_104_status.config(
-                    text='✅ 已自動登入 104，請按右邊「完成登入，自動產出」',
-                    foreground='#2a7')
-                self.btn_104_go.config(state='normal')
+                def ok():
+                    self.lbl_104_status.config(
+                        text='✅ 已自動登入 104，請按右邊「完成登入，自動產出」',
+                        foreground='#2a7')
+                    self.btn_104_go.config(state='normal')
+                self.after(0, ok)
             except Exception as e:
                 self._log(f'❌ 開啟 104 失敗：{e}')
-                self.lbl_104_status.config(text=f'❌ 啟動失敗：{e}', foreground='#c33')
-                self.btn_104_open.config(state='normal')
+                def fail(e=e):
+                    self.lbl_104_status.config(text=f'❌ 啟動失敗：{e}', foreground='#c33')
+                    self.btn_104_open.config(state='normal')
+                self.after(0, fail)
         threading.Thread(target=worker, daemon=True).start()
 
     # ── 登入完成 → 自動搜尋+抓資料+產出 ──
@@ -633,11 +658,26 @@ class App(tk.Tk):
             self._log(traceback.format_exc())
             self.after(0, lambda: self._reset_after_run(close_bot=True))
 
+    @staticmethod
+    def _prefill_parking(data: dict):
+        """謄本抓到的車位資料（parser 的 parking_no/parking_floor/parking_type）
+        對映到精靈的欄位 key（_parking_yn/_parking_pos/_parking_floor）。
+        沒對映的話精靈全部空白、使用者重打一遍謄本早就抓到的東西。
+        用 setdefault：精靈照樣跳出來確認，只是答案預先選好，錯了可改。"""
+        if data.get('parking_no'):
+            data.setdefault('_parking_yn', '有')
+            if data.get('parking_type') in ('地上', '地下'):
+                data.setdefault('_parking_pos', data['parking_type'])
+            if data.get('parking_floor') is not None:
+                data.setdefault('_parking_floor', data['parking_floor'])
+
     # ── wizard 確認 + 產出（main thread）──
     def _wizard_and_produce(self, data: dict, close_bot: bool = False):
         try:
             self._log('── 跳出確認視窗，逐項確認 ...')
-            wiz = ConfirmWizard(self, data, log=self._log)
+            self._prefill_parking(data)
+            wiz = ConfirmWizard(self, data, log=self._log,
+                                steps=_build_steps(is_rental=self._is_rental()))
             result = wiz.run()
             if result is None:
                 return
