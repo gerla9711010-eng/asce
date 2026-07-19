@@ -6,8 +6,8 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 :loop
-echo [%date% %time%] starting grab.py --watch --apply
+echo starting grab.py --watch --apply
 python grab.py --watch --apply
-echo [%date% %time%] grab.py exited, restarting in 60s... >> watch.log
+echo grab.py exited, restarting in 60s... >> watch.log
 timeout /t 60 /nobreak >nul
 goto loop

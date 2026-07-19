@@ -342,14 +342,24 @@ def grab_record(keis: Keis, r: dict):
 
 
 def append_csv(grabbed: list[dict]) -> None:
-    new = not GRABBED_CSV.exists()
-    with GRABBED_CSV.open("a", newline="", encoding="utf-8-sig") as f:
-        w = csv.writer(f)
-        if new:
-            w.writerow(["搶到時間", "帳號", "summary_id", "姓名", "電話", "縣市", "類型", "預算", "建檔時間"])
-        for g in grabbed:
-            w.writerow([g["grabbed_at"], g.get("account", ""), g["summary_id"], g["name"], g["phone"],
-                        g["city"], g["category"], g["budget"], g["start_time"]])
+    """落地搶到的名單。2026-07-19：這裡原本完全沒有 try——名單在伺服器上已經搶
+    成功，若本機寫檔這時炸掉（例如 OneDrive 又弄壞 CSV），例外會一路往上跑進
+    watch 的主迴圈被誤判成「暫時性錯誤」重試，搶單資料卻悄悄沒有落地。
+    現在失敗時把每筆內容印進 log（可手動補回）並推 LINE 告警，絕不能默默吞掉。"""
+    try:
+        new = not GRABBED_CSV.exists()
+        with GRABBED_CSV.open("a", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["搶到時間", "帳號", "summary_id", "姓名", "電話", "縣市", "類型", "預算", "建檔時間"])
+            for g in grabbed:
+                w.writerow([g["grabbed_at"], g.get("account", ""), g["summary_id"], g["name"], g["phone"],
+                            g["city"], g["category"], g["budget"], g["start_time"]])
+    except Exception as e:
+        detail = "；".join(f"{g['summary_id']} {g['name']}/{g['phone']}" for g in grabbed)
+        log(f"⚠ 寫 grabbed.csv 失敗！已搶到但本機沒落地，請手動補回：{detail}（{type(e).__name__}: {e}）")
+        notify({"event": "alert",
+                "text": f"⚠ KEIS 搶單：{len(grabbed)} 筆已搶到但寫檔失敗，請檢查 grabbed.csv：{detail[:200]}"})
 
 
 # ---------- 上架偵測（唯讀觀測，不搶不吃配額）----------
@@ -367,18 +377,25 @@ def _load_appear_state():
 def _save_appear_state(day: str, max_id: int) -> None:
     try:
         APPEAR_STATE.write_text(f"{day},{max_id}", encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        log(f"⚠ 寫 appear_state.txt 失敗（重啟會用當下池子重建基準，不影響搶單）：{type(e).__name__}")
 
 
 def _append_appearance(rows: list[dict]) -> None:
-    new = not APPEAR_CSV.exists()
-    with APPEAR_CSV.open("a", newline="", encoding="utf-8-sig") as f:
-        w = csv.writer(f)
-        if new:
-            w.writerow(["首次出現時間", "summary_id", "建檔時間", "縣市", "區域", "類型", "狀態"])
-        for r in rows:
-            w.writerow([r["seen"], r["id"], r["start"], r["city"], r["area"], r["cat"], r["status"]])
+    """2026-07-19：原本沒有 try——appearances.csv 若被 OneDrive 弄壞，例外會炸出
+    observe_appearances()，而它在主迴圈裡排在搶單邏輯『之前』，等於一個觀測用
+    CSV 壞掉就會讓整個搶單被誤判成斷網、停擺。純觀測不該有這種殺傷力，失敗只記
+    log，絕不能往外拋。"""
+    try:
+        new = not APPEAR_CSV.exists()
+        with APPEAR_CSV.open("a", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["首次出現時間", "summary_id", "建檔時間", "縣市", "區域", "類型", "狀態"])
+            for r in rows:
+                w.writerow([r["seen"], r["id"], r["start"], r["city"], r["area"], r["cat"], r["status"]])
+    except Exception as e:
+        log(f"⚠ 寫 appearances.csv 失敗（純觀測，不影響搶單）：{type(e).__name__}")
 
 
 def observe_appearances(records: list, ap_day, ap_max):
@@ -443,7 +460,10 @@ def observe_status_changes(records: list, status_seen: dict) -> dict:
     return status_seen
 
 
-TOPID_CSV = Path(__file__).parent / "page1_track.csv"  # 每輪記錄page1最新單號，供事後判斷輪詢間隔有沒有漏接
+# 2026-07-19：舊檔 page1_track.csv 被 OneDrive Files On-Demand 把佔位檔弄成損毀的
+# reparse point，連 Windows 內建的刪除/改名/robocopy 都拒絕處理，只能放棄搶救、
+# 換新檔名重開一份（舊檔留在資料夾裡當廢棄物，不影響運作）。
+TOPID_CSV = Path(__file__).parent / "page1_track2.csv"  # 每輪記錄page1最新單號，供事後判斷輪詢間隔有沒有漏接
 
 
 def track_top_id(records: list, also_ids: list[int] | None = None) -> None:
@@ -451,7 +471,9 @@ def track_top_id(records: list, also_ids: list[int] | None = None) -> None:
     而不是只能盲目看建檔日期或狀態這種籠統依據。純觀測、獨立檔案，不影響其他邏輯。
     2026-07-15 加 also_ids：query() 只用 clients[0] 的帳號查，而該帳號自己申請過的名單會從
     自己的查詢結果裡消失(自己看不到自己搶到的)——如果剛好搶走的是當下最新那筆，算出來的
-    max_id 會不合理地變小。也把「這一輪自己剛搶到的id」一起納入計算，避免這種假降。"""
+    max_id 會不合理地變小。也把「這一輪自己剛搶到的id」一起納入計算，避免這種假降。
+    2026-07-19：寫入失敗曾被靜默吞掉，導致 OneDrive 弄壞檔案後斷流兩天沒人發現——
+    改成連續失敗到一定次數才出聲一次，別每輪洗 log，但也不能再悄悄壞掉。"""
     ids = [r.get("summary_id") or 0 for r in records]
     if also_ids:
         ids.extend(also_ids)
@@ -465,8 +487,21 @@ def track_top_id(records: list, also_ids: list[int] | None = None) -> None:
             if is_new:
                 w.writerow(["時間", "page1最大單號", "page1筆數"])
             w.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), max_id, len(records)])
-    except Exception:
-        pass
+        if track_top_id.fail_count:
+            log(f"✅ page1_track2.csv 恢復寫入（先前連續失敗 {track_top_id.fail_count} 次）")
+        track_top_id.fail_count = 0
+    except Exception as e:
+        track_top_id.fail_count += 1
+        now = time.time()
+        if track_top_id.fail_count == 10 or (
+                track_top_id.fail_count > 10 and now - track_top_id.last_alert > 3600):
+            log(f"⚠ page1_track2.csv 連續寫入失敗 {track_top_id.fail_count} 次"
+                f"（純觀測、不影響搶單）：{type(e).__name__}")
+            track_top_id.last_alert = now
+
+
+track_top_id.fail_count = 0
+track_top_id.last_alert = 0.0
 
 
 def notify(payload: dict) -> bool:

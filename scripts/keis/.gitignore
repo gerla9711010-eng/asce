@@ -1,7 +1,12 @@
 .env
 grabbed.csv
+grabbed.csv.big5.bak
 watch.log
+logs/
+page1_track.csv
+page1_track2.csv
 appearances.csv
 appear_state.txt
+daily_summary.csv
 __pycache__/
 *.pyc
