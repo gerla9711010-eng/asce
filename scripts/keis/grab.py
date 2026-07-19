@@ -336,6 +336,7 @@ def grab_record(keis: Keis, r: dict):
             "category": r["property_category"],
             "budget": fmt_budget(r),
             "start_time": r["start_time"][:16],
+            "remarks": (r.get("remarks") or "").strip(),  # query() 就有、沒遮罩，不用再多打一次 API
         }
     log(f"   ❌ [{keis.label}] [{r['summary_id']}] 沒搶到（可能配額用完/被秒搶）：{data.get('message')}")
     return None
@@ -587,6 +588,8 @@ def push_notion(g: dict) -> None:
         props["電話"] = {"phone_number": g["phone"]}
     if g.get("account"):
         props["帳號"] = {"select": {"name": g["account"]}}
+    if g.get("remarks"):
+        props["備註"] = {"rich_text": [{"text": {"content": g["remarks"][:2000]}}]}
     try:
         r = httpx.post(
             "https://api.notion.com/v1/pages",
@@ -660,6 +663,7 @@ def record_from_application(app: dict, label: str) -> dict:
         "category": app.get("property_category", ""),
         "budget": fmt_budget(app),
         "start_time": str(app.get("start_time", ""))[:16],
+        "remarks": (app.get("remarks") or "").strip(),
     }
 
 
