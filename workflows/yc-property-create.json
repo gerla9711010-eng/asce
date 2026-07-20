@@ -43,7 +43,7 @@
     },
     {
       "parameters": {
-        "jsCode": "let html = $input.first().json.data || $input.first().json.body || '';\nhtml = html.replace(/<script[\\s\\S]*?<\\/script>/gi, '');\nhtml = html.replace(/<style[\\s\\S]*?<\\/style>/gi, '');\nhtml = html.replace(/<!--[\\s\\S]*?-->/g, '');\nhtml = html.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, '');\nconst bodyMatch = html.match(/<body[\\s\\S]*?<\\/body>/i);\nlet content = bodyMatch ? bodyMatch[0] : html;\ncontent = content.replace(/\\s+/g, ' ').trim();\nif (content.length > 80000) content = content.substring(0, 80000);\nreturn [{ json: { ...$('解析 LINE 指令').first().json, cleanedHtml: content, htmlLength: content.length } }];"
+        "jsCode": "let html = $input.first().json.data || $input.first().json.body || '';\n// 砍 script 前先從 JSON-LD 抓真物件編號 productID（例 YC1868705），這才是官網依據，不用網址尾號\nconst pidMatch = html.match(/\"productID\"\\s*:\\s*\"([A-Za-z]{2}\\d{5,})\"/);\nconst productId = pidMatch ? pidMatch[1].toUpperCase() : '';\nhtml = html.replace(/<script[\\s\\S]*?<\\/script>/gi, '');\nhtml = html.replace(/<style[\\s\\S]*?<\\/style>/gi, '');\nhtml = html.replace(/<!--[\\s\\S]*?-->/g, '');\nhtml = html.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, '');\nconst bodyMatch = html.match(/<body[\\s\\S]*?<\\/body>/i);\nlet content = bodyMatch ? bodyMatch[0] : html;\ncontent = content.replace(/\\s+/g, ' ').trim();\nif (content.length > 80000) content = content.substring(0, 80000);\nreturn [{ json: { ...$('解析 LINE 指令').first().json, productId, cleanedHtml: content, htmlLength: content.length } }];"
       },
       "id": "7c635384-d3bd-41bd-a6f8-23f636e344f0",
       "name": "清理 HTML",
@@ -77,7 +77,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); }\ncatch (e) { throw new Error('AI 回傳 JSON 解析失敗: ' + e.message + ' 原始: ' + aiText.substring(0, 500)); }\nconst inputData = $('清理 HTML').first().json;\nreturn [{ json: { ...parsed, targetUrl: inputData.targetUrl, replyToken: inputData.replyToken, userId: inputData.userId, 案件編號: (() => { const raw = String(parsed.案件編號 || inputData.caseId || '').trim(); return raw.startsWith('YC') ? raw : 'YC' + raw; })() } }];"
+        "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); }\ncatch (e) { throw new Error('AI 回傳 JSON 解析失敗: ' + e.message + ' 原始: ' + aiText.substring(0, 500)); }\nconst inputData = $('清理 HTML').first().json;\nreturn [{ json: { ...parsed, targetUrl: inputData.targetUrl, replyToken: inputData.replyToken, userId: inputData.userId, 案件編號: (() => { const raw = String(inputData.productId || parsed.案件編號 || inputData.caseId || '').trim(); if (!raw) return ''; return /^[A-Za-z]{2}\\d/.test(raw) ? raw.toUpperCase() : 'YC' + raw; })() } }];"
       },
       "id": "bfe14152-4492-43d8-8d0c-d77949e0adf8",
       "name": "解析 AI 輸出",
