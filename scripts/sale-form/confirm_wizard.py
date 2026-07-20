@@ -7,18 +7,34 @@
 #       fill_excel(new_data, out_path)
 #
 # 規則：
-#   - 每個視窗左右各一個 ◀/▶ 箭頭做上一步/下一步（第 1 步 ◀ 反灰不可按）
+#   - 每個視窗左右各一個 ◀/▶ 箭頭做上一步/下一步（第 1 步 ◀ 反灰不可按）；
+#     ← / → 方向鍵同義；輸入框裡游標不在最左/最右時方向鍵先移游標，不搶頁
 #   - 輸入型（數字/文字/下拉）按 Enter = ▶；欄位清空按 ▶ = 該欄不填
+#   - 數字欄位吃全形數字/句點/逗號（輸入法沒切半形也打得進小數點）
 #   - 勾選型（Radio）：數字鍵 1/2/3… 或滑鼠點選 = 選定直接跳下一步；
-#     未選按 Enter 不前進（防一路 Enter 誤跳）；真的要留空用滑鼠點 ▶
+#     未選按 Enter 不前進（防一路 Enter 誤跳）；真的要留空用滑鼠點或 → 跳過
 #   - ◀ 上一步不會弄丟已輸入的內容：回退時靜默存檔，數字格式打到一半也不擋
-#   - 貸款三步（有無/金額/銀行）預填謄本解析值，只確認不重問；選「無」清金額銀行
+#   - 貸款（他項權利）不問，全靠謄本解析直接填；執行記錄會印明細供核對
 #   - 訴求重點：「先不填」清空全部訴求重點欄位；「填寫完畢」存目前欄、保留其餘已填欄位
 #   - 條件式：車位「無」之後不再問車位細節；機械才問上中下橫移
 #   - 全部走完 → 總覽確認頁：逐欄核對，「改」跳回該步，「確認產出」才出檔
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+
+
+# 全形→半形對照表（含全形逗號 FF0C→,、全形句點 FF0E→.）；FF01-FF5E 對應
+# ASCII 0x21-0x7E 整段平移。中文輸入法沒切到半形時，全形數字/小數點會直接
+# 打不進 number 欄位（'５．８'），輸入法把句點鍵打成「。」（U+3002，不在平移
+# 區間內）也是同樣問題，兩個都要接住。
+_FULLWIDTH_MAP = str.maketrans(
+    ''.join(chr(0xFF01 + i) for i in range(94)) + '　。',
+    ''.join(chr(0x21 + i) for i in range(94)) + ' .',
+)
+
+
+def _normalize_num(raw: str) -> str:
+    return raw.translate(_FULLWIDTH_MAP).replace(',', '').strip()
 
 
 # ── 高雄捷運 / 輕軌站表（2024 改名後最新版） ──
@@ -58,7 +74,6 @@ def _build_steps(is_rental=False):
          'sanity': ((lambda v: f'月租 {v} 萬？單位是「萬」，是不是填成元了？' if v > 100 else None)
                     if is_rental else
                     (lambda v: f'總價 {v} 萬？金額偏低，確定單位是「萬」嗎？' if v < 10 else None))},
-    ] + _mortgage_steps() + [
         {'title': '格局 - 房', 'type': 'number',
          'prompt': '格局：幾房？', 'key': 'layout_rooms', 'unit': '房'},
         {'title': '格局 - 廳', 'type': 'number',
@@ -156,23 +171,6 @@ BLDG_SELLING_SLOTS = 5   # 售屋表訴求重點欄數（AL30/32/.../38）
 SELLING_SLOTS = 9        # 土地表訴求重點欄數（AD29/31/.../45），收集迴圈也用這個上限
 
 
-def _mortgage_steps():
-    """貸款（他項權利）確認三步——建物表、土地表共用。
-    以前完全沒確認步驟、全靠謄本解析：解析漏抓時表格直接勾「無設定」，
-    是成品最不容易發現的錯。有無/金額/銀行都預填解析值，看一眼 Enter 就過。"""
-    return [
-        {'title': '貸款', 'type': 'choice',
-         'prompt': '貸款（他項權利）：', 'key': '_mortgage_yn',
-         'options': [('有', '有'), ('無', '無')]},
-        {'title': '貸款金額', 'type': 'number',
-         'prompt': '貸款金額（萬）：', 'key': 'mortgage_amount', 'unit': '萬',
-         'show': lambda d: d.get('_mortgage_yn') == '有'},
-        {'title': '貸款銀行', 'type': 'text',
-         'prompt': '貸款銀行：', 'key': 'mortgage_bank',
-         'show': lambda d: d.get('_mortgage_yn') == '有'},
-    ]
-
-
 def _build_land_steps(is_rental=False):
     """土地表確認步驟。
     建蔽率/容積率日後由 v523 自動查詢預填（查到就帶入、可改）；查不到則手動。
@@ -196,7 +194,6 @@ def _build_land_steps(is_rental=False):
              'prompt': '總價款（萬）：', 'key': 'price', 'unit': '萬',
              'sanity': lambda v: f'總價 {v} 萬？金額偏低，確定單位是「萬」嗎？' if v < 10 else None},
         ]
-    steps += _mortgage_steps()
     steps += [
         {'title': '建蔽率', 'type': 'number',
          'prompt': '建蔽率（%）：', 'key': 'coverage_ratio', 'unit': '%'},
@@ -247,10 +244,6 @@ class ConfirmWizard:
         self.log = log
         self.steps = steps if steps is not None else _build_steps()
         self.idx = 0
-        # 貸款有無：把解析結果（bool mortgage）預填成 choice 的值，精靈只確認不重問
-        if any(s.get('key') == '_mortgage_yn' for s in self.steps):
-            self.data.setdefault('_mortgage_yn',
-                                 '有' if self.data.get('mortgage') else '無')
 
     def run(self):
         n = len(self.steps)
@@ -291,15 +284,6 @@ class ConfirmWizard:
         if not self._summary_confirm():
             self.log('🚫 已取消產出')
             return None
-
-        # 貸款 choice 值回寫成 fill_excel 用的欄位；選「無」清掉金額/銀行，
-        # 不然解析預填的殘值還是會被填進表
-        yn = self.data.pop('_mortgage_yn', None)
-        if yn is not None:
-            self.data['mortgage'] = (yn == '有')
-            if yn != '有':
-                self.data.pop('mortgage_amount', None)
-                self.data.pop('mortgage_bank', None)
 
         # 合併捷運/輕軌 → mrt_nearby（給 fill_excel 用）
         parts = [self.data.pop('mrt_red', None),
@@ -497,6 +481,11 @@ class StepDialog(tk.Toplevel):
 
         self.bind('<Escape>', lambda e: self._on_cancel())
         self.bind('<Return>', lambda e: self._on_enter())
+        # ← / →：跟 ◀/▶ 按鈕同義。輸入框裡的方向鍵先被 _entry_arrow（綁在
+        # 該輸入框上）攔截處理游標移動，只有游標已經在最左/最右才會落到這裡；
+        # 沒有輸入框的（choice 型）直接落在這裡，等同點按鈕。
+        self.bind('<Left>', lambda e: self._on_back())
+        self.bind('<Right>', lambda e: self._on_next())
 
         self.protocol('WM_DELETE_WINDOW', self._on_cancel)
 
@@ -550,6 +539,7 @@ class StepDialog(tk.Toplevel):
                 e = ttk.Entry(row, textvariable=v, width=6)
                 e.pack(side='left')
                 self.entries.append(e)
+                self._bind_arrow(e)
                 ttk.Label(row, text=' ' + sfx
                           + ('       ' if i == 0 else '')).pack(side='left')
 
@@ -580,6 +570,7 @@ class StepDialog(tk.Toplevel):
                                   width=30, state='readonly')
                 cb.pack(side='left')
                 self.entries.append(cb)
+                self._bind_arrow(cb)
 
         elif t == 'selling':
             self._row_text(body, s['key'], width=40)
@@ -595,6 +586,7 @@ class StepDialog(tk.Toplevel):
         self.vars.append((key, v, 'int'))
         e = ttk.Entry(f, textvariable=v, width=14); e.pack(side='left')
         self.entries.append(e)
+        self._bind_arrow(e)
         if unit:
             ttk.Label(f, text=' ' + unit).pack(side='left')
 
@@ -606,6 +598,35 @@ class StepDialog(tk.Toplevel):
         self.vars.append((key, v, 'str'))
         e = ttk.Entry(f, textvariable=v, width=width); e.pack(side='left')
         self.entries.append(e)
+        self._bind_arrow(e)
+
+    def _bind_arrow(self, widget):
+        """輸入框/下拉選單的 ← →：游標在最左/最右（或下拉選單，本來就沒有
+        游標概念）才觸發翻頁，否則正常移動游標——不然方向鍵會沒辦法改字。"""
+        widget.bind('<Left>', lambda e: self._entry_arrow(e, forward=False))
+        widget.bind('<Right>', lambda e: self._entry_arrow(e, forward=True))
+
+    def _entry_arrow(self, event, forward):
+        w = event.widget
+        try:
+            pos, end = w.index('insert'), w.index('end')
+        except Exception:
+            pos = end = 0
+        if forward:
+            if pos >= end:
+                self._on_next()
+                return 'break'
+            w.icursor(pos + 1)
+        else:
+            if pos <= 0:
+                self._on_back()
+                return 'break'
+            w.icursor(pos - 1)
+        try:
+            w.selection_clear()
+        except Exception:
+            pass
+        return 'break'
 
     def _on_choice(self, val):
         self.data[self.step['key']] = val
@@ -647,6 +668,8 @@ class StepDialog(tk.Toplevel):
     def _commit(self, silent=False) -> bool:
         for k, var, vt in self.vars:
             raw = (var.get() or '').strip()
+            if vt == 'int':
+                raw = _normalize_num(raw)
             if not raw:
                 self.data.pop(k, None)
                 continue

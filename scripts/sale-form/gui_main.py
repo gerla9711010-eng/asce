@@ -102,6 +102,13 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
 
     if is_rental:
         ws['L3'] = '月 租:'   # 售屋表的「總價款:」→ 租賃改成「月租:」（金額同樣填 N3）
+        # W3 範本公式是 TRUNC(N3/F3,4)＝萬/坪：租金金額小，除出來一定是一長串
+        # 小數（5.8萬/36.95坪＝0.1569…），不直觀。租賃改顯示「元/坪」整數，
+        # AA3 單位標籤跟著換；只動輸出檔這顆儲存格，範本 .xltx 本身不碰，
+        # 買賣案（is_rental=False）完全不受影響。
+        ws['W3'] = '=IFERROR(ROUND(N3*10000/F3,0),"")'
+        ws['W3'].number_format = '#,##0'
+        ws['AA3'] = '元/坪'
 
     # ── 標頭 ──
     put('A1',  data.get('case_name'))      # 案名
