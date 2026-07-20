@@ -14,6 +14,7 @@
 - [ ] 步驟 4：KEIS 腳本驗證（使用者在門市電腦跑兩個指令）
 - [ ] 步驟 5：KEIS 駐守模式（步驟 4 通過後才做）
 - [ ] 步驟 6：清舊（全部通過後才做）
+- [ ] 步驟 7：動態物件資料源 feed（AI 已寫 `workflows/yc-feed.json`；⏳ 待使用者 import + 綁 `Notion API Token` credential。格式目前只 JSON，消費端確認後再擴 CSV/FB catalog）
 
 ---
 
@@ -100,6 +101,21 @@
 - 砍 n8n `yc-rewrite-copy` workflow + router 的「生成文案」出口（git 裡對應檔案也刪）
 - `.claude/skills/yc-ad/SKILL.md` 改寫：降級為維修工具（查物件狀態、重產文案、手動補記錄），刪掉 KEIS 指令包和回報流程
 - STATUS.md 更新：v2 計畫段落改成「已上線」的精簡描述，刪掉建置細節
+
+## 步驟 7：動態物件資料源 feed（可與其他步驟不同天做，互不擋）
+
+**方向**：把 Notion 廣告資料庫做成一個對外的動態資料源，讓其他系統（FB 動態廣告 / 官網 / 591）即時讀已發布物件，不用各自維護一份。
+
+**AI 已完成（2026-07-20）**：`workflows/yc-feed.json`（5 節點）
+- 觸發：**GET** `…/webhook/yc-feed`（webhook 直接回應，非走 LINE、不吃 LINE 額度）
+- 查 Notion 廣告資料庫（`07ee8451…`，用 `Notion API Token` credential）→ 攤平成乾淨 JSON
+- query 參數：`?status=已發布`(預設) / `?status=all`(不篩狀態) / `?case=YCxxx`(取單筆)
+- 回傳 envelope：`{ ok, generated_at, source, count, has_more, items:[...] }`，每筆含 Notion DB 主要欄位（見 STATUS.md）
+- 單頁上限 100 筆；超過時 `has_more=true`（單店規模短期內不會超，之後要再加分頁）
+
+**使用者做**：n8n 開**新的空白 workflow** → Import from File/URL 貼 `yc-feed.json` → 「查 Notion 已發布物件」節點的 Credential 選 `Notion API Token` → Save → Publish/啟用 → 瀏覽器直接開 `…/webhook/yc-feed` 應看到 JSON。
+
+**⏳ 待確認才能收尾**：目前只吐 JSON。若消費端是 **FB 動態廣告 catalog**，需要的是 CSV/XML 商品目錄格式（欄位命名、幣別、圖片欄位都有規格）——等使用者確認第一個要接的消費端，AI 再加對應的 `?format=` 分支輸出，不用重寫查詢那半段。
 
 ---
 

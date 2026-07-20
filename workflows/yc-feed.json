@@ -1,0 +1,166 @@
+{
+ "_note": "動態物件資料源（feed endpoint）：GET /webhook/yc-feed → 查 Notion 廣告資料庫已發布物件 → 回乾淨 JSON。供 FB/官網/591 等外部系統即時讀取。query 參數：?status=已發布(預設)/all，?case=YCxxx 取單筆。單頁上限 100，超過看 has_more。",
+ "nodes": [
+  {
+   "parameters": {
+    "httpMethod": "GET",
+    "path": "yc-feed",
+    "responseMode": "responseNode",
+    "options": {}
+   },
+   "id": "feed-0001-webhook",
+   "name": "Webhook 收 feed 請求",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    -2000,
+    300
+   ],
+   "webhookId": "yc-feed"
+  },
+  {
+   "parameters": {
+    "jsCode": "// 讀 webhook query string，組 Notion 查詢 body。\n// 支援：\n//   ?case=YC1868705  → 只回單一物件（案件編號 equals）\n//   ?status=已發布   → 依狀態篩（預設；?status=all 不篩狀態）\nconst q = ($('Webhook 收 feed 請求').first().json.query) || {};\nconst caseId = String(q.case || q.caseId || '').trim();\nconst status = String(q.status || '已發布').trim();\n\nconst filters = [];\nif (caseId) {\n  filters.push({ property: '案件編號', rich_text: { equals: caseId } });\n} else if (status && status.toLowerCase() !== 'all') {\n  filters.push({ property: '狀態', select: { equals: status } });\n}\n\nconst body = { page_size: 100 };\nif (filters.length === 1) body.filter = filters[0];\nelse if (filters.length > 1) body.filter = { and: filters };\n\nreturn [{ json: { notionBody: body, _query: q } }];"
+   },
+   "id": "feed-0002-buildquery",
+   "name": "組 Notion 查詢",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    -1760,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Notion-Version",
+       "value": "2022-06-28"
+      },
+      {
+       "name": "Content-Type",
+       "value": "application/json"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify($json.notionBody) }}",
+    "options": {}
+   },
+   "id": "feed-0003-query",
+   "name": "查 Notion 已發布物件",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    -1520,
+    300
+   ],
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "edOz4T0LC6EP41Ug",
+     "name": "Notion API Token"
+    }
+   }
+  },
+  {
+   "parameters": {
+    "jsCode": "// 把 Notion query 結果攤平成乾淨的 feed。外部系統(FB/官網/591)直接讀這支。\nconst resp = $input.first().json || {};\nconst results = resp.results || [];\n\nconst txt   = p => ((p && (p.title || p.rich_text)) || []).map(t => t.plain_text).join('');\nconst num   = p => (p && p.number != null) ? p.number : null;\nconst sel   = p => (p && p.select && p.select.name) ? p.select.name : null;\nconst chk   = p => !!(p && p.checkbox);\nconst url   = p => (p && p.url) ? p.url : null;\nconst files = p => ((p && p.files) || []).map(f => (f.external && f.external.url) || (f.file && f.file.url)).filter(Boolean);\n\nconst items = results.map(page => {\n  const P = page.properties || {};\n  return {\n    id: page.id,\n    案名:       txt(P['案名']),\n    案件編號:   txt(P['案件編號']),\n    社區名稱:   txt(P['社區名稱']),\n    地址:       txt(P['地址']),\n    建物類型:   sel(P['建物類型']),\n    格局:       txt(P['格局']),\n    樓層:       txt(P['樓層']),\n    屋齡:       num(P['屋齡']),\n    總價:       txt(P['總價']),\n    單價:       txt(P['單價']),\n    建物坪數:   num(P['建物坪數']),\n    主建物坪數: num(P['主建物坪數']),\n    公設坪數:   num(P['公設坪數']),\n    土地坪數:   num(P['土地坪數']),\n    附屬建物:   txt(P['附屬建物']),\n    有無車位:   chk(P['有無車位']),\n    車位類型:   sel(P['車位類型']),\n    特色說明:   txt(P['特色說明']),\n    粉專文案:   txt(P['粉專文案']),\n    粉專貼文連結: url(P['粉專貼文連結']),\n    來源連結:   url(P['來源連結']),\n    狀態:       sel(P['狀態']),\n    物件照片:   files(P['物件照片']),\n    最後更新:   page.last_edited_time,\n  };\n});\n\nreturn [{ json: {\n  ok: true,\n  generated_at: new Date().toISOString(),\n  source: 'notion:07ee845168b64f8a9b5682e5069c733b',\n  count: items.length,\n  has_more: !!resp.has_more,\n  items,\n}}];"
+   },
+   "id": "feed-0004-shape",
+   "name": "整理 feed",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    -1280,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "respondWith": "json",
+    "responseBody": "={{ $json }}",
+    "options": {
+     "responseCode": 200,
+     "responseHeaders": {
+      "entries": [
+       {
+        "name": "Content-Type",
+        "value": "application/json; charset=utf-8"
+       },
+       {
+        "name": "Cache-Control",
+        "value": "public, max-age=60"
+       }
+      ]
+     }
+    }
+   },
+   "id": "feed-0005-respond",
+   "name": "回 JSON",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    -1040,
+    300
+   ]
+  }
+ ],
+ "connections": {
+  "Webhook 收 feed 請求": {
+   "main": [
+    [
+     {
+      "node": "組 Notion 查詢",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "組 Notion 查詢": {
+   "main": [
+    [
+     {
+      "node": "查 Notion 已發布物件",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "查 Notion 已發布物件": {
+   "main": [
+    [
+     {
+      "node": "整理 feed",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "整理 feed": {
+   "main": [
+    [
+     {
+      "node": "回 JSON",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "pinData": {},
+ "meta": {
+  "instanceId": "yc-feed"
+ }
+}

@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-17（v2 發文線 workflow 已寫好：`yc-fb-publish.json` + router 加「發」出口，🟡 待使用者匯入 n8n＋綁 FB Page Token credential＋真實物件測試；細節見 `docs/v2-handoff.md` 步驟 2。通過後接步驟 3 下架線）
+最後更新：2026-07-20（新增動態物件資料源 `yc-feed.json`：GET `/webhook/yc-feed` 回 Notion 已發布物件的乾淨 JSON，供外部系統即時讀；🟡 待使用者匯入。v2 發文線/下架線/router v2 三支 JSON 已就緒待匯入測試，見 `docs/v2-handoff.md`）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -21,6 +21,7 @@
 | 薛力瑜 LINE userId | `Ufab42c56b2eb9b9a9ff18c367b85a6dd`（下架偵測 Push 用）|
 | Drive 物件資料夾父層 | `1pn-tXugI8hlmVZJf2amWs9gnrj9-YhqC`（建檔器比對用）|
 | FB 粉專 | 買房不費力,賣房好給力（`FB_PAGE_ID=1041868522352339`）|
+| 動態物件 feed | `…/webhook/yc-feed`（GET，回已發布物件 JSON；`?status=已發布/all`、`?case=YCxxx`）🟡 待匯入 |
 
 ## Credentials
 
@@ -149,6 +150,7 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - **客戶建檔器**：`客戶 ...` 文字或圖片（名片）→ Gemini 抽姓名/電話/公司/LINE/來源/狀態/標籤/備註/追蹤日 → Notion 客戶名單 DB 新增 → LINE 回覆（失敗會帶 Notion API 原始錯誤）
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發到行事曆建立器或客戶建檔器（分不出時預設客戶）
 - **KEIS 待聯絡提醒**（`workflows/keis-contact-reminder.json`，🟢 已上線）：每天 09:00 查搶單名單（`4f28b915…`）→ 挑出「聯絡狀態=未聯絡 且 搶到滿 7 天剩≤2 天(含當天/已過期)」→ 有的話推一則 LINE 給薛力瑜，沒有就不推。判定 trunc 與 Notion「倒數天數」欄位一致（🟡剩2/1天/今天、🔴已過期）。搭配 Notion 視圖「🔔 待聯絡」
+- **動態物件資料源**（`workflows/yc-feed.json`，🟡 待匯入）：GET `/webhook/yc-feed`（webhook 直接回應，非 LINE）→ 查 Notion 廣告資料庫 → 攤平成乾淨 JSON feed 給外部系統（FB/官網/591）即時讀。5 節點：webhook→組查詢→查 Notion（`Notion API Token` cred）→整理→回 JSON。query 參數 `?status=已發布`(預設)/`all`、`?case=YCxxx` 取單筆；單頁上限 100，超過看回應的 `has_more`。欄位對齊 Notion DB（案名/編號/社區/地址/類型/格局/樓層/屋齡/總價/單價/各坪數/車位/特色/粉專文案/粉專貼文連結/來源連結/物件照片[]/狀態/最後更新）。🟡 **格式與消費端未定**：目前只吐 JSON，若要接 FB 動態廣告 catalog 需再加 CSV/XML feed 格式（待使用者確認消費端）
 - **yc-ad skill**（`.claude/skills/yc-ad/SKILL.md`）：桌面 Claude Code 用。一個指令 `/yc-ad YCxxx` 或自然語言「發 YCxxx」即啟動全流程：產粉專+社團兩版文案 → 寫 Notion → 對話式接收後續粉專連結 / KEIS 同步指令 / 社團發文紀錄 / 撤除。文案規格詳見 SKILL.md：粉專 200-300 字，社團 50-80 字不放連結引導留言區，兩版下方都帶法規必填「凱璿誼峰不動產有限公司 + 字號」footer，聯絡人固定「薛先生 0912877583（同 LINE）+ LINE 連結 `https://line.me/ti/p/kg1pMk4vX8`」，不放 YC 編號 hashtag
 
 ## yc-ad skill 使用方式（桌面 Claude Code）
