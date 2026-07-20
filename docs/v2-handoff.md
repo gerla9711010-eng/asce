@@ -9,7 +9,8 @@
 
 - [x] 步驟 1：FB 永久金鑰（已完成：粉專「買房不費力,賣房好給力」FB_PAGE_ID=1041868522352339，FB_PAGE_TOKEN 已存進 n8n Credential「FB Page Token」）
 - [x] 步驟 2：n8n 發文線（AI 已寫 `workflows/yc-fb-publish.json` + router 加「發」出口；⏳ 待使用者 import 兩支 JSON、設 FB Page Token credential、挑真實物件測試）
-- [ ] 步驟 3：下架線（AI 改 yc-removal-detector，使用者 import + 開 cron）
+- [x] 步驟 3：下架線（AI 已改好 `yc-removal-detector.json`：網址 404/410 或下架關鍵字→自動刪 FB 貼文→標下架→LINE 通知；含防呆：站掛掉/被擋/逾時不誤刪、刪文失敗不標下架。⏳ 待使用者 import、綁 FB Page Token、開 cron）
+  - 附帶修：`yc-property-create.json` 建檔器改抓 JSON-LD 的 `productID`（真物件編號如 YC1868705）當案件編號，取代原本的網址尾號。⏳ 待重匯
 - [ ] 步驟 4：KEIS 腳本驗證（使用者在門市電腦跑兩個指令）
 - [ ] 步驟 5：KEIS 駐守模式（步驟 4 通過後才做）
 - [ ] 步驟 6：清舊（全部通過後才做）
@@ -50,11 +51,16 @@
 
 **AI 已完成**（2026-07-17）：`workflows/yc-fb-publish.json`（24 節點：查 Notion → 缺文案就 Gemini 產粉專+社團兩版並回寫 → 抓來源連結照片取前 6 張 → FB `/photos` 逐張上傳拿 media id → `/feed` 發多圖貼文 → 回寫 Notion `粉專貼文連結`/`狀態=已發布`/`KEIS同步=未同步` → LINE Reply 帶社團文案）＋ router 加「發」出口。兩支 JSON 已複製到 `桌面\json\`。
 
-**使用者要做（照順序）**：
-1. n8n 開**新空白 workflow** → Import from File → `桌面\json\yc-fb-publish.json`。
-2. 進 workflow，點三個 FB 節點（「FB 上傳照片」「FB 發貼文（附圖）」「FB 發貼文（純文字）」）→ Credential 欄各選一次 `FB Page Token`（import 時是紅色未綁，因為 JSON 裡放的是佔位 id）→ Save → **啟用**。
-3. router：開**另一個新空白 workflow** import `桌面\json\line-command-router.json`（或在現有 router 手動加，但 SOP 是開新的）→ 確認 credential 都在 → 啟用；舊 router 停用。
-4. 挑一個**已建檔、狀態還不是已發布**的真實物件，LINE 傳「發 YCxxx」測。
+**AI 已代匯入（2026-07-20，用 GitHub raw URL Import from URL，免檔案對話框）**：
+- n8n 已有兩支新 workflow（都已存檔、含全部節點、尚未啟用）：
+  - `YC 發文線（發 YCxxx）`（24 節點，= yc-fb-publish.json）
+  - `LINE 指令分流器 v2（含發文線）`（= line-command-router.json）
+- 已確認 credential `FB Page Token`（Header Auth）存在於 n8n。
+
+**使用者剩下要做（照順序，都很簡單）**：
+1. 開 `YC 發文線（發 YCxxx）`。若畫布空白按左下 ⛶（Zoom to Fit）。三個 FB 節點（「FB 上傳照片」「FB 發貼文（附圖）」「FB 發貼文（純文字）」，會有紅色驚嘆號）各點開 → Credential 欄選 `FB Page Token` → Save → **Publish/啟用**。
+2. 啟用 `LINE 指令分流器 v2（含發文線）`；把**舊的**「LINE 指令分流器」（沒有 v2）**停用**（同時只能一個 active）。
+3. 挑一個**已建檔、狀態還不是已發布**的真實物件，LINE 傳「發 YCxxx」測。
 
 **測試注意**：第一次測若粉專貼文沒帶照片或帶到 logo，是照片抽取 regex 沒對到永慶該頁的圖片網址格式——把那個物件的永慶網址貼給 AI 調 `整理照片` 節點即可，其餘流程不受影響。
 

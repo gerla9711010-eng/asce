@@ -1,260 +1,26 @@
 {
+  "_note": "下架線 v2：偵測來源網址失效 → 自動刪 FB 廣告 → Notion 標下架 → LINE 通知。\n觸發：每日 09:00 cron（預設 disabled，使用者要自己開）或 webhook yc-check-removed 手動跑。\n安全設計：\n1. 只有 HTTP 404/410 或頁面出現下架關鍵字才算下架；5xx/403/逾時(status 0)一律視為『還在架上』，避免永慶站維護時誤刪全部廣告。\n2. 刪 FB 貼文失敗 → 不標下架、列入故障清單通知，等人工處理（不會假裝成功）。\n3. FB 刪貼文節點請綁 credential『FB Page Token』（import 時是紅色佔位 id）。",
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "cronExpression",
-              "expression": "0 0 9 * * *"
-            }
-          ]
-        }
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 0 9 * * *" } ] }
       },
       "id": "698f765e-06d3-4d65-ba77-3637169925a7",
       "name": "每日 09:00 Asia/Taipei",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        -1344,
-        128
-      ],
+      "position": [-1344, 128],
       "disabled": true
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Notion-Version",
-              "value": "2022-06-28"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  filter: { and: [\n    { property: '已撤除確認', checkbox: { equals: false } },\n    { property: '狀態',       select:   { does_not_equal: '下架' } }\n  ]},\n  page_size: 100\n}) }}",
-        "options": {}
+        "jsCode": "return [{ json: { source: 'cron', replyToken: null } }];"
       },
-      "id": "9edf1c35-47c6-4ece-a60e-f47446d46f7c",
-      "name": "查 Notion 待偵測物件",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -1120,
-        128
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "edOz4T0LC6EP41Ug",
-          "name": "Notion API Token"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const results = $input.first().json.results || [];\nreturn results.map(p => ({ json: {\n  pageId: p.id,\n  caseName: p.properties?.['案名']?.title?.[0]?.plain_text || '(未命名)',\n  caseId:   p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '',\n  sourceUrl: p.properties?.['來源連結']?.url || '',\n  currentStatus: p.properties?.['狀態']?.select?.name || ''\n}})).filter(x => x.json.sourceUrl);"
-      },
-      "id": "a36bda13-e508-4c3b-bd0c-7619cdaed1db",
-      "name": "展開結果",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -896,
-        128
-      ]
-    },
-    {
-      "parameters": {
-        "url": "={{ $json.sourceUrl }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "User-Agent",
-              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            },
-            {
-              "name": "Accept",
-              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-            },
-            {
-              "name": "Accept-Language",
-              "value": "zh-TW,zh;q=0.9,en;q=0.8"
-            }
-          ]
-        },
-        "options": {
-          "redirect": {
-            "redirect": {
-              "maxRedirects": 5
-            }
-          },
-          "response": {
-            "response": {
-              "fullResponse": true,
-              "neverError": true,
-              "responseFormat": "text"
-            }
-          },
-          "timeout": 15000
-        }
-      },
-      "id": "d2278fab-3310-451f-88c9-b2493275c84e",
-      "name": "GET 來源連結",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -672,
-        128
-      ],
-      "alwaysOutputData": true,
-      "retryOnFail": true,
-      "waitBetweenTries": 3000,
-      "continueOnFail": true
-    },
-    {
-      "parameters": {
-        "jsCode": "const responses = $input.all();\nconst sources = $('展開結果').all();\nconst keywords = ['已下架', '物件不存在', '已成交', '已售出', '查無此物件', '找不到該物件', '此物件已不存在'];\n\nreturn responses.map((resp, i) => {\n  const inItem = sources[i]?.json || {};\n  const r = resp.json || {};\n  const status = Number(r.statusCode ?? r.status ?? 0);\n  const body = String(r.body ?? r.data ?? '');\n  const hitKeyword = keywords.find(k => body.includes(k)) || null;\n\n  let isRemoved = false;\n  let reason = '';\n  if (status >= 400) { isRemoved = true; reason = `HTTP ${status}`; }\n  else if (hitKeyword) { isRemoved = true; reason = `頁面含「${hitKeyword}」`; }\n\n  return { json: {\n    ...inItem,\n    statusCode: status,\n    isRemoved,\n    reason,\n    detectedAt: new Date().toISOString()\n  }};\n});"
-      },
-      "id": "2c0c4000-3d86-479d-92bb-9de09b7b1220",
-      "name": "判斷是否下架",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -432,
-        128
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.isRemoved }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "2037f436-1577-421e-a108-4fc1704e2a27",
-      "name": "IF 已下架?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        -224,
-        128
-      ]
-    },
-    {
-      "parameters": {
-        "method": "PATCH",
-        "url": "=https://api.notion.com/v1/pages/{{ $json.pageId }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Notion-Version",
-              "value": "2022-06-28"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ properties: {\n  '狀態':         { select: { name: '下架' } },\n  '下架偵測時間': { date: { start: $json.detectedAt } }\n} }) }}",
-        "options": {}
-      },
-      "id": "9c758c2e-dc1e-483e-8ae3-27e6674b0971",
-      "name": "PATCH 標記下架",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        64,
-        -16
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "edOz4T0LC6EP41Ug",
-          "name": "Notion API Token"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const all = $('判斷是否下架').all().map(i => i.json);\nconst total = all.length;\nconst removed = all.filter(x => x.isRemoved);\nconst alive   = total - removed.length;\n\nlet text;\nif (total === 0) {\n  text = `🌅 下架偵測 ${new Date().toLocaleDateString('zh-TW',{timeZone:'Asia/Taipei'})}\\n\\n沒有需要偵測的物件（全部都已撤除確認或已下架）。`;\n} else if (removed.length === 0) {\n  text = `🌅 下架偵測 ${new Date().toLocaleDateString('zh-TW',{timeZone:'Asia/Taipei'})}\\n\\n✅ 檢查 ${total} 筆，全部仍在架上。`;\n} else {\n  const lines = removed.map(r => `・${r.caseName}（${r.caseId}）— ${r.reason}`).join('\\n');\n  text = `🚨 下架偵測 ${new Date().toLocaleDateString('zh-TW',{timeZone:'Asia/Taipei'})}\\n\\n檢查 ${total} 筆，發現 ${removed.length} 筆已下架（已自動更新狀態）：\\n\\n${lines}\\n\\n${alive} 筆仍在架上。`;\n}\n\nfunction safeGet(name) {\n  try { return $(name).first()?.json; } catch (e) { return null; }\n}\nconst meta = safeGet('正規化（手動）')\n          ?? safeGet('正規化（cron）')\n          ?? { source: 'cron', replyToken: null };\n\nreturn [{ json: {\n  userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd',\n  summaryText: text,\n  total,\n  removedCount: removed.length,\n  source: meta.source,\n  replyToken: meta.replyToken\n} }];"
-      },
-      "id": "aeb506f0-2f2c-47fe-b543-cdcbb38f95f4",
-      "name": "彙總結果",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        176,
-        144
-      ],
-      "executeOnce": true
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.summaryText }] }) }}",
-        "options": {}
-      },
-      "id": "ed826f30-11c8-4204-8d36-4d264402eb88",
-      "name": "LINE Push 摘要",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        640,
-        304
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
-        }
-      }
+      "position": [-1120, -64],
+      "id": "0461f936-457a-497a-8a7e-4aecf9365425",
+      "name": "正規化（cron）"
     },
     {
       "parameters": {
@@ -264,10 +30,7 @@
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [
-        -1360,
-        448
-      ],
+      "position": [-1344, 448],
       "id": "830c997c-9648-4cd9-af35-361b5cb215ad",
       "name": "Webhook 手動觸發",
       "webhookId": "4e8f17ae-1a07-4a18-aede-2e7ca5ce1c45"
@@ -278,46 +41,192 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -1104,
-        432
-      ],
+      "position": [-1120, 448],
       "id": "4dc07ebb-428c-45be-b00b-bf209e340f81",
       "name": "正規化（手動）"
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: { source: 'cron', replyToken: null } }];"
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  filter: { and: [\n    { property: '已撤除確認', checkbox: { equals: false } },\n    { property: '狀態',       select:   { does_not_equal: '下架' } }\n  ]},\n  page_size: 100\n}) }}",
+        "options": {}
       },
+      "id": "9edf1c35-47c6-4ece-a60e-f47446d46f7c",
+      "name": "查 Notion 待偵測物件",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-896, 128],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.first().json.results || [];\nreturn results.map(p => ({ json: {\n  pageId: p.id,\n  caseName: p.properties?.['案名']?.title?.[0]?.plain_text || '(未命名)',\n  caseId:   p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '',\n  sourceUrl: p.properties?.['來源連結']?.url || '',\n  fbPostUrl: p.properties?.['粉專貼文連結']?.url || '',\n  currentStatus: p.properties?.['狀態']?.select?.name || ''\n}})).filter(x => x.json.sourceUrl);"
+      },
+      "id": "a36bda13-e508-4c3b-bd0c-7619cdaed1db",
+      "name": "展開結果",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -1232,
-        -64
-      ],
-      "id": "0461f936-457a-497a-8a7e-4aecf9365425",
-      "name": "正規化（cron）"
+      "position": [-672, 128]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.sourceUrl }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "User-Agent", "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+          { "name": "Accept", "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+          { "name": "Accept-Language", "value": "zh-TW,zh;q=0.9,en;q=0.8" }
+        ]},
+        "options": {
+          "redirect": { "redirect": { "maxRedirects": 5 } },
+          "response": { "response": { "fullResponse": true, "neverError": true, "responseFormat": "text" } },
+          "timeout": 15000
+        }
+      },
+      "id": "d2278fab-3310-451f-88c9-b2493275c84e",
+      "name": "GET 來源連結",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-448, 128],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const responses = $input.all();\nconst sources = $('展開結果').all();\nconst keywords = ['已下架', '物件不存在', '已成交', '已售出', '查無此物件', '找不到該物件', '此物件已不存在', '很抱歉'];\n\nreturn responses.map((resp, i) => {\n  const inItem = sources[i]?.json || {};\n  const r = resp.json || {};\n  const status = Number(r.statusCode ?? r.status ?? 0);\n  const body = String(r.body ?? r.data ?? '');\n  const hitKeyword = keywords.find(k => body.includes(k)) || null;\n\n  let isRemoved = false;\n  let reason = '';\n  // 只有『物件確定沒了』才下架：404/410，或頁面明講下架關鍵字。\n  // 5xx / 403 / 逾時(status 0) 一律當還在架上 → 避免永慶站臨時掛掉時誤刪全部廣告。\n  if (status === 404 || status === 410) { isRemoved = true; reason = `HTTP ${status}（網址失效）`; }\n  else if (status === 200 && hitKeyword) { isRemoved = true; reason = `頁面含「${hitKeyword}」`; }\n  else if (status >= 500 || status === 403 || status === 429 || status === 0) { isRemoved = false; reason = `暫時無法確認(HTTP ${status})，本次略過`; }\n\n  return { json: {\n    ...inItem,\n    statusCode: status,\n    isRemoved,\n    reason,\n    detectedAt: new Date().toISOString()\n  }};\n});"
+      },
+      "id": "2c0c4000-3d86-479d-92bb-9de09b7b1220",
+      "name": "判斷是否下架",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-224, 128]
     },
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 3
-          },
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 },
           "conditions": [
-            {
-              "id": "6a1592db-8469-40be-b4dd-efe2c6517dc9",
-              "leftValue": "={{ $json.replyToken }}",
-              "rightValue": "is not empty",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty",
-                "singleValue": true
-              }
-            }
+            { "leftValue": "={{ $json.isRemoved }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2037f436-1577-421e-a108-4fc1704e2a27",
+      "name": "IF 已下架?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [0, 128]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json;\nconst url = j.fbPostUrl || '';\n// 粉專永久連結格式：https://www.facebook.com/{pageid}_{postid}\nconst m = url.match(/facebook\\.com\\/(\\d+_\\d+)/);\nconst fbPostId = m ? m[1] : '';\nreturn [{ json: { ...j, fbPostId, hasFbPost: !!fbPostId } }];"
+      },
+      "id": "b1a2c3d4-0001-4aaa-9001-aaaaaaaaaaaa",
+      "name": "備妥刪文",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [224, 32]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://graph.facebook.com/v21.0/{{ $json.fbPostId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": { "response": { "neverError": true, "responseFormat": "json" } },
+          "timeout": 20000
+        }
+      },
+      "id": "b1a2c3d4-0002-4aaa-9002-aaaaaaaaaaaa",
+      "name": "FB 刪貼文",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [448, 32],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "FB_PAGE_TOKEN_CRED_ID", "name": "FB Page Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prep = $('備妥刪文').item.json;\nconst resp = $json || {};\nconst rb = resp.body ?? resp;\nlet ok, failed, errMsg = '';\nif (!prep.hasFbPost) {\n  // 沒有粉專貼文可刪（例如只建檔沒發過）→ 直接可標下架\n  ok = true; failed = false;\n} else {\n  const success = rb === true || rb?.success === true || (typeof rb === 'string' && rb.includes('success'));\n  errMsg = rb?.error?.message || '';\n  // 貼文本來就不存在（已被手動刪過）也算成功\n  const alreadyGone = /does not exist|Unsupported (get|delete) request|cannot be loaded|Object with ID/i.test(errMsg);\n  ok = success || alreadyGone;\n  failed = !ok;\n}\nreturn [{ json: { ...prep,\n  fbDeleted: prep.hasFbPost && ok,\n  fbDeleteFailed: failed,\n  fbDeleteError: failed ? (errMsg || 'unknown') : '',\n  markRemoved: ok\n} }];"
+      },
+      "id": "b1a2c3d4-0003-4aaa-9003-aaaaaaaaaaaa",
+      "name": "判定刪除結果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, 32]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            { "leftValue": "={{ $json.markRemoved }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1a2c3d4-0004-4aaa-9004-aaaaaaaaaaaa",
+      "name": "可標下架?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [896, 32]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $json.pageId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: {\n  '狀態':         { select: { name: '下架' } },\n  '下架偵測時間': { date: { start: $json.detectedAt } }\n} }) }}",
+        "options": {}
+      },
+      "id": "9c758c2e-dc1e-483e-8ae3-27e6674b0971",
+      "name": "PATCH 標記下架",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, -80],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const checked = $('判斷是否下架').all().map(i => i.json);\nconst total = checked.length;\nconst removedRaw = checked.filter(x => x.isRemoved);\nconst alive = total - removedRaw.length;\nconst today = new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' });\n\nlet outcomes = [];\ntry { outcomes = $('判定刪除結果').all().map(i => i.json); } catch (e) { outcomes = []; }\nconst byPage = {};\noutcomes.forEach(o => { byPage[o.pageId] = o; });\n\nlet text;\nif (total === 0) {\n  text = `🌅 下架偵測 ${today}\\n\\n沒有需要偵測的物件（全部都已撤除確認或已下架）。`;\n} else if (removedRaw.length === 0) {\n  text = `🌅 下架偵測 ${today}\\n\\n✅ 檢查 ${total} 筆，全部仍在架上。`;\n} else {\n  const lines = removedRaw.map(r => {\n    const o = byPage[r.pageId] || {};\n    let tag;\n    if (o.fbDeleteFailed) tag = `⚠️粉專刪除失敗（${o.fbDeleteError}）→ 狀態未改，請手動刪貼文`;\n    else if (o.fbDeleted) tag = '粉專貼文已自動刪除';\n    else tag = '無粉專貼文';\n    return `・${r.caseName}（${r.caseId}）— ${r.reason}；${tag}`;\n  }).join('\\n');\n  const failCount = removedRaw.filter(r => (byPage[r.pageId] || {}).fbDeleteFailed).length;\n  text = `🚨 下架偵測 ${today}\\n\\n檢查 ${total} 筆，發現 ${removedRaw.length} 筆已下架：\\n\\n${lines}\\n\\n${alive} 筆仍在架上。` + (failCount ? `\\n\\n⚠️ 其中 ${failCount} 筆粉專刪除失敗，需要你手動處理。` : '');\n}\n\nfunction safeGet(name) { try { return $(name).first()?.json; } catch (e) { return null; } }\nconst meta = safeGet('正規化（手動）') ?? safeGet('正規化（cron）') ?? { source: 'cron', replyToken: null };\n\nreturn [{ json: {\n  userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd',\n  summaryText: text,\n  total,\n  removedCount: removedRaw.length,\n  source: meta.source,\n  replyToken: meta.replyToken\n} }];"
+      },
+      "id": "aeb506f0-2f2c-47fe-b543-cdcbb38f95f4",
+      "name": "彙總結果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 128],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "conditions": [
+            { "id": "6a1592db-8469-40be-b4dd-efe2c6517dc9", "leftValue": "={{ $json.replyToken }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty", "singleValue": true } }
           ],
           "combinator": "and"
         },
@@ -325,10 +234,7 @@
       },
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
-      "position": [
-        368,
-        144
-      ],
+      "position": [1584, 128],
       "id": "47d47ea7-6027-46c9-b370-33045e862293",
       "name": "是否手動觸發"
     },
@@ -339,14 +245,7 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.summaryText }] }) }}",
@@ -354,164 +253,65 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
-      "position": [
-        640,
-        32
-      ],
+      "position": [1808, 32],
       "id": "1a5f12bb-769e-4d66-892f-f66b2fba3999",
-      "name": "HTTP Request",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
-        }
-      }
+      "name": "LINE Reply（手動）",
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.summaryText }] }) }}",
+        "options": {}
+      },
+      "id": "ed826f30-11c8-4204-8d36-4d264402eb88",
+      "name": "LINE Push 摘要",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1808, 224],
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
     }
   ],
   "connections": {
-    "每日 09:00 Asia/Taipei": {
-      "main": [
-        [
-          {
-            "node": "正規化（cron）",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "查 Notion 待偵測物件": {
-      "main": [
-        [
-          {
-            "node": "展開結果",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "展開結果": {
-      "main": [
-        [
-          {
-            "node": "GET 來源連結",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "GET 來源連結": {
-      "main": [
-        [
-          {
-            "node": "判斷是否下架",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "判斷是否下架": {
-      "main": [
-        [
-          {
-            "node": "IF 已下架?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
+    "每日 09:00 Asia/Taipei": { "main": [[{ "node": "正規化（cron）", "type": "main", "index": 0 }]] },
+    "正規化（cron）":        { "main": [[{ "node": "查 Notion 待偵測物件", "type": "main", "index": 0 }]] },
+    "Webhook 手動觸發":      { "main": [[{ "node": "正規化（手動）", "type": "main", "index": 0 }]] },
+    "正規化（手動）":        { "main": [[{ "node": "查 Notion 待偵測物件", "type": "main", "index": 0 }]] },
+    "查 Notion 待偵測物件":  { "main": [[{ "node": "展開結果", "type": "main", "index": 0 }]] },
+    "展開結果":              { "main": [[{ "node": "GET 來源連結", "type": "main", "index": 0 }]] },
+    "GET 來源連結":          { "main": [[{ "node": "判斷是否下架", "type": "main", "index": 0 }]] },
+    "判斷是否下架":          { "main": [[{ "node": "IF 已下架?", "type": "main", "index": 0 }]] },
     "IF 已下架?": {
       "main": [
-        [
-          {
-            "node": "PATCH 標記下架",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "彙總結果",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "彙總結果",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "備妥刪文", "type": "main", "index": 0 }],
+        [{ "node": "彙總結果", "type": "main", "index": 0 }]
       ]
     },
-    "彙總結果": {
+    "備妥刪文":              { "main": [[{ "node": "FB 刪貼文", "type": "main", "index": 0 }]] },
+    "FB 刪貼文":             { "main": [[{ "node": "判定刪除結果", "type": "main", "index": 0 }]] },
+    "判定刪除結果":          { "main": [[{ "node": "可標下架?", "type": "main", "index": 0 }]] },
+    "可標下架?": {
       "main": [
-        [
-          {
-            "node": "是否手動觸發",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "PATCH 標記下架", "type": "main", "index": 0 }],
+        [{ "node": "彙總結果", "type": "main", "index": 0 }]
       ]
     },
-    "Webhook 手動觸發": {
-      "main": [
-        [
-          {
-            "node": "正規化（手動）",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "正規化（手動）": {
-      "main": [
-        [
-          {
-            "node": "查 Notion 待偵測物件",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "正規化（cron）": {
-      "main": [
-        [
-          {
-            "node": "查 Notion 待偵測物件",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
+    "PATCH 標記下架":        { "main": [[{ "node": "彙總結果", "type": "main", "index": 0 }]] },
+    "彙總結果":              { "main": [[{ "node": "是否手動觸發", "type": "main", "index": 0 }]] },
     "是否手動觸發": {
       "main": [
-        [
-          {
-            "node": "HTTP Request",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "LINE Push 摘要",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "LINE Reply（手動）", "type": "main", "index": 0 }],
+        [{ "node": "LINE Push 摘要", "type": "main", "index": 0 }]
       ]
     }
   },
   "pinData": {},
-  "meta": {
-    "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69"
-  }
+  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
 }
