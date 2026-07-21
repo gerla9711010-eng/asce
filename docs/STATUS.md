@@ -201,6 +201,8 @@ Skill 會自動：
 4. KEIS 駐守：先驗證 `scripts/keis/publish.py` 能跑（`--login` 一次 → `publish.py YC1868650`，YC1868650 尚未上架），再改成輪詢模式駐店電腦
 5. 清舊：砍 `yc-rewrite-copy` workflow + router `生成文案` 出口；yc-ad skill 降級為維修工具（調文案/查狀態），改寫 SKILL.md
 
+**未來候補（FB 發文線步驟2-5全部跑順、驗收過後才排）**：多開一個 IG 帳號專門發廣告。使用者要先自己去 Meta Business Suite 把新 IG 轉商業帳號、綁到粉專＋開權限，之後才接 n8n（IG Graph API 是兩段式 container→publish，跟 FB 貼文 API 不同端點）。目前卡在使用者尚未建帳號，不用主動催。
+
 **設計原則**：Notion 仍是唯一真相中心；「發」的人工確認保留（廣告法規責任，穩定後可拿掉）；FB 社團不做任何自動化（Groups API 已被 Meta 移除，瀏覽器機器人=封號風險，使用者已同意不碰）；社團記錄只記原生文（分享文隨原文自動失效，不用記）。
 
 **LINE 額度控管（拍板：不升付費方案；2026-07-15 補充調整：非急迫，隨發文線順做）**：
