@@ -147,6 +147,7 @@ def load_accounts() -> list[tuple]:
 GRABBED_CSV = Path(__file__).parent / "grabbed.csv"
 APPEAR_CSV = Path(__file__).parent / "appearances.csv"   # 上架偵測：新名單第一次出現的時刻
 APPEAR_STATE = Path(__file__).parent / "appear_state.txt"  # 記住今天觀測基準（撐過重啟）
+NOTION_PENDING = Path(__file__).parent / "notion_pending.txt"  # push_notion 失敗的 summary_id，等下次回查補寫
 LOG_DIR = Path(__file__).parent / "logs"           # 每日一份 log，獨立資料夾（舊版 watch.log 停用但保留原檔）
 LOG_RETENTION_DAYS = 50                            # 最多留幾天，超過從最舊的開始刪
 
@@ -528,9 +529,17 @@ def notify_grabbed(grabbed: list[dict], quota_left: int,
     if new_today is not None:                # 開盤搶單才帶今日累計；補漏回查不帶（退回本批數）
         payload["new_today"] = new_today
         payload["grabbed_today"] = grabbed_today
-    notify(payload)
+    ok = notify(payload)
     extra = f"（今日新名單 {new_today}／搶到 {grabbed_today}）" if new_today is not None else ""
-    log(f"📲 已推 {len(grabbed)} 筆到 LINE{extra}")
+    # 2026-07-21：這裡原本不管 notify() 有沒有真的送出去，都固定印「已推」——
+    # 導致一筆 LINE 因斷線送失敗（notify() 已回傳 False、且上面已印過失敗原因），
+    # 這行卻照樣宣稱成功，讓人以為訊息有送到，白白錯過補救時機。資料本身沒有
+    # 遺失（grabbed.csv／Notion 該有的都有），純粹是這行 log 講錯話，改成照實際結果印。
+    if ok:
+        log(f"📲 已推 {len(grabbed)} 筆到 LINE{extra}")
+    else:
+        log(f"❌ LINE 推播失敗，{len(grabbed)} 筆沒送到手機{extra}"
+            f"（資料已存 grabbed.csv／Notion，不會遺失，之後可用 LINE 打「戰果」查回來）")
 
 
 def push_heartbeat() -> None:
@@ -570,10 +579,111 @@ def _notion_dt(s: str) -> str:
     return s + "+08:00" if s and "+" not in s else s
 
 
-def push_notion(g: dict) -> None:
-    """把搶到的一筆寫進 Notion 資料庫（沒設 token 就跳過；失敗只記 log，絕不影響搶單）。"""
-    if not (NOTION_TOKEN and NOTION_DB_ID):
+def _load_notion_pending() -> set:
+    if not NOTION_PENDING.exists():
+        return set()
+    try:
+        return {ln.strip() for ln in NOTION_PENDING.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    except Exception:
+        return set()
+
+
+def _save_notion_pending(sids: set) -> None:
+    try:
+        NOTION_PENDING.write_text("\n".join(sorted(sids, key=lambda s: (len(s), s))), encoding="utf-8")
+    except Exception as e:
+        log(f"⚠ 寫 notion_pending.txt 失敗（純記錄，下次啟動會少查一筆待補）：{type(e).__name__}")
+
+
+def _mark_notion_pending(sid) -> None:
+    pending = _load_notion_pending()
+    pending.add(str(sid))
+    _save_notion_pending(pending)
+
+
+def _clear_notion_pending(sids: set) -> None:
+    if not sids:
         return
+    pending = _load_notion_pending() - {str(s) for s in sids}
+    _save_notion_pending(pending)
+
+
+def notion_exists(sid) -> bool | None:
+    """查 Notion 資料庫裡有沒有這個 summary_id 的頁面。True/False=查到結果，
+    None=查詢本身失敗（斷網/逾時等，不代表沒有），呼叫端遇到 None 要當「不確定」處理，
+    絕不能當成 False 去重推，否則斷網時反而會造成重複建檔。"""
+    if not (NOTION_TOKEN and NOTION_DB_ID):
+        return None
+    try:
+        r = httpx.post(
+            f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query",
+            headers={"Authorization": f"Bearer {NOTION_TOKEN}",
+                     "Notion-Version": "2022-06-28",
+                     "Content-Type": "application/json"},
+            json={"filter": {"property": "summary_id", "rich_text": {"equals": str(sid)}}, "page_size": 1},
+            timeout=15,
+        )
+        if r.status_code >= 300:
+            log(f"   ⚠ Notion 查詢失敗 HTTP {r.status_code}: {r.text[:150]}")
+            return None
+        return bool(r.json().get("results"))
+    except Exception as e:
+        log(f"   ⚠ Notion 查詢例外：{type(e).__name__}")
+        return None
+
+
+def load_grabbed_row(sid) -> dict | None:
+    """從本機 grabbed.csv 撈回一筆完整資料，給 Notion 補寫回查用（重建 push_notion 要的欄位）。"""
+    if not GRABBED_CSV.exists():
+        return None
+    try:
+        with GRABBED_CSV.open(encoding="utf-8-sig", newline="") as f:
+            for row in csv.reader(f):
+                if not row or row[0].startswith("搶到時間") or len(row) < 9:
+                    continue
+                if str(row[2]).strip() == str(sid):
+                    return {"grabbed_at": row[0], "account": row[1], "summary_id": row[2],
+                             "name": row[3], "phone": row[4], "city": row[5],
+                             "category": row[6], "budget": row[7], "start_time": row[8],
+                             "remarks": ""}
+    except Exception as e:
+        log(f"⚠ 讀 grabbed.csv 撈補寫資料失敗：{type(e).__name__}")
+    return None
+
+
+def reconcile_notion() -> int:
+    """回查 notion_pending.txt，補上先前 push_notion 失敗的名單。
+    每筆先用 notion_exists() 確認 Notion 裡真的沒有(例如 07-21 那次 ReadTimeout，其實伺服器
+    已經寫進去、只是客戶端沒等到回應)，避免補寫變成重複建檔；查詢本身失敗(None)就跳過這筆、
+    留到下次再查，絕不能在不確定的情況下硬推。全程 best-effort，出錯只記 log。"""
+    pending = _load_notion_pending()
+    if not pending:
+        return 0
+    synced = set()
+    for sid in pending:
+        exists = notion_exists(sid)
+        if exists is None:
+            continue                      # 查詢本身失敗，這筆先留著，下次回查再試
+        if exists:
+            synced.add(sid)               # 其實早就有了（只是先前誤判失敗），標記完成不用補推
+            continue
+        rec = load_grabbed_row(sid)
+        if rec is None:
+            log(f"⚠ notion_pending 有 {sid} 但 grabbed.csv 找不到這筆，先跳過")
+            continue
+        if push_notion(rec):
+            log(f"   ↩ [Notion 補寫] {sid} {rec['name']}/{rec['phone']}")
+            synced.add(sid)
+    if synced:
+        _clear_notion_pending(synced)
+    return len(synced)
+
+
+def push_notion(g: dict) -> bool:
+    """把搶到的一筆寫進 Notion 資料庫（沒設 token 就跳過；失敗只記 log + 記進 notion_pending.txt
+    等下次回查補寫，絕不影響搶單本身）。回傳有沒有真的寫進去。"""
+    if not (NOTION_TOKEN and NOTION_DB_ID):
+        return False
     props = {
         "姓名": {"title": [{"text": {"content": g["name"] or "(未提供)"}}]},
         "summary_id": {"rich_text": [{"text": {"content": str(g["summary_id"])}}]},
@@ -601,8 +711,16 @@ def push_notion(g: dict) -> None:
         )
         if r.status_code >= 300:
             log(f"   ⚠ Notion 寫入失敗 HTTP {r.status_code}: {r.text[:150]}")
+            _mark_notion_pending(g["summary_id"])
+            return False
+        return True
     except Exception as e:
-        log(f"   ⚠ Notion 寫入例外（不影響搶單）：{type(e).__name__}")
+        # 逾時等例外不代表沒寫進去——伺服器可能已經處理成功、只是客戶端沒等到回應
+        # （2026-07-21 實測過一次：ReadTimeout 但 Notion 裡其實有）。所以這裡不能斷定失敗，
+        # 只能記進待查清單，讓 reconcile_notion() 之後用 notion_exists() 查清楚再決定要不要補推。
+        log(f"   ⚠ Notion 寫入例外（不影響搶單，已記待查）：{type(e).__name__}")
+        _mark_notion_pending(g["summary_id"])
+        return False
 
 
 def load_recorded_sids() -> set:
@@ -814,6 +932,9 @@ def run_watch(clients: list, dry_run: bool) -> int:
         if rec:
             log(f"↩ 啟動回查補回 {len(rec)} 筆漏記名單")
             notify_grabbed(rec, 0)
+        n = reconcile_notion()
+        if n:
+            log(f"↩ 啟動回查補寫 Notion {n} 筆")
     except Exception as e:
         log(f"⚠ 啟動回查失敗（略過）：{type(e).__name__}")
 
@@ -854,6 +975,9 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     if rec:
                         log(f"↩ 跨日回查補回 {len(rec)} 筆漏記名單")
                         notify_grabbed(rec, 0)
+                    n = reconcile_notion()
+                    if n:
+                        log(f"↩ 跨日回查補寫 Notion {n} 筆")
                     write_daily_summary(seen_day.isoformat(), day_new,
                                         day_grabbed + len(rec), recovered=len(rec))  # 結算的是「昨天」
                 except Exception as e:
