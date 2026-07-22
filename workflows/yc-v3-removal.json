@@ -1,0 +1,233 @@
+{
+  "_note": "廣告 v3 線 B：下架偵測（用 KEIS is_active，非爬 HTML）。詳規見 docs/v3-ad-auto-workorder.md。\n流程：cron → 查 Notion『狀態=已發布』→ 逐件 KEIS 列表 API `?search=合約編號` 查 is_active → 已 false 或查無 → 刪 FB 貼文 → Notion 標下架 → LINE Push 通知。\n安全設計：\n1. 只有 KEIS 明確回『查無(total=0)』或 is_active=false 才判下架；KEIS API 逾時/非 200/回傳異常 → 一律當『還在架上』略過，避免 KEIS 掛掉時誤刪全部廣告。\n2. 刪 FB 失敗 → 不標下架，列入故障通知等人工。\n匯入前設 credential：KEIS API Token（換 KEIS_TOKEN_CRED_ID）、FB Page Token（換 FB_PAGE_TOKEN_CRED_ID）、Notion/LINE 沿用。\n開新空白 workflow 再 Import。",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 0 8 * * *" } ] }
+      },
+      "id": "v3b-01-cron",
+      "name": "每日 08:00 偵測",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1300, 128]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { property: '狀態', select: { equals: '已發布' } }, page_size: 100 }) }}",
+        "options": {}
+      },
+      "id": "v3b-02-query",
+      "name": "查 Notion 已發布",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1080, 128],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.first().json.results || [];\nreturn results.map(p => ({ json: {\n  pageId: p.id,\n  caseName: p.properties?.['案名']?.title?.[0]?.plain_text || '(未命名)',\n  contract_no: (p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '').toUpperCase(),\n  fbPostUrl: p.properties?.['粉專貼文連結']?.url || ''\n}})).filter(x => x.json.contract_no);"
+      },
+      "id": "v3b-03-expand",
+      "name": "展開結果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-860, 128]
+    },
+    {
+      "parameters": {
+        "url": "=https://keis.kshouse.com.tw/api/v1/property-management/?page=1&page_size=1&search={{ $json.contract_no }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": { "response": { "fullResponse": true, "neverError": true, "responseFormat": "json" } },
+          "timeout": 30000
+        }
+      },
+      "id": "v3b-04-keis",
+      "name": "KEIS 查 is_active",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-640, 128],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "KEIS_TOKEN_CRED_ID", "name": "KEIS API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const responses = $input.all();\nconst sources = $('展開結果').all();\nreturn responses.map((resp, i) => {\n  const inItem = sources[i]?.json || {};\n  const r = resp.json || {};\n  const status = Number(r.statusCode ?? r.status ?? 0);\n  const body = r.body ?? r;\n  let isRemoved = false, reason = '';\n  if (status === 200 && body && typeof body === 'object') {\n    const items = body.items || body.data || [];\n    const total = body.total != null ? Number(body.total) : items.length;\n    if (total === 0) { isRemoved = true; reason = 'KEIS 查無此案（已移除）'; }\n    else if (items[0] && items[0].is_active === false) { isRemoved = true; reason = 'KEIS is_active=false（已下架）'; }\n    else { isRemoved = false; reason = '仍在架上'; }\n  } else {\n    // KEIS 逾時/非 200/異常 → 不判下架，避免誤刪\n    isRemoved = false; reason = `KEIS 暫時無法確認(HTTP ${status})，本次略過`;\n  }\n  return { json: { ...inItem, isRemoved, reason, detectedAt: new Date().toISOString() } };\n});"
+      },
+      "id": "v3b-05-judge",
+      "name": "判斷是否下架",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-420, 128]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            { "leftValue": "={{ $json.isRemoved }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "v3b-06-if",
+      "name": "IF 已下架?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-200, 128]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json;\nconst m = (j.fbPostUrl || '').match(/facebook\\.com\\/(\\d+_\\d+)/);\nreturn [{ json: { ...j, fbPostId: m ? m[1] : '', hasFbPost: !!(m && m[1]) } }];"
+      },
+      "id": "v3b-07-prep",
+      "name": "備妥刪文",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [20, 16]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://graph.facebook.com/v21.0/{{ $json.fbPostId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": { "response": { "neverError": true, "responseFormat": "json" } },
+          "timeout": 20000
+        }
+      },
+      "id": "v3b-08-del",
+      "name": "FB 刪貼文",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 16],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "FB_PAGE_TOKEN_CRED_ID", "name": "FB Page Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prep = $('備妥刪文').item.json;\nconst resp = $json || {};\nconst rb = resp.body ?? resp;\nlet ok, failed, errMsg = '';\nif (!prep.hasFbPost) { ok = true; failed = false; }\nelse {\n  const success = rb === true || rb?.success === true || (typeof rb === 'string' && rb.includes('success'));\n  errMsg = rb?.error?.message || '';\n  const alreadyGone = /does not exist|Unsupported (get|delete) request|cannot be loaded|Object with ID/i.test(errMsg);\n  ok = success || alreadyGone;\n  failed = !ok;\n}\nreturn [{ json: { ...prep, fbDeleted: prep.hasFbPost && ok, fbDeleteFailed: failed, fbDeleteError: failed ? (errMsg || 'unknown') : '', markRemoved: ok } }];"
+      },
+      "id": "v3b-09-delresult",
+      "name": "判定刪除結果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 16]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            { "leftValue": "={{ $json.markRemoved }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "v3b-10-ifmark",
+      "name": "可標下架?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [680, 16]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $json.pageId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { '狀態': { select: { name: '下架' } }, '下架偵測時間': { date: { start: $json.detectedAt } } } }) }}",
+        "options": {}
+      },
+      "id": "v3b-11-patch",
+      "name": "PATCH 標記下架",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, -96],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const checked = $('判斷是否下架').all().map(i => i.json);\nconst total = checked.length;\nconst removed = checked.filter(x => x.isRemoved);\nconst today = new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' });\nlet outcomes = [];\ntry { outcomes = $('判定刪除結果').all().map(i => i.json); } catch (e) {}\nconst byPage = {}; outcomes.forEach(o => byPage[o.pageId] = o);\nlet text;\nif (total === 0) text = `🌅 下架偵測 ${today}\\n\\n沒有已發布的廣告需要偵測。`;\nelse if (removed.length === 0) text = `🌅 下架偵測 ${today}\\n\\n✅ 檢查 ${total} 筆，全部仍在架上。`;\nelse {\n  const lines = removed.map(r => {\n    const o = byPage[r.pageId] || {};\n    const tag = o.fbDeleteFailed ? `⚠️粉專刪除失敗（${o.fbDeleteError}）→ 狀態未改，請手動刪` : (o.fbDeleted ? '粉專貼文已自動刪除' : '無粉專貼文');\n    return `・${r.caseName}（${r.contract_no}）— ${r.reason}；${tag}`;\n  }).join('\\n');\n  const failCount = removed.filter(r => (byPage[r.pageId] || {}).fbDeleteFailed).length;\n  text = `🚨 下架偵測 ${today}\\n\\n檢查 ${total} 筆，${removed.length} 筆已下架：\\n\\n${lines}` + (failCount ? `\\n\\n⚠️ ${failCount} 筆粉專刪除失敗，需你手動處理。` : '');\n}\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text } }];"
+      },
+      "id": "v3b-12-summary",
+      "name": "彙總結果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 128],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.summaryText }] }) }}",
+        "options": {}
+      },
+      "id": "v3b-13-push",
+      "name": "LINE Push 摘要",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 128],
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+    }
+  ],
+  "connections": {
+    "每日 08:00 偵測":  { "main": [[{ "node": "查 Notion 已發布", "type": "main", "index": 0 }]] },
+    "查 Notion 已發布":  { "main": [[{ "node": "展開結果", "type": "main", "index": 0 }]] },
+    "展開結果":         { "main": [[{ "node": "KEIS 查 is_active", "type": "main", "index": 0 }]] },
+    "KEIS 查 is_active": { "main": [[{ "node": "判斷是否下架", "type": "main", "index": 0 }]] },
+    "判斷是否下架":      { "main": [[{ "node": "IF 已下架?", "type": "main", "index": 0 }]] },
+    "IF 已下架?": {
+      "main": [
+        [{ "node": "備妥刪文", "type": "main", "index": 0 }],
+        [{ "node": "彙總結果", "type": "main", "index": 0 }]
+      ]
+    },
+    "備妥刪文":         { "main": [[{ "node": "FB 刪貼文", "type": "main", "index": 0 }]] },
+    "FB 刪貼文":        { "main": [[{ "node": "判定刪除結果", "type": "main", "index": 0 }]] },
+    "判定刪除結果":     { "main": [[{ "node": "可標下架?", "type": "main", "index": 0 }]] },
+    "可標下架?": {
+      "main": [
+        [{ "node": "PATCH 標記下架", "type": "main", "index": 0 }],
+        [{ "node": "彙總結果", "type": "main", "index": 0 }]
+      ]
+    },
+    "PATCH 標記下架":   { "main": [[{ "node": "彙總結果", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+}
