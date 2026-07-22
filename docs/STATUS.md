@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-17（v2 發文線 workflow 已寫好：`yc-fb-publish.json` + router 加「發」出口，🟡 待使用者匯入 n8n＋綁 FB Page Token credential＋真實物件測試；細節見 `docs/v2-handoff.md` 步驟 2。通過後接步驟 3 下架線）
+最後更新：2026-07-21（**廣告系統改走 v3：KEIS API 全自動**。3 支新 workflow 已寫完待匯入，卡在 KEIS token。見下方「廣告系統 v3」）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -181,7 +181,26 @@ Skill 會自動：
 | **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-20 第4輪修完（PR#76，桌面已同步）：數字欄位全形→半形正規化（解決中文輸入法打不進小數點）、精靈加←→方向鍵導航、拿掉貸款三步確認視窗改回謄本全自動、租賃案 W3 單價改顯示「元/坪」。清單：桌面 `售屋表v3.6實測清單.md`。⚠️ 待門市拿真實案件實測；塗銷防護只用模擬文字驗過，遇真實含塗銷謄本要核對 log | `scripts/sale-form/README.md` |
 
-## 廣告系統 v2 改造計畫（2026-07-15 拍板，取代所有舊的廣告流程待辦）
+## 廣告系統 v3（2026-07-21 拍板，取代 v2 的「LINE 手動建檔→發」流程）
+
+> **▶ 執行入口：`docs/v3-ad-auto-workorder.md`**（含全部決策、KEIS API 實測、code）。不要重新討論架構。
+
+**一句話**：n8n 定時打 KEIS API 撈整個加盟體系在售案 → Gemini 產文案 → LINE 預告 10 分鐘煞車視窗 → 沒喊停就自動發粉專多圖文 → 每天偵測 KEIS 下架就自動刪 FB 文。Notion 只當帳本。**絕不碰屋主個資**（白名單清洗節點強制）。
+
+**已寫完待匯入**（開新空白 workflow 再 Import）：
+
+| 檔案 | 用途 |
+|---|---|
+| `workflows/yc-v3-scan-publish.json` | 線 A 掃描+發文（cron 09/11/13/15/17/19，每次 1 件） |
+| `workflows/yc-v3-removal.json` | 線 B 下架偵測+刪文（每天 08:00） |
+| `workflows/yc-v3-stop.json` | 煞車 webhook（LINE 打「停」或「停 AGxxx」） |
+| `workflows/line-command-router.json` | 已加「停」出口，**要覆蓋匯入既有 router** |
+
+**🔴 唯一上線阻塞**：KEIS 長效 token → n8n 建 Header Auth credential `KEIS API Token` → 換掉 JSON 內 3 處 `KEIS_TOKEN_CRED_ID` + 3 處 `FB_PAGE_TOKEN_CRED_ID`。
+
+**第二階段**（先不做）：線 C 重發輪替（防貼文沉底）。
+
+## 廣告系統 v2 改造計畫（2026-07-15 拍板，已被 v3 取代，僅保留設計依據）
 
 > **▶ 執行入口：`docs/v2-handoff.md`**——建置步驟、規格、驗收全在那，照著跑，不要重新討論架構。FB 金鑰教學在 `docs/fb-token-setup.md`。本節只留設計依據。
 

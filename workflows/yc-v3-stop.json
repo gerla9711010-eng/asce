@@ -1,0 +1,155 @@
+{
+  "_note": "廣告 v3 煞車指令：LINE 傳『停』或『停 AGxxxxxxx』→ 把 Notion『待發』列標『取消』，線 A 的 Wait 結束後重查狀態就不會發。\n『停』(無編號)＝取消所有待發；『停 AGxxx』＝只取消該件。\n⚠️ 需在 line-command-router 加一個『停』出口指到本 workflow 的 webhook（path: yc-v3-stop），否則收不到指令。\nNotion/LINE 沿用現有 credential。開新空白 workflow 再 Import。",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "yc-v3-stop", "responseMode": "lastNode", "options": {} },
+      "id": "v3s-01-webhook",
+      "name": "Webhook 接收",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1200, 200],
+      "webhookId": "yc-v3-stop"
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $input.first().json.events?.[0] || $input.first().json.body?.events?.[0];\nconst text = event?.message?.text || '';\nconst replyToken = event?.replyToken || '';\nconst m = text.match(/停[\\s\\u3000]*([A-Za-z]{2}\\d{4,})/i);\nconst contract_no = m ? m[1].toUpperCase() : '';\nreturn [{ json: { contract_no, replyToken, rawText: text } }];"
+      },
+      "id": "v3s-02-parse",
+      "name": "解析指令",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-990, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: ($json.contract_no ? { and: [ { property: '狀態', select: { equals: '待發' } }, { property: '案件編號', rich_text: { equals: $json.contract_no } } ] } : { property: '狀態', select: { equals: '待發' } }), page_size: 25 }) }}",
+        "options": {}
+      },
+      "id": "v3s-03-query",
+      "name": "查待發列",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-780, 200],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cmd = $('解析指令').first().json;\nconst results = $input.first().json.results || [];\nif (results.length === 0) {\n  return [{ json: { _none: true, replyToken: cmd.replyToken } }];\n}\nreturn results.map(p => ({ json: {\n  _none: false,\n  pageId: p.id,\n  caseName: p.properties?.['案名']?.title?.[0]?.plain_text || '(未命名)',\n  contract_no: p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '',\n  replyToken: cmd.replyToken\n}}));"
+      },
+      "id": "v3s-04-expand",
+      "name": "展開待發",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-570, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            { "id": "nn1", "leftValue": "={{ $json._none }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "v3s-05-ifnone",
+      "name": "沒有待發?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-360, 200]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $json.pageId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Notion-Version", "value": "2022-06-28" },
+          { "name": "Content-Type", "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { '狀態': { select: { name: '取消' } } } }) }}",
+        "options": {}
+      },
+      "id": "v3s-06-cancel",
+      "name": "標記取消",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-150, 120],
+      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $('展開待發').all().map(i => i.json).filter(x => !x._none);\nconst replyToken = rows[0]?.replyToken || '';\nconst list = rows.map(r => `・${r.caseName}（${r.contract_no}）`).join('\\n');\nreturn [{ json: { replyToken, replyText: `🛑 已攔截 ${rows.length} 件，不會發出：\\n\\n${list}` } }];"
+      },
+      "id": "v3s-07-okmsg",
+      "name": "組成功訊息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [80, 120],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { replyToken: $json.replyToken, replyText: '目前沒有待發的廣告可以攔截（可能已經發出或已取消）。' } }];"
+      },
+      "id": "v3s-08-nonemsg",
+      "name": "組無待發訊息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [80, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.replyText }] }) }}",
+        "options": {}
+      },
+      "id": "v3s-09-reply",
+      "name": "LINE 回覆",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 200],
+      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+    }
+  ],
+  "connections": {
+    "Webhook 接收": { "main": [[{ "node": "解析指令", "type": "main", "index": 0 }]] },
+    "解析指令":     { "main": [[{ "node": "查待發列", "type": "main", "index": 0 }]] },
+    "查待發列":     { "main": [[{ "node": "展開待發", "type": "main", "index": 0 }]] },
+    "展開待發":     { "main": [[{ "node": "沒有待發?", "type": "main", "index": 0 }]] },
+    "沒有待發?": {
+      "main": [
+        [{ "node": "組無待發訊息", "type": "main", "index": 0 }],
+        [{ "node": "標記取消", "type": "main", "index": 0 }]
+      ]
+    },
+    "標記取消":     { "main": [[{ "node": "組成功訊息", "type": "main", "index": 0 }]] },
+    "組成功訊息":   { "main": [[{ "node": "LINE 回覆", "type": "main", "index": 0 }]] },
+    "組無待發訊息": { "main": [[{ "node": "LINE 回覆", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+}
