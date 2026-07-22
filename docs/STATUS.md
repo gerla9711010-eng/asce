@@ -202,7 +202,18 @@ Skill 會自動：
 備份：`backup/n8n-2026-07-22/`（清理前 43 支全量匯出，**只存本機、已 gitignore**——裡面有兩支舊 workflow 把 token 寫死在 JSON 裡，不能進 git）。2026-07-22 清掉 23 支停用舊複本，剩 20 支。
 ⚠️ 教訓：n8n 裡同名/亂名 workflow 很多，**判斷「哪一支在跑」要看 `/api/v1/executions`，不能只看名字**。例：真正在處理 LINE 圖片的是原本叫「My workflow 4」那支（已改名「圖片分流器（LINE 傳圖自動分類）」），同名的舊「圖片分流器」才是停用複本。
 
-**第二階段**（先不做）：線 C 重發輪替（防貼文沉底）。
+### ▶ 下次開工從這裡接：線 D（KEIS 廣告追蹤同步）
+
+規格在 `docs/v3-ad-auto-workorder.md` **§15**（欄位、端點、已試過什麼都寫了，不要重查）。
+
+目標：線 A 發完粉專 → 自動在 KEIS `ad-tracker` 新增一筆（平台=臉書）；線 B 刪文 → 同一筆標關閉。
+
+三步驟：
+1. **先解卡點**：KEIS 物件的 `official_url` 是 houseol，不是 `buy.yungching.com.tw/house/{id}`。要嘛在永慶官網手動搜一次編號、抓出可程式化的查法（`?kw=` 無效），要嘛把 KEIS 詳情端點約 150 個欄位全部列出來找有沒有藏永慶 product id（**後者較快，先試這個**）。
+2. 在 KEIS UI 手動新增一筆廣告，用 DevTools Network 看 `POST /api/v1/adcases` 實際 payload；下架同理看是 PATCH 還是設 `closed_at`。
+3. 接進線 A / 線 B。
+
+**第二階段**（線 D 之後）：線 C 重發輪替（防貼文沉底）。
 
 ## 廣告系統 v2 改造計畫（2026-07-15 拍板，已被 v3 取代，僅保留設計依據）
 
