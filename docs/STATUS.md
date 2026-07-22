@@ -176,7 +176,7 @@ Skill 會自動：
 
 | 工具 | 狀態 | 深度文件 |
 |---|---|---|
-| **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦）。2026-07-22 加品質控管篩選（只搶手機/排除公寓/預算上限<1000萬不搶/記行政區）+ 穩定性加固（主帳號逾時自動換帳號查、400自動重登、觀測檔搬離OneDrive）；分層時段改為 07:30-10:00／10:00-17:30／17:30-24:00／00:00-07:30(等同停止)。🟡 待辦：Notion 搶單名單 DB 手動加「行政區」文字欄位（沒加不會壞，只是行政區寫不進去）| `scripts/keis/README.md`、`docs/keis-grab-hardening-and-filters.md` |
+| **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦）。2026-07-22 加品質控管篩選（只搶手機/排除公寓/預算上限<1000萬不搶/記行政區）+ 穩定性加固（主帳號逾時自動換帳號查、400自動重登、觀測檔搬離OneDrive）；分層時段改為 07:30-10:00／10:00-17:30／17:30-24:00／00:00-07:30(等同停止)。Notion 搶單名單 DB「行政區」欄位已用 API 補上 | `scripts/keis/README.md`、`docs/keis-grab-hardening-and-filters.md` |
 | **KEIS 廣告上架** `scripts/keis/publish.py` | 🟡 待第一次實跑驗 selector，見下方待辦 | `scripts/keis/README.md` |
 | **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-20 第4輪修完（PR#76，桌面已同步）：數字欄位全形→半形正規化（解決中文輸入法打不進小數點）、精靈加←→方向鍵導航、拿掉貸款三步確認視窗改回謄本全自動、租賃案 W3 單價改顯示「元/坪」。清單：桌面 `售屋表v3.6實測清單.md`。⚠️ 待門市拿真實案件實測；塗銷防護只用模擬文字驗過，遇真實含塗銷謄本要核對 log | `scripts/sale-form/README.md` |
