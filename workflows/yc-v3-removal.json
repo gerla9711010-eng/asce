@@ -3,13 +3,23 @@
   "nodes": [
     {
       "parameters": {
-        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 0 8 * * *" } ] }
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 8 * * *"
+            }
+          ]
+        }
       },
       "id": "v3b-01-cron",
       "name": "每日 08:00 偵測",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-1300, 128]
+      "position": [
+        -1300,
+        128
+      ]
     },
     {
       "parameters": {
@@ -18,10 +28,18 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Notion-Version", "value": "2022-06-28" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ filter: { property: '狀態', select: { equals: '已發布' } }, page_size: 100 }) }}",
@@ -31,18 +49,29 @@
       "name": "查 Notion 已發布",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-1080, 128],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        -1080,
+        128
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const results = $input.first().json.results || [];\nreturn results.map(p => ({ json: {\n  pageId: p.id,\n  caseName: p.properties?.['案名']?.title?.[0]?.plain_text || '(未命名)',\n  contract_no: (p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '').toUpperCase(),\n  fbPostUrl: p.properties?.['粉專貼文連結']?.url || ''\n}})).filter(x => x.json.contract_no);"
+        "jsCode": "const results = $input.first().json.results || [];\nreturn results.map(p => ({ json: {\n  pageId: p.id,\n  caseName: p.properties?.['案名']?.title?.[0]?.plain_text || '(未命名)',\n  contract_no: (p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '').toUpperCase(),\n  fbPostUrl: p.properties?.['粉專貼文連結']?.url || '',\n  keisAdId: p.properties?.['KEIS廣告ID']?.number || 0\n}})).filter(x => x.json.contract_no);"
       },
       "id": "v3b-03-expand",
       "name": "展開結果",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-860, 128]
+      "position": [
+        -860,
+        128
+      ]
     },
     {
       "parameters": {
@@ -50,7 +79,13 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {
-          "response": { "response": { "fullResponse": true, "neverError": true, "responseFormat": "json" } },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
           "timeout": 30000
         }
       },
@@ -58,12 +93,20 @@
       "name": "KEIS 查 is_active",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-640, 128],
+      "position": [
+        -640,
+        128
+      ],
       "alwaysOutputData": true,
       "retryOnFail": true,
       "waitBetweenTries": 3000,
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "EaVn8LzS7lT5tW10", "name": "KEIS API Token" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EaVn8LzS7lT5tW10",
+          "name": "KEIS API Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -73,14 +116,30 @@
       "name": "判斷是否下架",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-420, 128]
+      "position": [
+        -420,
+        128
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
           "conditions": [
-            { "leftValue": "={{ $json.isRemoved }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+            {
+              "leftValue": "={{ $json.isRemoved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
           ],
           "combinator": "and"
         },
@@ -90,7 +149,10 @@
       "name": "IF 已下架?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [-200, 128]
+      "position": [
+        -200,
+        128
+      ]
     },
     {
       "parameters": {
@@ -100,7 +162,10 @@
       "name": "備妥刪文",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [20, 16]
+      "position": [
+        20,
+        16
+      ]
     },
     {
       "parameters": {
@@ -109,7 +174,12 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {
-          "response": { "response": { "neverError": true, "responseFormat": "json" } },
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
           "timeout": 20000
         }
       },
@@ -117,10 +187,18 @@
       "name": "FB 刪貼文",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [240, 16],
+      "position": [
+        240,
+        16
+      ],
       "alwaysOutputData": true,
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "Y6myWnsH0lkRL3CF", "name": "FB Page Token" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Y6myWnsH0lkRL3CF",
+          "name": "FB Page Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -130,14 +208,30 @@
       "name": "判定刪除結果",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 16]
+      "position": [
+        460,
+        16
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
           "conditions": [
-            { "leftValue": "={{ $json.markRemoved }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+            {
+              "leftValue": "={{ $json.markRemoved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
           ],
           "combinator": "and"
         },
@@ -147,7 +241,10 @@
       "name": "可標下架?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [680, 16]
+      "position": [
+        680,
+        16
+      ]
     },
     {
       "parameters": {
@@ -156,10 +253,18 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Notion-Version", "value": "2022-06-28" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ properties: { '狀態': { select: { name: '下架' } }, '下架偵測時間': { date: { start: $json.detectedAt } } } }) }}",
@@ -169,8 +274,16 @@
       "name": "PATCH 標記下架",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [900, -96],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        900,
+        -96
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -180,7 +293,10 @@
       "name": "彙總結果",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1120, 128],
+      "position": [
+        1120,
+        128
+      ],
       "executeOnce": true
     },
     {
@@ -190,7 +306,14 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.summaryText }] }) }}",
@@ -200,34 +323,288 @@
       "name": "LINE Push 摘要",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 128],
+      "position": [
+        1340,
+        128
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 線D：下架後把 KEIS 廣告追蹤那筆標成已結束。沒有 adcase id 就跳過。\n// 上游「可標下架?」已濾掉 markRemoved=false，所以照順序對得起來。\nconst src = $('判定刪除結果').all().map(i => i.json).filter(x => x.markRemoved);\nreturn $input.all().map((_, i) => {\n  const c = src[i] || {};\n  const id = Number(c.keisAdId || 0);\n  return { json: { ...c, keisAdId: id, hasKeisAd: id > 0 } };\n});"
+      },
+      "name": "備妥 KEIS 關閉",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -96
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasKeisAd }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "有 KEIS 廣告?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://keis.kshouse.com.tw/api/v1/adcases/{{ $json.keisAdId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ is_expired: true }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "KEIS 關閉廣告",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        -96
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EaVn8LzS7lT5tW10",
+          "name": "KEIS API Token"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
     }
   ],
   "connections": {
-    "每日 08:00 偵測":  { "main": [[{ "node": "查 Notion 已發布", "type": "main", "index": 0 }]] },
-    "查 Notion 已發布":  { "main": [[{ "node": "展開結果", "type": "main", "index": 0 }]] },
-    "展開結果":         { "main": [[{ "node": "KEIS 查 is_active", "type": "main", "index": 0 }]] },
-    "KEIS 查 is_active": { "main": [[{ "node": "判斷是否下架", "type": "main", "index": 0 }]] },
-    "判斷是否下架":      { "main": [[{ "node": "IF 已下架?", "type": "main", "index": 0 }]] },
+    "每日 08:00 偵測": {
+      "main": [
+        [
+          {
+            "node": "查 Notion 已發布",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查 Notion 已發布": {
+      "main": [
+        [
+          {
+            "node": "展開結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "展開結果": {
+      "main": [
+        [
+          {
+            "node": "KEIS 查 is_active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KEIS 查 is_active": {
+      "main": [
+        [
+          {
+            "node": "判斷是否下架",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "判斷是否下架": {
+      "main": [
+        [
+          {
+            "node": "IF 已下架?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "IF 已下架?": {
       "main": [
-        [{ "node": "備妥刪文", "type": "main", "index": 0 }],
-        [{ "node": "彙總結果", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "備妥刪文",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "彙總結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "備妥刪文":         { "main": [[{ "node": "FB 刪貼文", "type": "main", "index": 0 }]] },
-    "FB 刪貼文":        { "main": [[{ "node": "判定刪除結果", "type": "main", "index": 0 }]] },
-    "判定刪除結果":     { "main": [[{ "node": "可標下架?", "type": "main", "index": 0 }]] },
+    "備妥刪文": {
+      "main": [
+        [
+          {
+            "node": "FB 刪貼文",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FB 刪貼文": {
+      "main": [
+        [
+          {
+            "node": "判定刪除結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "判定刪除結果": {
+      "main": [
+        [
+          {
+            "node": "可標下架?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "可標下架?": {
       "main": [
-        [{ "node": "PATCH 標記下架", "type": "main", "index": 0 }],
-        [{ "node": "彙總結果", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "PATCH 標記下架",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "彙總結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "PATCH 標記下架":   { "main": [[{ "node": "彙總結果", "type": "main", "index": 0 }]] }
+    "PATCH 標記下架": {
+      "main": [
+        [
+          {
+            "node": "備妥 KEIS 關閉",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "備妥 KEIS 關閉": {
+      "main": [
+        [
+          {
+            "node": "有 KEIS 廣告?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "有 KEIS 廣告?": {
+      "main": [
+        [
+          {
+            "node": "KEIS 關閉廣告",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "彙總結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KEIS 關閉廣告": {
+      "main": [
+        [
+          {
+            "node": "彙總結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "pinData": {},
-  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+  "meta": {
+    "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69"
+  }
 }

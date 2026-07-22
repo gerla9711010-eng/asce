@@ -249,29 +249,78 @@ return [{ json: { action: '跳過' } }];
 
 ---
 
-## 15. 線 D：KEIS 廣告追蹤同步（2026-07-22 提出，待實作）
+## 15. 線 D：KEIS 廣告追蹤同步（2026-07-22 實作完成並實測）
 
-**需求**：線 A 發完粉專 → 自動到 KEIS `ad-tracker` 新增一筆廣告紀錄（平台=臉書）；線 B 刪文下架 → 同一筆標成關閉。
+**需求**：線 A 發完粉專 → 自動到 KEIS `ad-tracker` 新增一筆廣告紀錄（平台=臉書）；線 B 刪文下架 → 同一筆標成關閉。**已完成**。
 
-**已查到（實測 2026-07-22）**：
+### 15.1 KEIS 廣告追蹤 API（全部實測過）
 
-- KEIS 廣告追蹤**有內部 API**（舊 STATUS 寫「無 API」是錯的，已作廢）：
-  - 列表：`GET /api/v1/adcases?is_expired=false&skip=0&limit=50&order_by=create_time&order_direction=desc`
-  - 已結束：`GET /api/v1/adcases?is_expired=true`
-  - 統計：`GET /api/v1/adcases/dashboard/stats`、成員：`GET /api/v1/adcases/members`
-  - 認證同其他 KEIS API（`Authorization: Bearer <token_desktop>`）
-- 回傳 `{adcases:[...], total, page, page_size, total_pages}`，單筆欄位：
-  ```
-  adcase_id, adcase_member(業務姓名), adcase_title, adcase_price(萬), adcase_road,
-  adcase_url          ← 永慶官網連結，格式 https://buy.yungching.com.tw/house/7411092
-  adcase_platforms    ← 平台字串，例 "591"
-  adcase_url591 / adcase_urlfacebook / adcase_urlinstagram / adcase_url5168 /
-  adcase_url579 / adcase_urlhaofun / adcase_urllewu / adcase_urltiktok /
-  adcase_urlwojia / adcase_uryoutube
-  closed_at, is_expired, hidden, url_invalid, offline_404_count, url_price, status_tags
-  ```
-- **卡點：拿不到永慶官網連結**。KEIS 物件的 `official_url` 是 **houseol**（例 `https://www.houseol.com.tw/sell_item/H888-S2981289/`），不是 `buy.yungching.com.tw/house/{id}`。使用者目前的手動做法＝到永慶官網選「高雄市全區」+ 搜尋欄輸入物件編號數字（YG0158419 → `0158419`）找到該物件頁。
-  - 已試 `?kw=` 參數無效（回傳未過濾的推薦清單）。**下次要做的第一件事**：在永慶官網實際操作一次搜尋，看送出後的網址參數 / XHR，找出可程式化的查法。
-  - 另一條可能更省事的路：KEIS 詳情端點約 150 個欄位，先撈全欄位名稱找有沒有藏永慶 product id（本次只掃了含 url/link 的欄位，沒掃完）。houseol 的 `H888-S2981289` 也可能可對應。
+認證同其他 KEIS API（`Authorization: Bearer <token>`，credential `KEIS API Token`）。
 
-**待確認**：新增用 `POST /api/v1/adcases`（欄位比照上表）；下架用 PATCH/DELETE 或設 `closed_at`/`is_expired` —— 都要先在 UI 操作一次看實際請求。
+| 動作 | 端點 | 備註 |
+|---|---|---|
+| 進行中列表 | `GET /api/v1/adcases?is_expired=false&skip=0&limit=50&order_by=create_time&order_direction=desc` | |
+| 已結束列表 | `GET /api/v1/adcases?is_expired=true` | |
+| 單筆 | `GET /api/v1/adcases/{id}` | |
+| **新增** | `POST /api/v1/adcases` | 必填只有 3 個：`adcase_title` / `adcase_url` / `adcase_member`，回傳含 `adcase_id` |
+| **關閉** | `PUT /api/v1/adcases/{id}` body `{"is_expired": true}` | 局部更新，只送要改的欄位即可 |
+| 刪除 | `DELETE /api/v1/adcases/{id}` | 軟刪除：兩個列表都查不到，但直接 GET id 仍回得到 |
+| 統計 / 成員 | `GET /api/v1/adcases/dashboard/stats`、`GET /api/v1/adcases/members` | |
+
+單筆欄位：
+```
+adcase_id, adcase_member(業務姓名), adcase_title, adcase_price(萬), adcase_road,
+adcase_url          ← 永慶官網連結，格式 https://buy.yungching.com.tw/house/7411092
+adcase_platforms    ← 平台字串，例 "591" / "臉書"
+adcase_url591 / adcase_urlfacebook / adcase_urlinstagram / adcase_url5168 /
+adcase_url579 / adcase_urlhaofun / adcase_urllewu / adcase_urltiktok /
+adcase_urlwojia / adcase_uryoutube
+closed_at, is_expired, hidden, url_invalid, offline_404_count, url_price, status_tags
+```
+
+⚠️ **`closed_at` 是唯讀**：PUT 送它會被無聲忽略（回 200 但值沒變）。關閉一律用 `is_expired: true`，送完就從進行中清單移到已結束清單。
+
+⚠️ 這組端點是 FastAPI。**要探未知 schema 就送空 body 取 422**，錯誤訊息會直接列出缺哪些必填欄位（不會建資料），比開 DevTools 快。KEIS 沒有開 `/openapi.json`。
+
+### 15.2 卡點解法：永慶官網連結怎麼查（已解）
+
+KEIS 詳情端點 149 個欄位**全掃過，沒有任何永慶 product id**（`official_url` 是 houseol、`apograph_url` 是 hq.houseol）。houseol 的 `H888-S2981289` 也對應不到。所以只能反查永慶官網搜尋：
+
+1. `GET https://buy.yungching.com.tw/list/{城市}-_c/{編號數字}_kw`
+   （例 `…/list/高雄市-_c/0158419_kw`；編號 `YG0158419` 去掉英文前綴。舊筆記寫的 `?kw=` query 參數無效，**要用路徑形式 `_kw`**）
+2. 頁面是 Angular SSR，**HTML 裡沒有 `<a href="/house/…">`**，唯一拿得到 id 的地方是 `<script type="application/ld+json">` 的 `ItemList`。
+3. ⚠️ **`ItemList` 的第一個候選永遠是假 id `4308114`**（開它會拿到隨機推薦的別的物件，每次還不一樣）。實測 12 筆全都這樣，name 對得上但 url 位移了一格。
+   **所以一定要驗證**：逐一 GET `/house/{id}`，用 `<title>` 開頭比對 `case_name`（比對前把空白全部去掉——有物件的案名含全形雙空格）。取第一個對得上的。
+4. 查不到就退回 `official_url`（houseol），至少 KEIS 那筆建得起來，`ycResolveNote` 會記原因。
+
+實測 12 筆物件（高雄/台南/台中都有）全部解析正確。驗證成本每次 1 + 最多 3 次 GET，線 A 一天只跑 6 次，可接受。
+
+**交叉驗證**：建進 KEIS 後它自己會去抓那個連結，回填的 `url_price` 與 KEIS 物件總價一致（798 萬 = 798 萬），等於 KEIS 幫我們確認連結沒抓錯。
+
+### 15.3 實作
+
+**Notion 廣告 DB 新增兩個欄位**（已用 API 建好）：`KEIS廣告ID`(number)、`永慶官網連結`(url)。
+
+**線 A**（`yc-v3-scan-publish.json`）在「Notion 標已發布」後、「LINE 發布通知」前插 4 個節點：
+
+```
+Notion 標已發布 → 解析永慶連結 → KEIS 新增廣告 → 取 KEIS 廣告ID → Notion 記 KEIS 廣告ID → LINE 發布通知
+```
+
+- `解析永慶連結`：Code 節點，用 `this.helpers.httpRequest` 做 §15.2 的搜尋+驗證，順便把 `地址` 去掉城市當 `adcase_road`
+- `KEIS 新增廣告`：POST `/adcases`，`adcase_platforms='臉書'`、`adcase_urlfacebook=permalink`、`adcase_memo` 記編號
+- 全部節點 `onError: continueRegularOutput` —— **KEIS 掛掉不能害粉專那篇白發**
+- LINE 完成通知尾巴多一行「📊 KEIS 廣告追蹤：已同步 / 建立失敗（原因）」
+
+**線 B**（`yc-v3-removal.json`）：`展開結果` 多讀 `KEIS廣告ID`，並在「PATCH 標記下架」後接：
+
+```
+PATCH 標記下架 → 備妥 KEIS 關閉 → 有 KEIS 廣告? ─┬─(是)→ KEIS 關閉廣告 → 彙總結果
+                                                └─(否)────────────────→ 彙總結果
+```
+
+`KEIS 關閉廣告` = PUT `/adcases/{id}` body `{"is_expired": true}`。舊資料沒有 `KEIS廣告ID` 的會走「否」直接跳過。
+
+**2026-07-22 實測**：建→關→刪整輪跑過；已上線的第一篇真實廣告 YG0158419 已補建進 KEIS（`adcase_id` 325866，平台=臉書），Notion 三個欄位都回寫成功。兩支 workflow 已用 Public API 更新且維持 active。
+
+**第二階段**（線 D 之後）：線 C 重發輪替（防貼文沉底）。
