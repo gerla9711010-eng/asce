@@ -161,10 +161,19 @@ def load_accounts() -> list[tuple]:
     return accts
 
 GRABBED_CSV = Path(__file__).parent / "grabbed.csv"
-APPEAR_CSV = Path(__file__).parent / "appearances.csv"   # 上架偵測：新名單第一次出現的時刻
-APPEAR_STATE = Path(__file__).parent / "appear_state.txt"  # 記住今天觀測基準（撐過重啟）
 NOTION_PENDING = Path(__file__).parent / "notion_pending.txt"  # push_notion 失敗的 summary_id，等下次回查補寫
 LOG_DIR = Path(__file__).parent / "logs"           # 每日一份 log，獨立資料夾（舊版 watch.log 停用但保留原檔）
+
+# 高頻觀測檔搬離 OneDrive 同步路徑（2026-07-22）：page1_track / appearances / appear_state
+# 每輪或每次新單都在寫，放 OneDrive 會被 Files On-Demand 弄成損毀檔。改放本機 LOCALAPPDATA。
+_LOCAL = Path(os.environ.get("LOCALAPPDATA") or Path(__file__).parent) / "keis-grab"
+try:
+    _LOCAL.mkdir(parents=True, exist_ok=True)
+except Exception:
+    _LOCAL = Path(__file__).parent      # 萬一建不了就退回原路徑，至少能跑
+
+APPEAR_CSV = _LOCAL / "appearances.csv"      # 上架偵測：新名單第一次出現的時刻
+APPEAR_STATE = _LOCAL / "appear_state.txt"   # 記住今天觀測基準（撐過重啟）
 LOG_RETENTION_DAYS = 50                            # 最多留幾天，超過從最舊的開始刪
 
 
@@ -399,6 +408,7 @@ def grab_record(keis: Keis, r: dict):
             "category": r["property_category"],
             "budget": fmt_budget(r),
             "start_time": r["start_time"][:16],
+            "district": fmt_district(r),
             "remarks": (r.get("remarks") or "").strip(),  # query() 就有、沒遮罩，不用再多打一次 API
         }
     log(f"   ❌ [{keis.label}] [{r['summary_id']}] 沒搶到（可能配額用完/被秒搶）：{data.get('message')}")
@@ -415,10 +425,10 @@ def append_csv(grabbed: list[dict]) -> None:
         with GRABBED_CSV.open("a", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f)
             if new:
-                w.writerow(["搶到時間", "帳號", "summary_id", "姓名", "電話", "縣市", "類型", "預算", "建檔時間"])
+                w.writerow(["搶到時間", "帳號", "summary_id", "姓名", "電話", "縣市", "類型", "預算", "建檔時間", "行政區"])
             for g in grabbed:
                 w.writerow([g["grabbed_at"], g.get("account", ""), g["summary_id"], g["name"], g["phone"],
-                            g["city"], g["category"], g["budget"], g["start_time"]])
+                            g["city"], g["category"], g["budget"], g["start_time"], g.get("district", "")])
     except Exception as e:
         detail = "；".join(f"{g['summary_id']} {g['name']}/{g['phone']}" for g in grabbed)
         log(f"⚠ 寫 grabbed.csv 失敗！已搶到但本機沒落地，請手動補回：{detail}（{type(e).__name__}: {e}）")
@@ -527,7 +537,8 @@ def observe_status_changes(records: list, status_seen: dict) -> dict:
 # 2026-07-19：舊檔 page1_track.csv 被 OneDrive Files On-Demand 把佔位檔弄成損毀的
 # reparse point，連 Windows 內建的刪除/改名/robocopy 都拒絕處理，只能放棄搶救、
 # 換新檔名重開一份（舊檔留在資料夾裡當廢棄物，不影響運作）。
-TOPID_CSV = Path(__file__).parent / "page1_track2.csv"  # 每輪記錄page1最新單號，供事後判斷輪詢間隔有沒有漏接
+# 2026-07-22：page1_track2.csv 也中招被弄壞，這次直接搬離 OneDrive 同步路徑(見上方 _LOCAL)根治。
+TOPID_CSV = _LOCAL / "page1_track3.csv"  # 每輪記錄page1最新單號，供事後判斷輪詢間隔有沒有漏接
 
 
 def track_top_id(records: list, also_ids: list[int] | None = None) -> None:
@@ -707,6 +718,7 @@ def load_grabbed_row(sid) -> dict | None:
                     return {"grabbed_at": row[0], "account": row[1], "summary_id": row[2],
                              "name": row[3], "phone": row[4], "city": row[5],
                              "category": row[6], "budget": row[7], "start_time": row[8],
+                             "district": row[9] if len(row) >= 10 else "",
                              "remarks": ""}
     except Exception as e:
         log(f"⚠ 讀 grabbed.csv 撈補寫資料失敗：{type(e).__name__}")
@@ -760,6 +772,8 @@ def push_notion(g: dict) -> bool:
         props["電話"] = {"phone_number": g["phone"]}
     if g.get("account"):
         props["帳號"] = {"select": {"name": g["account"]}}
+    if g.get("district"):
+        props["行政區"] = {"rich_text": [{"text": {"content": g["district"]}}]}
     if g.get("remarks"):
         props["備註"] = {"rich_text": [{"text": {"content": g["remarks"][:2000]}}]}
     try:
@@ -843,6 +857,7 @@ def record_from_application(app: dict, label: str) -> dict:
         "category": app.get("property_category", ""),
         "budget": fmt_budget(app),
         "start_time": str(app.get("start_time", ""))[:16],
+        "district": fmt_district(app),
         "remarks": (app.get("remarks") or "").strip(),
     }
 
@@ -1051,7 +1066,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 counted_today.clear()
             seen_day = today
 
-            body = clients[0].query()
+            body = query_any(clients)      # 主帳號一逾時就換下一個查，別整輪全盲
             if consecutive_errors >= ERROR_ESCALATE_AFTER:
                 log(f"✅ 網路恢復（先前連續失敗 {consecutive_errors} 次），回到正常監控頻率")
                 # 只有「斷線警告真的推出去過」才推恢復通知：每晚必斷的時段推不出警告
@@ -1138,7 +1153,8 @@ def run_watch(clients: list, dry_run: bool) -> int:
                             alerted_disconnect = True
                         last_alert = time.time()
             else:
-                retry = random.uniform(ERROR_RETRY_MIN, ERROR_RETRY_MAX)
+                lo = OPEN_RUSH_RETRY_MIN if in_window(datetime.now(), OPEN_RUSH) else ERROR_RETRY_MIN
+                retry = random.uniform(lo, ERROR_RETRY_MAX)
             log(f"⚠ 暫時性錯誤，{retry:.1f}s 後重試：{type(e).__name__}: {e}")
             time.sleep(retry)
 
