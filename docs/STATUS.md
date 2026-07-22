@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-22（**廣告 v3 已實測貫通並發出第一篇真實廣告**。KEIS token 已建、4 支 workflow 已匯入、煞車實測過。剩最後一步：線 A/線 B 按 Publish 啟用。見下方「廣告系統 v3」）
+最後更新：2026-07-22（**廣告 v3 四條線全部上線**：線 A 掃描發文 / 線 B 下架偵測 / 線 C 煞車 / 線 D KEIS 廣告追蹤同步，四支 workflow 都是 active。線 D 今日完成並實測。見下方「廣告系統 v3」）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -81,7 +81,9 @@
 | 文案版本 | number | 每次重產 +1 |
 | 來源連結 | url | 建檔器用這個判重 |
 | 物件照片 | files | 寫 Drive 資料夾 external URL |
-| 狀態 | select | `草稿` / `已發布` / `下架`（下架偵測 / yc-ad 撤除流程會 PATCH） |
+| 狀態 | select | `草稿` / `待發` / `已發布` / `下架` / `取消`（下架偵測 / v3 各線會 PATCH） |
+| KEIS廣告ID | number | 線 D 寫入：KEIS `ad-tracker` 的 `adcase_id`，線 B 靠它關閉廣告 |
+| 永慶官網連結 | url | 線 D 寫入：反查出來的 `buy.yungching.com.tw/house/{id}` |
 | 已撤除確認 | checkbox | 撤除回報器標 true |
 | 下架偵測時間 | date | |
 
@@ -133,11 +135,9 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 ## KEIS 廣告追蹤平台（凱璿業務系統）
 
 - 網址：`https://keis.kshouse.com.tw/ad-tracker`
-- 性質：加盟店內網系統，**無 API、無 Webhook、無 LINE 通知設定**
-- 偵測邏輯：自家偵測永慶網址失效後自動把廣告移到「已關閉廣告」分頁
-- 整合方式：yc-ad skill 產出操作指令包 → 使用者貼給 Claude 瀏覽器擴充功能（Computer Use / Operator）執行 UI 自動化
-- 關鍵 UI 技巧：「+ 新增廣告」表單有「自動填入」按鈕，貼永慶網址後按一下會自動抓標題/地址/價格，省去欄位 mapping
-- 不靠 KEIS 做下架通知：保留 `yc-removal-detector` 自家 cron，KEIS 純當業務 dashboard
+- **有內部 API**，n8n 線 D 已全自動同步（新增/關閉），不需要 UI 自動化。端點與欄位見 `docs/v3-ad-auto-workorder.md` §15
+- 偵測邏輯：KEIS 自己會定時抓 `adcase_url` 驗證，回填 `url_price` / `url_invalid` / `offline_404_count`
+- 不靠 KEIS 做下架通知：下架判定一律用線 B 自家的 KEIS `is_active` 偵測，KEIS 廣告追蹤純當業務 dashboard
 
 ## 各 workflow / skill 行為
 
@@ -189,8 +189,8 @@ Skill 會自動：
 
 | 檔案 / n8n workflow | 用途 | 狀態 |
 |---|---|---|
-| `yc-v3-scan-publish.json`「廣告v3 掃描發文線」 | 線 A 掃描+發文（cron 09/11/13/15/17/19，每次 1 件） | 已匯入、實測發文成功；**待 Publish** |
-| `yc-v3-removal.json`「廣告v3 下架偵測線」 | 線 B 下架偵測+刪 FB 文（每天 08:00） | 已匯入；**待 Publish**、尚未實測 |
+| `yc-v3-scan-publish.json`「廣告v3 掃描發文線」 | 線 A 掃描+發文+**同步 KEIS 廣告追蹤**（cron 09/11/13/15/17/19，每次 1 件） | 🟢 active、實測發文成功 |
+| `yc-v3-removal.json`「廣告v3 下架偵測線」 | 線 B 下架偵測+刪 FB 文+**關閉 KEIS 廣告**（每天 08:00） | 🟢 active；**整線尚未實測過**（要等有物件真的下架，或手動跑一次） |
 | `yc-v3-stop.json`「廣告v3 煞車（停）」 | 煞車 webhook | 🟢 已啟用、實測攔截成功 |
 | `line-command-router.json`「LINE 指令分流器 v3」 | 加「停」出口 | 🟢 已啟用（舊 router 已 Unpublish） |
 
@@ -202,18 +202,15 @@ Skill 會自動：
 備份：`backup/n8n-2026-07-22/`（清理前 43 支全量匯出，**只存本機、已 gitignore**——裡面有兩支舊 workflow 把 token 寫死在 JSON 裡，不能進 git）。2026-07-22 清掉 23 支停用舊複本，剩 20 支。
 ⚠️ 教訓：n8n 裡同名/亂名 workflow 很多，**判斷「哪一支在跑」要看 `/api/v1/executions`，不能只看名字**。例：真正在處理 LINE 圖片的是原本叫「My workflow 4」那支（已改名「圖片分流器（LINE 傳圖自動分類）」），同名的舊「圖片分流器」才是停用複本。
 
-### ▶ 下次開工從這裡接：線 D（KEIS 廣告追蹤同步）
+**線 D（KEIS 廣告追蹤同步）已完成**：規格與實作細節全在 `docs/v3-ad-auto-workorder.md` **§15**（API 端點、永慶連結反查法、節點接線）。重點三句：
+- KEIS 廣告追蹤 API：新增 `POST /api/v1/adcases`（必填只有 title/url/member）、關閉 `PUT /api/v1/adcases/{id}` body `{"is_expired":true}`。**`closed_at` 是唯讀，送了會被無聲忽略**。
+- 永慶官網連結 KEIS 完全沒存（149 欄位掃過），只能反查 `buy.yungching.com.tw/list/{城市}-_c/{編號數字}_kw` 讀 JSON-LD。⚠️ **第一個候選永遠是假 id `4308114`，一定要開頁面用標題驗證**。
+- Notion 廣告 DB 加了 `KEIS廣告ID`(number) 和 `永慶官網連結`(url) 兩欄。
 
-規格在 `docs/v3-ad-auto-workorder.md` **§15**（欄位、端點、已試過什麼都寫了，不要重查）。
+### ▶ 下次開工從這裡接
 
-目標：線 A 發完粉專 → 自動在 KEIS `ad-tracker` 新增一筆（平台=臉書）；線 B 刪文 → 同一筆標關閉。
-
-三步驟：
-1. **先解卡點**：KEIS 物件的 `official_url` 是 houseol，不是 `buy.yungching.com.tw/house/{id}`。要嘛在永慶官網手動搜一次編號、抓出可程式化的查法（`?kw=` 無效），要嘛把 KEIS 詳情端點約 150 個欄位全部列出來找有沒有藏永慶 product id（**後者較快，先試這個**）。
-2. 在 KEIS UI 手動新增一筆廣告，用 DevTools Network 看 `POST /api/v1/adcases` 實際 payload；下架同理看是 PATCH 還是設 `closed_at`。
-3. 接進線 A / 線 B。
-
-**第二階段**（線 D 之後）：線 C 重發輪替（防貼文沉底）。
+1. **線 B 整線實測**（唯一沒驗過的一條）：手動觸發「廣告v3 下架偵測線」跑一次，確認 KEIS 查 is_active → 刪 FB 文 → PATCH Notion → 關閉 KEIS 廣告整串會通。
+2. **線 C 重發輪替**（防貼文沉底）：Notion 已有「下次重發時間」的設計，尚未動工。
 
 ## 廣告系統 v2 改造計畫（2026-07-15 拍板，已被 v3 取代，僅保留設計依據）
 

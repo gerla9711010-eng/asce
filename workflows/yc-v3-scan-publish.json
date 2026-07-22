@@ -652,7 +652,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `✅ 已發布 ${$('取貼文結果').first().json.contract_no}\\n${$('取貼文結果').first().json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n━ 社團版（複製貼原生文）━\\n${$('取貼文結果').first().json['社團文案'] || ''}\\n\\n撒網社團按這篇的「分享」即可。` }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `✅ 已發布 ${$('取貼文結果').first().json.contract_no}\\n${$('取貼文結果').first().json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n━ 社團版（複製貼原生文）━\\n${$('取貼文結果').first().json['社團文案'] || ''}\\n\\n撒網社團按這篇的「分享」即可。\\n\\n📊 KEIS 廣告追蹤：${$('取 KEIS 廣告ID').first().json.keisNote || '未執行'}` }] }) }}",
         "options": {}
       },
       "id": "v3a-26-linedone",
@@ -660,7 +660,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3040,
+        3830,
         320
       ],
       "onError": "continueRegularOutput",
@@ -670,6 +670,127 @@
           "name": "LINE Channel Access Token"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 線D：把 KEIS 物件編號解析成永慶官網連結（KEIS 欄位裡沒有，只能反查官網搜尋）\n// 做法：GET buy.yungching.com.tw/list/{城市}-_c/{編號數字}_kw → 讀 JSON-LD ItemList 拿候選\n//       → 逐一開 /house/{id} 用標題驗證（清單第一個候選是固定的假 id，一定要驗）\n// 查不到就退回 official_url（houseol），至少 KEIS 那筆還是建得起來。\nconst ctx = $('取貼文結果').first().json;\nconst norm = s => String(s || '').replace(/\\s+/g, '').toLowerCase();\nconst digits = String(ctx.contract_no || '').replace(/^[A-Za-z]+/, '');\nconst city = (String(ctx['地址'] || '').match(/^(.{1,3}?[縣市])/) || [])[1] || '高雄市';\nconst out = { ycUrl: '', ycHouseId: '', ycResolveNote: '' };\ntry {\n  const listUrl = `https://buy.yungching.com.tw/list/${encodeURIComponent(city)}-_c/${digits}_kw`;\n  const html = String(await this.helpers.httpRequest({ url: listUrl, json: false, timeout: 20000,\n    headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36', 'accept-language': 'zh-TW,zh;q=0.9' } }));\n  let cands = [];\n  for (const m of html.matchAll(/<script type=\"application\\/ld\\+json\">([\\s\\S]*?)<\\/script>/g)) {\n    let d; try { d = JSON.parse(m[1]); } catch (e) { continue; }\n    if (d['@type'] === 'ItemList' && Array.isArray(d.itemListElement)) {\n      cands = d.itemListElement.map(e => String(e.url || '')).filter(u => /\\/house\\/\\d+/.test(u));\n    }\n  }\n  const want = norm(ctx['案名']).split('|')[0].split('｜')[0];\n  for (const u of cands.slice(0, 4)) {\n    const page = String(await this.helpers.httpRequest({ url: u, json: false, timeout: 20000,\n      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' } }));\n    const t = (page.match(/<title>([\\s\\S]*?)<\\/title>/) || [])[1] || '';\n    const head = norm(t.split('|')[0].split('｜')[0]);\n    if (head && want && (head === want || head.startsWith(want) || want.startsWith(head))) {\n      out.ycUrl = u; out.ycHouseId = (u.match(/\\/house\\/(\\d+)/) || [])[1] || ''; out.ycResolveNote = 'ok'; break;\n    }\n  }\n  if (!out.ycUrl) out.ycResolveNote = cands.length ? `候選 ${cands.length} 筆都對不上標題` : '搜尋無候選';\n} catch (e) {\n  out.ycResolveNote = '查詢失敗：' + (e.message || e);\n}\nif (!out.ycUrl) out.ycUrl = ctx.official_url || '';\n// adcase_road：地址扣掉城市（KEIS 廣告追蹤的路段欄位是「行政區+路名」）\nconst road = String(ctx['地址'] || '').replace(/^.{1,3}?[縣市]/, '');\nreturn [{ json: { ...ctx, ...out, adcaseRoad: road } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "解析永慶連結",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3030,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://keis.kshouse.com.tw/api/v1/adcases",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ adcase_title: String($json['案名'] || $json.contract_no).slice(0,100), adcase_url: $json.ycUrl, adcase_member: '薛力瑜', adcase_road: String($json.adcaseRoad || '').slice(0,60), adcase_price: $json['總價萬'] ?? null, adcase_urlfacebook: $json.permalink || '', adcase_platforms: '臉書', adcase_memo: $json.contract_no + '｜n8n 廣告v3 自動建立' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "KEIS 新增廣告",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3230,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EaVn8LzS7lT5tW10",
+          "name": "KEIS API Token"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// 取 KEIS 新增回來的 adcase_id（失敗不擋流程，只記下原因給 LINE 顯示）\nconst ctx = $('解析永慶連結').first().json;\nconst r = $input.first().json || {};\nconst body = r.body ?? r;\nconst status = Number(r.statusCode ?? 0);\nconst adcaseId = body && body.adcase_id ? Number(body.adcase_id) : null;\nlet note;\nif (adcaseId) note = ctx.ycResolveNote === 'ok' ? '已同步' : `已同步（連結用備援：${ctx.ycResolveNote}）`;\nelse note = `建立失敗（HTTP ${status}）${typeof body === 'object' ? ' ' + JSON.stringify(body).slice(0, 200) : ''}`;\nreturn [{ json: { ...ctx, keisAdcaseId: adcaseId, keisNote: note } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "取 KEIS 廣告ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3430,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $json.notionPageId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { 'KEIS廣告ID': { number: $json.keisAdcaseId }, '永慶官網連結': { url: $json.ycUrl || null }, 'KEIS同步': { select: { name: $json.keisAdcaseId ? '已同步' : '未同步' } } } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "name": "Notion 記 KEIS 廣告ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3630,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
     }
   ],
   "connections": {
@@ -934,6 +1055,50 @@
       ]
     },
     "Notion 標已發布": {
+      "main": [
+        [
+          {
+            "node": "解析永慶連結",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析永慶連結": {
+      "main": [
+        [
+          {
+            "node": "KEIS 新增廣告",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KEIS 新增廣告": {
+      "main": [
+        [
+          {
+            "node": "取 KEIS 廣告ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取 KEIS 廣告ID": {
+      "main": [
+        [
+          {
+            "node": "Notion 記 KEIS 廣告ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion 記 KEIS 廣告ID": {
       "main": [
         [
           {
