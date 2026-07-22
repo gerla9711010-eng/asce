@@ -246,3 +246,32 @@ return [{ json: { action: '跳過' } }];
 - **可沿用**：`yc-fb-publish.json`（FB 多圖發文機制）、`yc-removal-detector.json`（下架刪文骨架）、鎖價後處理邏輯。
 - 清舊（全部上線驗收後）：LINE 建檔器 / yc-rewrite-copy / router 相關出口再處理，本工單先不動。
 ```
+
+---
+
+## 15. 線 D：KEIS 廣告追蹤同步（2026-07-22 提出，待實作）
+
+**需求**：線 A 發完粉專 → 自動到 KEIS `ad-tracker` 新增一筆廣告紀錄（平台=臉書）；線 B 刪文下架 → 同一筆標成關閉。
+
+**已查到（實測 2026-07-22）**：
+
+- KEIS 廣告追蹤**有內部 API**（舊 STATUS 寫「無 API」是錯的，已作廢）：
+  - 列表：`GET /api/v1/adcases?is_expired=false&skip=0&limit=50&order_by=create_time&order_direction=desc`
+  - 已結束：`GET /api/v1/adcases?is_expired=true`
+  - 統計：`GET /api/v1/adcases/dashboard/stats`、成員：`GET /api/v1/adcases/members`
+  - 認證同其他 KEIS API（`Authorization: Bearer <token_desktop>`）
+- 回傳 `{adcases:[...], total, page, page_size, total_pages}`，單筆欄位：
+  ```
+  adcase_id, adcase_member(業務姓名), adcase_title, adcase_price(萬), adcase_road,
+  adcase_url          ← 永慶官網連結，格式 https://buy.yungching.com.tw/house/7411092
+  adcase_platforms    ← 平台字串，例 "591"
+  adcase_url591 / adcase_urlfacebook / adcase_urlinstagram / adcase_url5168 /
+  adcase_url579 / adcase_urlhaofun / adcase_urllewu / adcase_urltiktok /
+  adcase_urlwojia / adcase_uryoutube
+  closed_at, is_expired, hidden, url_invalid, offline_404_count, url_price, status_tags
+  ```
+- **卡點：拿不到永慶官網連結**。KEIS 物件的 `official_url` 是 **houseol**（例 `https://www.houseol.com.tw/sell_item/H888-S2981289/`），不是 `buy.yungching.com.tw/house/{id}`。使用者目前的手動做法＝到永慶官網選「高雄市全區」+ 搜尋欄輸入物件編號數字（YG0158419 → `0158419`）找到該物件頁。
+  - 已試 `?kw=` 參數無效（回傳未過濾的推薦清單）。**下次要做的第一件事**：在永慶官網實際操作一次搜尋，看送出後的網址參數 / XHR，找出可程式化的查法。
+  - 另一條可能更省事的路：KEIS 詳情端點約 150 個欄位，先撈全欄位名稱找有沒有藏永慶 product id（本次只掃了含 url/link 的欄位，沒掃完）。houseol 的 `H888-S2981289` 也可能可對應。
+
+**待確認**：新增用 `POST /api/v1/adcases`（欄位比照上表）；下架用 PATCH/DELETE 或設 `closed_at`/`is_expired` —— 都要先在 UI 操作一次看實際請求。
