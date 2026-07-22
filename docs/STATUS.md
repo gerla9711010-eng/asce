@@ -199,7 +199,8 @@ Skill 會自動：
 **2026-07-22 實測結果**：LINE「停」→ 攔截成功；線 A 手動跑 → KEIS 撈案、Gemini 產文案、Notion 建列、LINE 預告、10 分鐘後自動發粉專多圖文全部正常，第一篇真實廣告已上線（YG0158419）。過程修掉三個 bug：面議價 9999 萬會被當真實價（已加價格過濾）、完成通知抓錯欄位、FB permalink 格式。Notion「狀態」已加 `待發` / `取消` 兩個選項（select 選項不存在會讓 Notion query 直接回 400）。
 
 **⚠️ n8n 操作方式**：n8n 2.x 把登入綁瀏覽器指紋，Claude 用**瀏覽器**做寫入會 401 並把使用者登出——不要再用瀏覽器操作 n8n。改走 **官方 Public API**：金鑰放 `.env`（`N8N_API_KEY`，已 gitignore，永不過期），端點 `$N8N_URL/api/v1/workflows`，Header `X-N8N-API-KEY`。可讀可寫可刪，Claude 現在能自己匯入/更新/清理 workflow。
-備份：`backup/n8n-2026-07-22/`（清理前 43 支全量匯出，**只存本機、已 gitignore**——裡面有兩支舊 workflow 把 token 寫死在 JSON 裡，不能進 git）。2026-07-22 清掉 22 支停用舊複本，剩 21 支。
+備份：`backup/n8n-2026-07-22/`（清理前 43 支全量匯出，**只存本機、已 gitignore**——裡面有兩支舊 workflow 把 token 寫死在 JSON 裡，不能進 git）。2026-07-22 清掉 23 支停用舊複本，剩 20 支。
+⚠️ 教訓：n8n 裡同名/亂名 workflow 很多，**判斷「哪一支在跑」要看 `/api/v1/executions`，不能只看名字**。例：真正在處理 LINE 圖片的是原本叫「My workflow 4」那支（已改名「圖片分流器（LINE 傳圖自動分類）」），同名的舊「圖片分流器」才是停用複本。
 
 **第二階段**（先不做）：線 C 重發輪替（防貼文沉底）。
 
