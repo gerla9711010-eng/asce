@@ -1,5 +1,5 @@
 {
-  "_note": "廣告 v3 線 B：下架偵測（用 KEIS is_active，非爬 HTML）。詳規見 docs/v3-ad-auto-workorder.md。\n流程：cron → 查 Notion『狀態=已發布』→ 逐件 KEIS 列表 API `?search=合約編號` 查 is_active → 已 false 或查無 → 刪 FB 貼文 → Notion 標下架 → LINE Push 通知。\n安全設計：\n1. 只有 KEIS 明確回『查無(total=0)』或 is_active=false 才判下架；KEIS API 逾時/非 200/回傳異常 → 一律當『還在架上』略過，避免 KEIS 掛掉時誤刪全部廣告。\n2. 刪 FB 失敗 → 不標下架，列入故障通知等人工。\n匯入前設 credential：KEIS API Token（換 KEIS_TOKEN_CRED_ID）、FB Page Token（換 FB_PAGE_TOKEN_CRED_ID）、Notion/LINE 沿用。\n開新空白 workflow 再 Import。",
+  "_note": "廣告 v3 線 B：下架偵測（用 KEIS is_active，非爬 HTML）。詳規見 docs/v3-ad-auto-workorder.md。\n流程：cron → 查 Notion『狀態=已發布』→ 逐件 KEIS 列表 API `?search=合約編號` 查 is_active → 已 false 或查無 → 刪 FB 貼文 → Notion 標下架 → LINE Push 通知。\n安全設計：\n1. 只有 KEIS 明確回『查無(total=0)』或 is_active=false 才判下架；KEIS API 逾時/非 200/回傳異常 → 一律當『還在架上』略過，避免 KEIS 掛掉時誤刪全部廣告。\n2. 刪 FB 失敗 → 不標下架，列入故障通知等人工。\n匯入前設 credential：KEIS API Token（換 EaVn8LzS7lT5tW10）、FB Page Token（換 Y6myWnsH0lkRL3CF）、Notion/LINE 沿用。\n開新空白 workflow 再 Import。",
   "nodes": [
     {
       "parameters": {
@@ -63,7 +63,7 @@
       "retryOnFail": true,
       "waitBetweenTries": 3000,
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "KEIS_TOKEN_CRED_ID", "name": "KEIS API Token" } }
+      "credentials": { "httpHeaderAuth": { "id": "EaVn8LzS7lT5tW10", "name": "KEIS API Token" } }
     },
     {
       "parameters": {
@@ -120,7 +120,7 @@
       "position": [240, 16],
       "alwaysOutputData": true,
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "FB_PAGE_TOKEN_CRED_ID", "name": "FB Page Token" } }
+      "credentials": { "httpHeaderAuth": { "id": "Y6myWnsH0lkRL3CF", "name": "FB Page Token" } }
     },
     {
       "parameters": {

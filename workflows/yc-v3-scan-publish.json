@@ -1,5 +1,5 @@
 {
-  "_note": "廣告 v3 線 A：自動掃描 KEIS → 產文案 → 煞車 → 自動發粉專。詳規見 docs/v3-ad-auto-workorder.md。\n設計要點：\n- 每次執行只處理 1 件（cron 一天多次＝自然打散、避免 FB 洗版判定），沿用單件發文流程最穩。\n- 煞車：建 Notion『待發』列 → LINE 預告 → Wait 10 分 → 重查狀態，非『取消』才發。使用者回『停』由 yc-v3-stop 線把該列標『取消』。\n- 資料全走 KEIS API，屋主個資在『白名單清洗』節點一律 drop。\n匯入前必設 credential（都用 HTTP Header Auth）：\n1. 『KEIS API Token』：Header Authorization = Bearer <KEIS 長效 token>。把 KEIS_TOKEN_CRED_ID 換成實際 credential ID（兩個 KEIS 節點都要）。\n2. 『FB Page Token』：換掉 FB_PAGE_TOKEN_CRED_ID（兩個 FB 節點）。FB_PAGE_ID 已硬寫 1041868522352339。\n3. Notion/Gemini/LINE 沿用現有 credential ID（見 STATUS.md）。\n4. 使用者 LINE userId 已硬寫 Ufab42c56b2eb9b9a9ff18c367b85a6dd（Push 用）。\n5. 一律開新空白 workflow 再 Import from File。",
+  "_note": "廣告 v3 線 A：自動掃描 KEIS → 產文案 → 煞車 → 自動發粉專。詳規見 docs/v3-ad-auto-workorder.md。\n設計要點：\n- 每次執行只處理 1 件（cron 一天多次＝自然打散、避免 FB 洗版判定），沿用單件發文流程最穩。\n- 煞車：建 Notion『待發』列 → LINE 預告 → Wait 10 分 → 重查狀態，非『取消』才發。使用者回『停』由 yc-v3-stop 線把該列標『取消』。\n- 資料全走 KEIS API，屋主個資在『白名單清洗』節點一律 drop。\n匯入前必設 credential（都用 HTTP Header Auth）：\n1. 『KEIS API Token』：Header Authorization = Bearer <KEIS 長效 token>。把 EaVn8LzS7lT5tW10 換成實際 credential ID（兩個 KEIS 節點都要）。\n2. 『FB Page Token』：換掉 Y6myWnsH0lkRL3CF（兩個 FB 節點）。FB_PAGE_ID 已硬寫 1041868522352339。\n3. Notion/Gemini/LINE 沿用現有 credential ID（見 STATUS.md）。\n4. 使用者 LINE userId 已硬寫 Ufab42c56b2eb9b9a9ff18c367b85a6dd（Push 用）。\n5. 一律開新空白 workflow 再 Import from File。",
   "nodes": [
     {
       "parameters": {
@@ -26,7 +26,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-1790, 200],
-      "credentials": { "httpHeaderAuth": { "id": "KEIS_TOKEN_CRED_ID", "name": "KEIS API Token" } }
+      "credentials": { "httpHeaderAuth": { "id": "EaVn8LzS7lT5tW10", "name": "KEIS API Token" } }
     },
     {
       "parameters": {
@@ -111,7 +111,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-530, 200],
-      "credentials": { "httpHeaderAuth": { "id": "KEIS_TOKEN_CRED_ID", "name": "KEIS API Token" } }
+      "credentials": { "httpHeaderAuth": { "id": "EaVn8LzS7lT5tW10", "name": "KEIS API Token" } }
     },
     {
       "parameters": {
@@ -311,7 +311,7 @@
       "retryOnFail": true,
       "waitBetweenTries": 3000,
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "FB_PAGE_TOKEN_CRED_ID", "name": "FB Page Token" } }
+      "credentials": { "httpHeaderAuth": { "id": "Y6myWnsH0lkRL3CF", "name": "FB Page Token" } }
     },
     {
       "parameters": {
@@ -341,7 +341,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [2410, 320],
-      "credentials": { "httpHeaderAuth": { "id": "FB_PAGE_TOKEN_CRED_ID", "name": "FB Page Token" } }
+      "credentials": { "httpHeaderAuth": { "id": "Y6myWnsH0lkRL3CF", "name": "FB Page Token" } }
     },
     {
       "parameters": {
