@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-21（**廣告系統改走 v3：KEIS API 全自動**。3 支新 workflow 已寫完待匯入，卡在 KEIS token。見下方「廣告系統 v3」）
+最後更新：2026-07-22（**廣告 v3 已實測貫通並發出第一篇真實廣告**。KEIS token 已建、4 支 workflow 已匯入、煞車實測過。剩最後一步：線 A/線 B 按 Publish 啟用。見下方「廣告系統 v3」）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -187,16 +187,18 @@ Skill 會自動：
 
 **一句話**：n8n 定時打 KEIS API 撈整個加盟體系在售案 → Gemini 產文案 → LINE 預告 10 分鐘煞車視窗 → 沒喊停就自動發粉專多圖文 → 每天偵測 KEIS 下架就自動刪 FB 文。Notion 只當帳本。**絕不碰屋主個資**（白名單清洗節點強制）。
 
-**已寫完待匯入**（開新空白 workflow 再 Import）：
+| 檔案 / n8n workflow | 用途 | 狀態 |
+|---|---|---|
+| `yc-v3-scan-publish.json`「廣告v3 掃描發文線」 | 線 A 掃描+發文（cron 09/11/13/15/17/19，每次 1 件） | 已匯入、實測發文成功；**待 Publish** |
+| `yc-v3-removal.json`「廣告v3 下架偵測線」 | 線 B 下架偵測+刪 FB 文（每天 08:00） | 已匯入；**待 Publish**、尚未實測 |
+| `yc-v3-stop.json`「廣告v3 煞車（停）」 | 煞車 webhook | 🟢 已啟用、實測攔截成功 |
+| `line-command-router.json`「LINE 指令分流器 v3」 | 加「停」出口 | 🟢 已啟用（舊 router 已 Unpublish） |
 
-| 檔案 | 用途 |
-|---|---|
-| `workflows/yc-v3-scan-publish.json` | 線 A 掃描+發文（cron 09/11/13/15/17/19，每次 1 件） |
-| `workflows/yc-v3-removal.json` | 線 B 下架偵測+刪文（每天 08:00） |
-| `workflows/yc-v3-stop.json` | 煞車 webhook（LINE 打「停」或「停 AGxxx」） |
-| `workflows/line-command-router.json` | 已加「停」出口，**要覆蓋匯入既有 router** |
+**credential**：`KEIS API Token`（id `EaVn8LzS7lT5tW10`，Header Auth，`Authorization: Bearer <token_desktop>`）。⚠️ 這是從 KEIS 前端 localStorage 取的 JWT，**可能會過期**；線 A/B 開始整批失敗且錯誤是 401 就是它，重取一次貼進同一個 credential 即可（步驟：KEIS 登入 → F12 Console → `copy(localStorage.token_desktop)`）。
 
-**🔴 唯一上線阻塞**：KEIS 長效 token → n8n 建 Header Auth credential `KEIS API Token` → 換掉 JSON 內 3 處 `KEIS_TOKEN_CRED_ID` + 3 處 `FB_PAGE_TOKEN_CRED_ID`。
+**2026-07-22 實測結果**：LINE「停」→ 攔截成功；線 A 手動跑 → KEIS 撈案、Gemini 產文案、Notion 建列、LINE 預告、10 分鐘後自動發粉專多圖文全部正常，第一篇真實廣告已上線（YG0158419）。過程修掉三個 bug：面議價 9999 萬會被當真實價（已加價格過濾）、完成通知抓錯欄位、FB permalink 格式。Notion「狀態」已加 `待發` / `取消` 兩個選項（select 選項不存在會讓 Notion query 直接回 400）。
+
+**⚠️ n8n 操作限制**：這個 n8n 會把登入綁瀏覽器指紋，Claude 用瀏覽器擴充功能做任何**寫入**（匯入 workflow、存檔、打 /rest API）都會 401 並把使用者登出。**匯入/存檔/啟用一律請使用者自己按**，不要再嘗試自動化。
 
 **第二階段**（先不做）：線 C 重發輪替（防貼文沉底）。
 
