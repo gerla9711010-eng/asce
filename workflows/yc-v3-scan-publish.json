@@ -3,13 +3,23 @@
   "nodes": [
     {
       "parameters": {
-        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 9,11,13,15,17,19 * * *" } ] }
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,11,13,15,17,19 * * *"
+            }
+          ]
+        }
       },
       "id": "v3a-01-cron",
       "name": "定時掃描",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-2000, 200]
+      "position": [
+        -2000,
+        200
+      ]
     },
     {
       "parameters": {
@@ -17,7 +27,11 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {
-          "response": { "response": { "responseFormat": "json" } },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
           "timeout": 30000
         }
       },
@@ -25,18 +39,29 @@
       "name": "KEIS 撈在售列表",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-1790, 200],
-      "credentials": { "httpHeaderAuth": { "id": "EaVn8LzS7lT5tW10", "name": "KEIS API Token" } }
+      "position": [
+        -1790,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EaVn8LzS7lT5tW10",
+          "name": "KEIS API Token"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "// 候選＝在售 + 有照片；依 houseol_created_at 新到舊排序，取前 40 進入判重\nconst body = $input.first().json;\nconst items = body.items || body.data || (Array.isArray(body) ? body : []);\nconst cand = items\n  .filter(x => x && x.is_active === true && Number(x.image_count) > 0 && x.contract_no)\n  .sort((a, b) => new Date(b.houseol_created_at || b.created_at || 0) - new Date(a.houseol_created_at || a.created_at || 0))\n  .slice(0, 40)\n  .map(x => ({ json: { keisId: x.id, contract_no: String(x.contract_no).toUpperCase(), case_name: x.case_name || '', official_url: x.official_url || '' } }));\nif (cand.length === 0) return [{ json: { _empty: true } }];\nreturn cand;"
+        "jsCode": "// 候選＝在售 + 有照片；依 houseol_created_at 新到舊排序，取前 40 進入判重\nconst body = $input.first().json;\nconst items = body.items || body.data || (Array.isArray(body) ? body : []);\nconst cand = items\n  .filter(x => x && x.is_active === true && Number(x.image_count) > 0 && x.contract_no && Number(x.case_price) > 0 && Number(x.case_price) < 9999)\n  .sort((a, b) => new Date(b.houseol_created_at || b.created_at || 0) - new Date(a.houseol_created_at || a.created_at || 0))\n  .slice(0, 40)\n  .map(x => ({ json: { keisId: x.id, contract_no: String(x.contract_no).toUpperCase(), case_name: x.case_name || '', official_url: x.official_url || '' } }));\nif (cand.length === 0) return [{ json: { _empty: true } }];\nreturn cand;"
       },
       "id": "v3a-03-filter",
       "name": "篩選候選",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-1580, 200]
+      "position": [
+        -1580,
+        200
+      ]
     },
     {
       "parameters": {
@@ -45,10 +70,18 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Notion-Version", "value": "2022-06-28" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ filter: { property: '案件編號', rich_text: { equals: $json.contract_no } }, page_size: 1 }) }}",
@@ -58,8 +91,16 @@
       "name": "查 Notion 是否已建",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-1370, 200],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        -1370,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -69,14 +110,31 @@
       "name": "標記是否已存在",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-1160, 200]
+      "position": [
+        -1160,
+        200
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
-            { "id": "nx1", "leftValue": "={{ $json._exists }}", "rightValue": false, "operator": { "type": "boolean", "operation": "false", "singleValue": true } }
+            {
+              "id": "nx1",
+              "leftValue": "={{ $json._exists }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
           ],
           "combinator": "and"
         },
@@ -86,15 +144,23 @@
       "name": "只留未建過",
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2.2,
-      "position": [-950, 200]
+      "position": [
+        -950,
+        200
+      ]
     },
     {
-      "parameters": { "maxItems": 1 },
+      "parameters": {
+        "maxItems": 1
+      },
       "id": "v3a-07-limit",
       "name": "取 1 件",
       "type": "n8n-nodes-base.limit",
       "typeVersion": 1,
-      "position": [-740, 200]
+      "position": [
+        -740,
+        200
+      ]
     },
     {
       "parameters": {
@@ -102,7 +168,11 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {
-          "response": { "response": { "responseFormat": "json" } },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
           "timeout": 30000
         }
       },
@@ -110,8 +180,16 @@
       "name": "KEIS 物件詳情",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-530, 200],
-      "credentials": { "httpHeaderAuth": { "id": "EaVn8LzS7lT5tW10", "name": "KEIS API Token" } }
+      "position": [
+        -530,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EaVn8LzS7lT5tW10",
+          "name": "KEIS API Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -121,7 +199,10 @@
       "name": "白名單清洗",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-320, 200]
+      "position": [
+        -320,
+        200
+      ]
     },
     {
       "parameters": {
@@ -130,20 +211,37 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [ { "name": "content-type", "value": "application/json" } ] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是台灣資深房仲文案寫手。以下為官方結構化事實，全部是鐵律，禁止更改任何數字、禁止新增未提供的資訊（廣告不實有法律責任，寧可少講不可亂編）。\n\n【鐵律事實】\n案名：${$json['案名']}\n總價：${$json['總價萬']} 萬（文案只能出現這個價格數字，禁止任何其他價格）\n建物類型：${$json['建物類型']}\n格局：${$json['格局']}\n建物坪數：${$json['建物坪']} 坪（主建 ${$json['主建坪']} 坪）\n樓層：${$json['樓層']}\n屋齡：${$json['屋齡']} 年\n地址：${$json['地址']}\n車位：${$json['車位'] || '無'}\n\n【唯一可用的賣點素材】（只能改寫下列文字，不得自行補學區/捷運/建材/商圈等未列資訊）\n${($json['賣點']||[]).join('\\n')}\n機能（僅在有值時可提，空的不得杜撰）：學區「${$json['機能']['學區']}」商圈「${$json['機能']['商圈']}」捷運「${$json['機能']['捷運']}」\n\n【粉專主體】200-300 字：第一行【】標題（地段+房型+賣點+價格）；規格區每行一 emoji（📍地址 🏠格局 📐坪數 🏢屋齡樓層 💰開價，缺的省略）；空行；✨亮點 3-4 條「・」開頭。台灣房仲真實口吻，禁官腔，不放編號 hashtag、不放連結、不加電話公司字號（系統自動補）。\n【社團主體】50-80 字：一行 emoji 標題（地段+房型+關鍵賣點）；1-2 行賣點；結尾「詳情看留言」或「私訊索取」；不寫具體價格（可用概略如二字頭）、不放連結、不加電話公司字號。\n\n只回傳 JSON：{\\\"粉專主體\\\":\\\"\\\",\\\"社團主體\\\":\\\"\\\"}，不要 markdown、不要多餘說明。` }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 2048, responseMimeType: \"application/json\" }\n}) }}",
-        "options": { "timeout": 60000 }
+        "options": {
+          "timeout": 60000
+        }
       },
       "id": "v3a-10-gemini",
       "name": "Gemini 產文案",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-110, 200],
+      "position": [
+        -110,
+        200
+      ],
       "retryOnFail": true,
       "waitBetweenTries": 5000,
-      "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "zTIA89pDJJs0Ad29",
+          "name": "Gemini API Key"
+        }
+      }
     },
     {
       "parameters": {
@@ -153,7 +251,10 @@
       "name": "解析文案+footer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [100, 200]
+      "position": [
+        100,
+        200
+      ]
     },
     {
       "parameters": {
@@ -162,10 +263,18 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Notion-Version", "value": "2022-06-28" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ parent: { database_id: '07ee845168b64f8a9b5682e5069c733b' }, properties: { '案名': { title: [{ text: { content: $json['案名'] || $json.contract_no } }] }, '案件編號': { rich_text: [{ text: { content: $json.contract_no } }] }, '社區名稱': { rich_text: [{ text: { content: String($json['社區']||'') } }] }, '地址': { rich_text: [{ text: { content: String($json['地址']||'') } }] }, '建物類型': $json['建物類型'] ? { select: { name: String($json['建物類型']).replace(/^[A-Z]\\./,'') } } : { select: null }, '格局': { rich_text: [{ text: { content: String($json['格局']||'') } }] }, '樓層': { rich_text: [{ text: { content: String($json['樓層']||'') } }] }, '屋齡': { number: $json['屋齡'] }, '總價': { rich_text: [{ text: { content: ($json['總價萬']!=null? $json['總價萬']+' 萬':'') } }] }, '主建物坪數': { number: $json['主建坪'] }, '建物坪數': { number: $json['建物坪'] }, '粉專文案': { rich_text: [{ text: { content: String($json['粉專文案']||'').slice(0,1900) } }] }, '社團文案': { rich_text: [{ text: { content: String($json['社團文案']||'').slice(0,1900) } }] }, '來源連結': { url: $json['official_url'] || null }, '狀態': { select: { name: '待發' } } } }) }}",
@@ -175,8 +284,16 @@
       "name": "Notion 建待發列",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [310, 200],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        310,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -186,7 +303,10 @@
       "name": "組預告",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [520, 200]
+      "position": [
+        520,
+        200
+      ]
     },
     {
       "parameters": {
@@ -195,7 +315,14 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: $json.pushText }] }) }}",
@@ -205,17 +332,31 @@
       "name": "LINE 預告",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [730, 200],
+      "position": [
+        730,
+        200
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     },
     {
-      "parameters": { "amount": 10, "unit": "minutes" },
+      "parameters": {
+        "amount": 10,
+        "unit": "minutes"
+      },
       "id": "v3a-15-wait",
       "name": "煞車 10 分鐘",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [940, 200],
+      "position": [
+        940,
+        200
+      ],
       "webhookId": "yc-v3-brake-wait"
     },
     {
@@ -224,15 +365,36 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [ { "name": "Notion-Version", "value": "2022-06-28" } ]},
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "v3a-16-recheck",
       "name": "重查狀態",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1150, 200],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        1150,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -242,14 +404,31 @@
       "name": "判斷是否被停",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1360, 200]
+      "position": [
+        1360,
+        200
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
-            { "id": "cx1", "leftValue": "={{ $json._cancelled }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+            {
+              "id": "cx1",
+              "leftValue": "={{ $json._cancelled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
           ],
           "combinator": "and"
         },
@@ -259,7 +438,10 @@
       "name": "被停?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1570, 200]
+      "position": [
+        1570,
+        200
+      ]
     },
     {
       "parameters": {
@@ -268,7 +450,14 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `🛑 已攔截 ${$json.contract_no}，這件不發。` }] }) }}",
@@ -278,17 +467,31 @@
       "name": "LINE 已攔截",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1780, 80],
+      "position": [
+        1780,
+        80
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     },
     {
-      "parameters": { "fieldToSplitOut": "images", "options": {} },
+      "parameters": {
+        "fieldToSplitOut": "images",
+        "options": {}
+      },
       "id": "v3a-20-splitimg",
       "name": "拆解照片",
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
-      "position": [1780, 320]
+      "position": [
+        1780,
+        320
+      ]
     },
     {
       "parameters": {
@@ -297,21 +500,38 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ url: $json.images, published: false }) }}",
-        "options": { "timeout": 30000 }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "v3a-21-uploadphoto",
       "name": "FB 上傳照片",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1990, 320],
+      "position": [
+        1990,
+        320
+      ],
       "retryOnFail": true,
       "waitBetweenTries": 3000,
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "Y6myWnsH0lkRL3CF", "name": "FB Page Token" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Y6myWnsH0lkRL3CF",
+          "name": "FB Page Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -321,7 +541,10 @@
       "name": "收集 media id",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2200, 320]
+      "position": [
+        2200,
+        320
+      ]
     },
     {
       "parameters": {
@@ -330,18 +553,35 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify(($json.fbids && $json.fbids.length) ? { message: $json['粉專文案'], attached_media: $json.fbids.map(id => ({ media_fbid: id })) } : { message: $json['粉專文案'] }) }}",
-        "options": { "timeout": 30000 }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "v3a-23-feed",
       "name": "FB 發貼文",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2410, 320],
-      "credentials": { "httpHeaderAuth": { "id": "Y6myWnsH0lkRL3CF", "name": "FB Page Token" } }
+      "position": [
+        2410,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Y6myWnsH0lkRL3CF",
+          "name": "FB Page Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -351,7 +591,10 @@
       "name": "取貼文結果",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2620, 320]
+      "position": [
+        2620,
+        320
+      ]
     },
     {
       "parameters": {
@@ -360,10 +603,18 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Notion-Version", "value": "2022-06-28" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ properties: { '粉專貼文連結': { url: $json.permalink || null }, '狀態': { select: { name: '已發布' } } } }) }}",
@@ -373,8 +624,16 @@
       "name": "Notion 標已發布",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2830, 320],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        2830,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -383,7 +642,14 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `✅ 已發布 ${$json.contract_no}\\n${$json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n━ 社團版（複製貼原生文）━\\n${$json['社團文案'] || ''}\\n\\n撒網社團按這篇的「分享」即可。` }] }) }}",
@@ -393,42 +659,294 @@
       "name": "LINE 發布通知",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3040, 320],
+      "position": [
+        3040,
+        320
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     }
   ],
   "connections": {
-    "定時掃描":         { "main": [[{ "node": "KEIS 撈在售列表", "type": "main", "index": 0 }]] },
-    "KEIS 撈在售列表":   { "main": [[{ "node": "篩選候選", "type": "main", "index": 0 }]] },
-    "篩選候選":         { "main": [[{ "node": "查 Notion 是否已建", "type": "main", "index": 0 }]] },
-    "查 Notion 是否已建": { "main": [[{ "node": "標記是否已存在", "type": "main", "index": 0 }]] },
-    "標記是否已存在":    { "main": [[{ "node": "只留未建過", "type": "main", "index": 0 }]] },
-    "只留未建過":       { "main": [[{ "node": "取 1 件", "type": "main", "index": 0 }]] },
-    "取 1 件":          { "main": [[{ "node": "KEIS 物件詳情", "type": "main", "index": 0 }]] },
-    "KEIS 物件詳情":     { "main": [[{ "node": "白名單清洗", "type": "main", "index": 0 }]] },
-    "白名單清洗":       { "main": [[{ "node": "Gemini 產文案", "type": "main", "index": 0 }]] },
-    "Gemini 產文案":     { "main": [[{ "node": "解析文案+footer", "type": "main", "index": 0 }]] },
-    "解析文案+footer":   { "main": [[{ "node": "Notion 建待發列", "type": "main", "index": 0 }]] },
-    "Notion 建待發列":   { "main": [[{ "node": "組預告", "type": "main", "index": 0 }]] },
-    "組預告":           { "main": [[{ "node": "LINE 預告", "type": "main", "index": 0 }]] },
-    "LINE 預告":        { "main": [[{ "node": "煞車 10 分鐘", "type": "main", "index": 0 }]] },
-    "煞車 10 分鐘":      { "main": [[{ "node": "重查狀態", "type": "main", "index": 0 }]] },
-    "重查狀態":         { "main": [[{ "node": "判斷是否被停", "type": "main", "index": 0 }]] },
-    "判斷是否被停":      { "main": [[{ "node": "被停?", "type": "main", "index": 0 }]] },
-    "被停?": {
+    "定時掃描": {
       "main": [
-        [{ "node": "LINE 已攔截", "type": "main", "index": 0 }],
-        [{ "node": "拆解照片", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "KEIS 撈在售列表",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "拆解照片":         { "main": [[{ "node": "FB 上傳照片", "type": "main", "index": 0 }]] },
-    "FB 上傳照片":      { "main": [[{ "node": "收集 media id", "type": "main", "index": 0 }]] },
-    "收集 media id":    { "main": [[{ "node": "FB 發貼文", "type": "main", "index": 0 }]] },
-    "FB 發貼文":        { "main": [[{ "node": "取貼文結果", "type": "main", "index": 0 }]] },
-    "取貼文結果":       { "main": [[{ "node": "Notion 標已發布", "type": "main", "index": 0 }]] },
-    "Notion 標已發布":   { "main": [[{ "node": "LINE 發布通知", "type": "main", "index": 0 }]] }
+    "KEIS 撈在售列表": {
+      "main": [
+        [
+          {
+            "node": "篩選候選",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "篩選候選": {
+      "main": [
+        [
+          {
+            "node": "查 Notion 是否已建",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查 Notion 是否已建": {
+      "main": [
+        [
+          {
+            "node": "標記是否已存在",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "標記是否已存在": {
+      "main": [
+        [
+          {
+            "node": "只留未建過",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "只留未建過": {
+      "main": [
+        [
+          {
+            "node": "取 1 件",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取 1 件": {
+      "main": [
+        [
+          {
+            "node": "KEIS 物件詳情",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KEIS 物件詳情": {
+      "main": [
+        [
+          {
+            "node": "白名單清洗",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "白名單清洗": {
+      "main": [
+        [
+          {
+            "node": "Gemini 產文案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini 產文案": {
+      "main": [
+        [
+          {
+            "node": "解析文案+footer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析文案+footer": {
+      "main": [
+        [
+          {
+            "node": "Notion 建待發列",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion 建待發列": {
+      "main": [
+        [
+          {
+            "node": "組預告",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組預告": {
+      "main": [
+        [
+          {
+            "node": "LINE 預告",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LINE 預告": {
+      "main": [
+        [
+          {
+            "node": "煞車 10 分鐘",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "煞車 10 分鐘": {
+      "main": [
+        [
+          {
+            "node": "重查狀態",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "重查狀態": {
+      "main": [
+        [
+          {
+            "node": "判斷是否被停",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "判斷是否被停": {
+      "main": [
+        [
+          {
+            "node": "被停?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "被停?": {
+      "main": [
+        [
+          {
+            "node": "LINE 已攔截",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "拆解照片",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "拆解照片": {
+      "main": [
+        [
+          {
+            "node": "FB 上傳照片",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FB 上傳照片": {
+      "main": [
+        [
+          {
+            "node": "收集 media id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "收集 media id": {
+      "main": [
+        [
+          {
+            "node": "FB 發貼文",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FB 發貼文": {
+      "main": [
+        [
+          {
+            "node": "取貼文結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取貼文結果": {
+      "main": [
+        [
+          {
+            "node": "Notion 標已發布",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion 標已發布": {
+      "main": [
+        [
+          {
+            "node": "LINE 發布通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "pinData": {},
-  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+  "meta": {
+    "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69"
+  }
 }
