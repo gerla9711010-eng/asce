@@ -193,7 +193,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 白名單清洗：只留廣告欄位，屋主個資(seller_*/apograph_*)一律 drop\nconst d = $input.first().json.data || $input.first().json;\nconst num = v => (v === null || v === undefined || v === '') ? null : Number(v);\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst features = [d.feature_1, d.feature_2, d.feature_3, d.feature_4, d.feature_5].map(s).filter(Boolean);\nconst 機能 = { 學區: s(d.school_info), 商圈: s(d.market_info), 捷運: s(d.mrt_station), 火車: s(d.train_station), 公車: s(d.bus_station) };\nconst images = (d.images || []).map(x => x.image_url).filter(Boolean);\nreturn [{ json: {\n  contract_no: s(d.contract_no).toUpperCase(),\n  keisId: d.id,\n  案名: s(d.case_name),\n  總價萬: num(d.case_price),\n  單價: num(d.unit_price),\n  建物類型: s(d.property_type),\n  格局: s(d.layout),\n  主建坪: num(d.main_area),\n  建物坪: num(d.total_area),\n  樓層: s(d.floor_info),\n  社區: s(d.community_name),\n  地址: [s(d.property_address_city), s(d.property_address_district), s(d.property_address_road)].join(''),\n  屋齡: num(d.age),\n  車位: [s(d.parking_type), s(d.parking_method)].filter(Boolean).join('/'),\n  official_url: s(d.official_url),\n  images,\n  賣點: features,\n  機能\n}}];"
+        "jsCode": "// 白名單清洗：只留廣告欄位，屋主個資(seller_*/apograph_*)一律 drop\nconst d = $input.first().json.data || $input.first().json;\nconst num = v => (v === null || v === undefined || v === '') ? null : Number(v);\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst features = [d.feature_1, d.feature_2, d.feature_3, d.feature_4, d.feature_5].map(s).filter(Boolean);\nconst 機能 = { 學區: s(d.school_info), 商圈: s(d.market_info), 捷運: s(d.mrt_station), 火車: s(d.train_station), 公車: s(d.bus_station) };\nconst images = (d.images || []).map(x => x.image_url).filter(Boolean);\nreturn [{ json: {\n  contract_no: s(d.contract_no).toUpperCase(),\n  keisId: d.id,\n  案名: s(d.case_name),\n  總價萬: num(d.case_price),\n  單價: num(d.unit_price),\n  建物類型: s(d.property_type),\n  格局: s(d.layout),\n  主建坪: (d.main_area == null || d.main_area === '') ? null : Math.round(Number(d.main_area)*10)/10,\n  建物坪: (d.total_area == null || d.total_area === '') ? null : Math.round(Number(d.total_area)*10)/10,\n  樓層: s(d.floor_info),\n  社區: s(d.community_name),\n  地址: [s(d.property_address_city), s(d.property_address_district), s(d.property_address_road)].join(''),\n  屋齡: (d.age == null || d.age === '') ? null : Math.round(Number(d.age)),\n  車位: [s(d.parking_type), s(d.parking_method)].filter(Boolean).join('/'),\n  official_url: s(d.official_url),\n  images,\n  賣點: features,\n  機能\n}}];"
       },
       "id": "v3a-09-clean",
       "name": "白名單清洗",
@@ -585,7 +585,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nconst id = resp.id || resp.post_id || '';\nconst ctx = $('收集 media id').first().json;\nconst permalink = id ? `https://www.facebook.com/${id}` : '';\nreturn [{ json: { ...ctx, fbPostId: id, permalink } }];"
+        "jsCode": "const resp = $input.first().json;\nconst id = resp.id || resp.post_id || '';\nconst ctx = $('收集 media id').first().json;\nconst parts = String(id).split('_');\nconst permalink = id ? (parts.length === 2 ? `https://www.facebook.com/${parts[0]}/posts/${parts[1]}` : `https://www.facebook.com/${id}`) : '';\nreturn [{ json: { ...ctx, fbPostId: id, permalink } }];"
       },
       "id": "v3a-24-postresult",
       "name": "取貼文結果",
@@ -652,7 +652,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `✅ 已發布 ${$json.contract_no}\\n${$json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n━ 社團版（複製貼原生文）━\\n${$json['社團文案'] || ''}\\n\\n撒網社團按這篇的「分享」即可。` }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `✅ 已發布 ${$('取貼文結果').first().json.contract_no}\\n${$('取貼文結果').first().json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n━ 社團版（複製貼原生文）━\\n${$('取貼文結果').first().json['社團文案'] || ''}\\n\\n撒網社團按這篇的「分享」即可。` }] }) }}",
         "options": {}
       },
       "id": "v3a-26-linedone",
