@@ -24,8 +24,6 @@
     {
       "parameters": {
         "url": "https://keis.kshouse.com.tw/api/v1/property-management/?page=1&page_size=100&listing_type=%E8%B2%B7%E8%B3%A3",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {
           "response": {
             "response": {
@@ -33,6 +31,15 @@
             }
           },
           "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('KEIS 登入').first().json.body.access_token }}"
+            }
+          ]
         }
       },
       "id": "v3a-02-keislist",
@@ -42,13 +49,7 @@
       "position": [
         -1790,
         200
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "EaVn8LzS7lT5tW10",
-          "name": "KEIS API Token"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -165,8 +166,6 @@
     {
       "parameters": {
         "url": "=https://keis.kshouse.com.tw/api/v1/property-management/{{ $json.keisId }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {
           "response": {
             "response": {
@@ -174,6 +173,15 @@
             }
           },
           "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('KEIS 登入').first().json.body.access_token }}"
+            }
+          ]
         }
       },
       "id": "v3a-08-keisdetail",
@@ -183,13 +191,7 @@
       "position": [
         -530,
         200
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "EaVn8LzS7lT5tW10",
-          "name": "KEIS API Token"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -689,11 +691,13 @@
       "parameters": {
         "method": "POST",
         "url": "https://keis.kshouse.com.tw/api/v1/adcases",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('KEIS 登入').first().json.body.access_token }}"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -721,18 +725,12 @@
         3230,
         320
       ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "EaVn8LzS7lT5tW10",
-          "name": "KEIS API Token"
-        }
-      },
       "onError": "continueRegularOutput",
       "alwaysOutputData": true
     },
     {
       "parameters": {
-        "jsCode": "// 取 KEIS 新增回來的 adcase_id（失敗不擋流程，只記下原因給 LINE 顯示）\nconst ctx = $('解析永慶連結').first().json;\nconst r = $input.first().json || {};\nconst body = r.body ?? r;\nconst status = Number(r.statusCode ?? 0);\nconst adcaseId = body && body.adcase_id ? Number(body.adcase_id) : null;\nlet note;\nif (adcaseId) note = ctx.ycResolveNote === 'ok' ? '已同步' : `已同步（連結用備援：${ctx.ycResolveNote}）`;\nelse note = `建立失敗（HTTP ${status}）${typeof body === 'object' ? ' ' + JSON.stringify(body).slice(0, 200) : ''}`;\nreturn [{ json: { ...ctx, keisAdcaseId: adcaseId, keisNote: note } }];",
+        "jsCode": "// 取 KEIS 新增回來的 adcase_id（失敗不擋流程，只記下原因給 LINE 顯示）\nconst ctx = $('解析永慶連結').first().json;\nconst r = $input.first().json || {};\nconst body = r.body ?? r;\nconst status = Number(r.statusCode ?? 0);\nconst adcaseId = body && body.adcase_id ? Number(body.adcase_id) : null;\nconst msg = (body && body.message) ? String(body.message) : '';\nlet note;\nif (adcaseId) {\n  note = ctx.ycResolveNote === 'ok' ? '已同步' : `已同步（連結用備援：${ctx.ycResolveNote}）`;\n} else if (/已經新增過此官網連結/.test(msg)) {\n  // KEIS 擋同一個官網連結重複建檔，回 500 但其實是 400。這代表 KEIS 上早就有這筆了。\n  note = 'KEIS 上已有同連結的廣告，未重複建立';\n} else {\n  note = `建立失敗（HTTP ${status}）${msg ? ' ' + msg.slice(0, 150) : ''}`;\n}\nreturn [{ json: { ...ctx, keisAdcaseId: adcaseId, keisNote: note } }];",
         "mode": "runOnceForAllItems"
       },
       "name": "取 KEIS 廣告ID",
@@ -791,6 +789,51 @@
       },
       "onError": "continueRegularOutput",
       "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://keis.kshouse.com.tw/api/v1/auth/login?device_type=desktop",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            },
+            {
+              "name": "Referer",
+              "value": "https://keis.kshouse.com.tw/login"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "KEIS 登入",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "KPvi4Z4Z8IAhKbdz",
+          "name": "KEIS 帳密（自動登入）"
+        }
+      },
+      "alwaysOutputData": true,
+      "position": [
+        -1880,
+        40
+      ]
     }
   ],
   "connections": {
@@ -798,7 +841,7 @@
       "main": [
         [
           {
-            "node": "KEIS 撈在售列表",
+            "node": "KEIS 登入",
             "type": "main",
             "index": 0
           }
@@ -1103,6 +1146,17 @@
         [
           {
             "node": "LINE 發布通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KEIS 登入": {
+      "main": [
+        [
+          {
+            "node": "KEIS 撈在售列表",
             "type": "main",
             "index": 0
           }

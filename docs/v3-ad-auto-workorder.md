@@ -321,6 +321,42 @@ PATCH 標記下架 → 備妥 KEIS 關閉 → 有 KEIS 廣告? ─┬─(是)→
 
 `KEIS 關閉廣告` = PUT `/adcases/{id}` body `{"is_expired": true}`。舊資料沒有 `KEIS廣告ID` 的會走「否」直接跳過。
 
-**2026-07-22 實測**：建→關→刪整輪跑過；已上線的第一篇真實廣告 YG0158419 已補建進 KEIS（`adcase_id` 325866，平台=臉書），Notion 三個欄位都回寫成功。兩支 workflow 已用 Public API 更新且維持 active。
+⚠️ **KEIS 擋重複的 `adcase_url`**：同一個官網連結再 POST 一次會回 **HTTP 500**，訊息是 `創建案件失敗: 400: 您已經新增過此官網連結`（狀態碼給 500 但實際是 400）。`取 KEIS 廣告ID` 節點認得這個訊息，會回報「KEIS 上已有同連結的廣告，未重複建立」而不是當成錯誤。做線 C 重發輪替時要注意這點。
+
+**2026-07-22 實測**：建→關→刪整輪跑過；已上線的第一篇真實廣告 YG0158419 已補建進 KEIS（`adcase_id` 325866，平台=臉書），Notion 三個欄位都回寫成功。
+
+---
+
+## 16. KEIS token 改成每次跑自己登入（2026-07-23，修一個會讓全系統靜默停擺的問題）
+
+**問題**：原本 credential `KEIS API Token`（id `EaVn8LzS7lT5tW10`）存的是從瀏覽器 localStorage 抓的靜態 JWT。實際量過 **這個 JWT 只活 8 小時**（`expires_in: 28800`）。線 A 一天跑 6 次、線 B 每天 08:00，等於絕大多數的執行都會 401，而且因為節點設了 `neverError`，**失敗是靜悄悄的**——線 B 會全部判成「KEIS 暫時無法確認，本次略過」，看起來像一切正常。
+
+**解法**：兩條線的第一個節點都改成先自己登入。
+
+- 新 credential：**`KEIS 帳密（自動登入）`**（id `KPvi4Z4Z8IAhKbdz`，型別 **Custom Auth**），內容是
+  `{"body": {"username": "…", "password": "…"}}`
+  用 Custom Auth 是為了讓帳密留在 n8n 的 credential 裡，**不會寫進 workflow JSON 進 git**。
+- 新節點 **`KEIS 登入`**：`POST https://keis.kshouse.com.tw/api/v1/auth/login?device_type=desktop`，header `Content-Type: application/x-www-form-urlencoded`，開 `fullResponse`。
+- 所有 KEIS 節點（線 A 的撈列表/物件詳情/新增廣告，線 B 的查 is_active/關閉廣告）拿掉舊 credential，改成 header
+  `Authorization: {{ 'Bearer ' + $('KEIS 登入').first().json.body.access_token }}`
+
+舊的 `KEIS API Token` credential 已無人使用，留著沒有害處但不要再拿它當範例。
+
+---
+
+## 17. 線 B 下架判定：一定要雙重確認（2026-07-23 修）
+
+**問題**：原本「KEIS `search=編號` 查無此案」就直接判下架。但 Notion 裡還有 4 筆是 **v2 時期用 LINE 手動貼永慶網址建的檔，本來就從來沒進過 KEIS**。試跑時這 4 筆全被判成已下架——如果照跑，會自動刪掉其中 2 篇**物件還在賣**的粉專貼文。
+
+**解法**：`判斷是否下架` 改成兩個條件都成立才動手：
+
+1. KEIS 查無此案（或 `is_active=false`），**而且**
+2. 用 `this.helpers.httpRequest` 打 Notion 的「來源連結」，HTTP ≥400 或頁面含 `已下架/物件不存在/已成交/查無此物件`
+
+沒有來源連結可確認的 → 一律略過，理由寫進 `reason` 欄位。KEIS 本身非 200（逾時等）→ 維持原本的「本次略過」。
+
+**2026-07-23 試跑結果**（只讀，沒真的刪東西）：5 筆已發布中，3 筆「KEIS 查無但來源連結仍正常 → 略過」、1 筆「仍在架上」、只有 YC1835328「KEIS 查無 + 來源連結 404 → 判定下架」（那筆沒有粉專貼文）。判定正確。
+
+⚠️ 反過來的坑也存在：YG0158419 的來源連結是 houseol，**物件還在賣但那個 houseol 連結已經 404**。所以「來源連結死掉」單獨也不能當下架依據，一定要兩個條件都成立。
 
 **第二階段**（線 D 之後）：線 C 重發輪替（防貼文沉底）。
