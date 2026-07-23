@@ -62,7 +62,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 挑最久沒重發的一筆；沒有就整條線靜靜結束（不推 LINE）\nconst rows = $input.first().json.results || [];\nif (!rows.length) return [];\nconst p = rows[0].properties || {};\nconst txt = k => (p[k]?.rich_text?.[0]?.plain_text || '');\nconst permalink = p['粉專貼文連結']?.url || '';\n// permalink 形如 https://www.facebook.com/{pageId}/posts/{postId} → FB 刪文要 {pageId}_{postId}\nlet oldPostId = '';\nlet m = permalink.match(/facebook\\.com\\/(\\d+)\\/posts\\/(\\w+)/);\nif (m) { oldPostId = `${m[1]}_${m[2]}`; }\nelse { m = permalink.match(/facebook\\.com\\/(\\d+_\\w+)/); if (m) oldPostId = m[1]; }\nreturn [{ json: {\n  notionPageId: rows[0].id,\n  contract_no: txt('案件編號').toUpperCase(),\n  keisId: p['KEIS物件ID']?.number || null,\n  oldPermalink: permalink,\n  oldPostId,\n  重發次數: p['重發次數']?.number || 0,\n  文案版本: p['文案版本']?.number || 1,\n} }];\n"
+        "jsCode": "// 挑最久沒重發的一筆；沒有就整條線靜靜結束（不推 LINE）\nconst rows = $input.first().json.results || [];\nif (!rows.length) return [];\nconst p = rows[0].properties || {};\nconst txt = k => (p[k]?.rich_text?.[0]?.plain_text || '');\nconst permalink = p['粉專貼文連結']?.url || '';\n// permalink 形如 https://www.facebook.com/{pageId}/posts/{postId} → FB 刪文要 {pageId}_{postId}\nlet oldPostId = '';\nlet m = permalink.match(/facebook\\.com\\/(\\d+)\\/posts\\/(\\w+)/);\nif (m) { oldPostId = `${m[1]}_${m[2]}`; }\nelse { m = permalink.match(/facebook\\.com\\/(\\d+_\\w+)/); if (m) oldPostId = m[1]; }\nreturn [{ json: {\n  notionPageId: rows[0].id,\n  contract_no: txt('案件編號').toUpperCase(),\n  keisId: p['KEIS物件ID']?.number || null,\n  oldPermalink: permalink,\n  oldPostId,\n  重發次數: p['重發次數']?.number || 0,\n  文案版本: p['文案版本']?.number || 1,\n  official_url: p['來源連結']?.url || '',\n} }];\n"
       },
       "id": "v3c-03-pick",
       "name": "挑一件重發",
@@ -151,7 +151,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 白名單清洗：只留廣告欄位，屋主個資(seller_*/apograph_*)一律 drop\nconst d = $input.first().json.data || $input.first().json;\nconst num = v => (v === null || v === undefined || v === '') ? null : Number(v);\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst features = [d.feature_1, d.feature_2, d.feature_3, d.feature_4, d.feature_5].map(s).filter(Boolean);\nconst 機能 = { 學區: s(d.school_info), 商圈: s(d.market_info), 捷運: s(d.mrt_station), 火車: s(d.train_station), 公車: s(d.bus_station) };\n// FB 一則貼文最多帶 10 張，多的不要上傳（之前全部傳完才丟掉，白花 API 呼叫）\nconst images = (d.images || []).map(x => x.image_url).filter(Boolean).slice(0, 10);\nreturn [{ json: {\n  contract_no: s(d.contract_no).toUpperCase(),\n  keisId: d.id,\n  案名: s(d.case_name),\n  總價萬: num(d.case_price),\n  單價: num(d.unit_price),\n  建物類型: s(d.property_type),\n  格局: s(d.layout),\n  主建坪: (d.main_area == null || d.main_area === '') ? null : Math.round(Number(d.main_area)*10)/10,\n  建物坪: (d.total_area == null || d.total_area === '') ? null : Math.round(Number(d.total_area)*10)/10,\n  樓層: s(d.floor_info),\n  社區: s(d.community_name),\n  地址: [s(d.property_address_city), s(d.property_address_district), s(d.property_address_road)].join(''),\n  屋齡: (d.age == null || d.age === '') ? null : Math.round(Number(d.age)),\n  車位: [s(d.parking_type), s(d.parking_method)].filter(Boolean).join('/'),\n  official_url: s(d.official_url),\n  images,\n  賣點: features,\n  機能\n}}];"
+        "jsCode": "// 白名單清洗：只留廣告欄位，屋主個資一律 drop\n// 2026-07-23 KEIS 砍欄位後改版：official_url 改從列表帶、格局樓層自己組、屋齡學區交給永慶官網\nconst d = $input.first().json.data || $input.first().json;\nconst list = $('挑一件重發').first().json || {};\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst num = v => (v === null || v === undefined || v === '') ? null : Number(v);\nconst r1 = v => (v === null || v === undefined || v === '') ? null : Math.round(Number(v) * 10) / 10;\n\nconst type = s(d.property_type);\nconst isLand = /土地|農|廠|車位/.test(type);\n\n// 格局：只寫有數字的，全 0 或土地類就留白（KEIS 前端也是這樣顯示）\nconst parts = [[Number(d.room_count) || 0, '房'], [Number(d.living_count) || 0, '廳'], [Number(d.bathroom_count) || 0, '衛']];\nconst 格局 = isLand ? '' : parts.filter(p => p[0] > 0).map(p => p[0] + p[1]).join('');\n\n// 樓層：起訖不同寫成範圍、地下室寫 B1、缺任一個就留白\nconst f = n => (n === null || n === undefined || n === '') ? null : (Number(n) < 0 ? 'B' + Math.abs(Number(n)) : String(Number(n)));\nconst a = f(d.floor_start), b = f(d.floor_end), t = f(d.total_floors);\nlet 樓層 = '';\nif (!isLand && a && t) 樓層 = (b && b !== a ? a + '-' + b : a) + '/' + t;\n\nconst 賣點 = [d.feature_1, d.feature_2, d.feature_3, d.feature_4, d.feature_5].map(s).filter(Boolean);\n\nreturn [{ json: {\n  contract_no: s(d.contract_no).toUpperCase(),\n  keisId: d.id,\n  案名: s(d.case_name),\n  總價萬: num(d.case_price),\n  單價: num(d.unit_price),\n  建物類型: type,\n  格局,\n  主建坪: r1(d.main_area),\n  建物坪: r1(d.total_area),\n  樓層,\n  社區: s(d.community_name),\n  地址: [s(d.property_address_city), s(d.property_address_district), s(d.property_address_road)].join(''),\n  車位: [s(d.parking_type), s(d.parking_method)].filter(Boolean).join('/'),\n  專員: s(d.sales_agent_name),\n  門市: s(d.store_name),\n  official_url: s(list.official_url),\n  賣點,\n  機能: { 商圈: s(d.market_info), 捷運: s(d.mrt_station), 公園: s(d.park_info) },\n}}];\n"
       },
       "id": "v3c-09-clean",
       "name": "白名單清洗",
@@ -179,7 +179,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是台灣資深房仲文案寫手。這是同一物件的「重發」，請換一個切入角度、換標題寫法，不要跟上一版雷同（事實數字仍不可改）。以下為官方結構化事實，全部是鐵律，禁止更改任何數字、禁止新增未提供的資訊（廣告不實有法律責任，寧可少講不可亂編）。\n\n【鐵律事實】\n案名：${$json['案名']}\n總價：${$json['總價萬']} 萬（文案只能出現這個價格數字，禁止任何其他價格）\n建物類型：${$json['建物類型']}\n格局：${$json['格局']}\n建物坪數：${$json['建物坪']} 坪（主建 ${$json['主建坪']} 坪）\n樓層：${$json['樓層']}\n屋齡：${$json['屋齡']} 年\n地址：${$json['地址']}\n車位：${$json['車位'] || '無'}\n\n【唯一可用的賣點素材】（只能改寫下列文字，不得自行補學區/捷運/建材/商圈等未列資訊）\n${($json['賣點']||[]).join('\\n')}\n機能（僅在有值時可提，空的不得杜撰）：學區「${$json['機能']['學區']}」商圈「${$json['機能']['商圈']}」捷運「${$json['機能']['捷運']}」\n\n【粉專主體】200-300 字：第一行【】標題（地段+房型+賣點+價格）；規格區每行一 emoji（📍地址 🏠格局 📐坪數 🏢屋齡樓層 💰開價，缺的省略）；空行；✨亮點 3-4 條「・」開頭。台灣房仲真實口吻，禁官腔，不放編號 hashtag、不放連結、不加電話公司字號（系統自動補）。\n【社團主體】50-80 字：一行 emoji 標題（地段+房型+關鍵賣點）；1-2 行賣點；結尾「詳情看留言」或「私訊索取」；不寫具體價格（可用概略如二字頭）、不放連結、不加電話公司字號。\n\n只回傳 JSON：{\\\"粉專主體\\\":\\\"\\\",\\\"社團主體\\\":\\\"\\\"}，不要 markdown、不要多餘說明。` }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 2048, responseMimeType: \"application/json\" }\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是台灣資深房仲文案寫手。這是同一物件的「重發」，請換一個切入角度、換標題寫法，不要跟上一版雷同（事實數字仍不可改）。以下為官方結構化事實，全部是鐵律，禁止更改任何數字、禁止新增未提供的資訊（廣告不實有法律責任，寧可少講不可亂編）。\n\n【鐵律事實】\n案名：${$json['案名']}\n總價：${$json['總價萬']} 萬（文案只能出現這個價格數字，禁止任何其他價格）\n建物類型：${$json['建物類型']}\n${$json['格局'] ? '格局：' + $json['格局'] + '\\n' : ''}建物坪數：${$json['建物坪']} 坪（主建 ${$json['主建坪']} 坪）\n${$json['樓層'] ? '樓層：' + $json['樓層'] + '\\n' : ''}${$json['屋齡'] ? '屋齡：' + $json['屋齡'] + ' 年\\n' : ''}地址：${$json['地址']}\n車位：${$json['車位'] || '無'}\n\n【唯一可用的賣點素材】（只能改寫下列文字，不得自行補學區/捷運/建材/商圈等未列資訊）\n${($json['賣點']||[]).join('\\n')}\n機能（僅在有值時可提，空的不得杜撰）：學區「${$json['學區']||''}」商圈「${$json['機能']['商圈']}」捷運「${$json['機能']['捷運']}」公園「${$json['機能']['公園']}」\n\n【粉專主體】150-260 字，**只能有這四塊，不准多寫任何自由描述段落**：①第一行【】標題（地段+房型+賣點+價格）；②規格區每行一 emoji（📍地址 🏠格局 📐坪數 🏢樓層 💰開價，沒給的直接省略整行）；③空行；④✨亮點 3-5 條「・」開頭，**每一條都必須是上面賣點素材的改寫，不得新增素材裡沒有的事物**（例如不准自己加陽台、格局方正、採光通風、學區、屋齡）。結尾不要加行動呼籲段落。台灣房仲真實口吻，禁官腔。⚠️上面【鐵律事實】沒列出來的規格一律不得出現，包含屋齡、學區、車位數量——沒給就代表官方沒有這筆資料，連推測、連「全新」「新成屋」「X年新」這種年份暗示都不准寫，不放編號 hashtag、不放連結、不加電話公司字號（系統自動補）。\n【社團主體】50-80 字：一行 emoji 標題（地段+房型+關鍵賣點）；1-2 行賣點；結尾「詳情看留言」或「私訊索取」；不寫具體價格（可用概略如二字頭）、不放連結、不加電話公司字號。\n\n只回傳 JSON：{\\\"粉專主體\\\":\\\"\\\",\\\"社團主體\\\":\\\"\\\"}，不要 markdown、不要多餘說明。` }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 2048, responseMimeType: \"application/json\" }\n}) }}",
         "options": {
           "timeout": 60000
         }
@@ -229,38 +229,27 @@
     },
     {
       "parameters": {
-        "fieldToSplitOut": "images",
-        "options": {}
-      },
-      "id": "v3c-20-splitimg",
-      "name": "拆解照片",
-      "type": "n8n-nodes-base.splitOut",
-      "typeVersion": 1,
-      "position": [
-        1400,
-        0
-      ]
-    },
-    {
-      "parameters": {
         "method": "POST",
         "url": "https://graph.facebook.com/v21.0/1041868522352339/photos",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
           "parameters": [
             {
-              "name": "Content-Type",
-              "value": "application/json"
+              "parameterType": "formBinaryData",
+              "name": "source",
+              "inputDataFieldName": "photo"
+            },
+            {
+              "name": "published",
+              "value": "false"
             }
           ]
         },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ url: $json.images, published: false }) }}",
         "options": {
-          "timeout": 30000
+          "timeout": 60000
         }
       },
       "id": "v3c-21-uploadphoto",
@@ -283,7 +272,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const fbids = $input.all().map(i => i.json?.id).filter(Boolean).slice(0, 10);\nconst ctx = $('補上下文').first().json;\nreturn [{ json: { ...ctx, fbids } }];"
+        "jsCode": "const fbids = $input.all().map(i => i.json?.id).filter(Boolean).slice(0, 10);\nconst ctx = $('補上下文').first().json;\nreturn [{ json: { ...ctx, fbids } }];\n"
       },
       "id": "v3c-22-collect",
       "name": "收集 media id",
@@ -444,6 +433,162 @@
           "name": "LINE Channel Access Token"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 永慶官網補資料：補回 KEIS 砍掉的屋齡/學區，並用官網公開版本交叉驗證格局與樓層\n// 反查邏輯沿用線 D：搜尋頁 JSON-LD 拿候選 → 逐一開頁用標題驗證（第一個候選固定是假 id）\nconst norm = s => String(s || '').replace(/\\s+/g, '').toLowerCase();\nconst UA = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36', 'accept-language': 'zh-TW,zh;q=0.9' };\nconst results = [];\n\nfor (const item of $input.all()) {\n  const src = item.json;\n  const out = { ycUrl: '', ycHouseId: '', ycNote: '', 屋齡: null, 學區: '', 格局: src['格局'] || '', 樓層: src['樓層'] || '', 交叉檢查: [] };\n  try {\n    const digits = String(src.contract_no || '').replace(/^[A-Za-z]+/, '');\n    const city = (String(src['地址'] || '').match(/^(.{1,3}?[縣市])/) || [])[1] || '高雄市';\n    const listUrl = `https://buy.yungching.com.tw/list/${encodeURIComponent(city)}-_c/${digits}_kw`;\n    const html = String(await this.helpers.httpRequest({ url: listUrl, json: false, timeout: 20000, headers: UA }));\n    let cands = [];\n    for (const m of html.matchAll(/<script type=\"application\\/ld\\+json\">([\\s\\S]*?)<\\/script>/g)) {\n      let d; try { d = JSON.parse(m[1]); } catch (e) { continue; }\n      if (d['@type'] === 'ItemList' && Array.isArray(d.itemListElement)) {\n        cands = d.itemListElement.map(e => String(e.url || '')).filter(u => /\\/house\\/\\d+/.test(u));\n      }\n    }\n    const want = norm(src['案名']).split('|')[0].split('｜')[0];\n    let page = '';\n    for (const u of cands.slice(0, 4)) {\n      const p = String(await this.helpers.httpRequest({ url: u, json: false, timeout: 20000, headers: UA }));\n      const t = (p.match(/<title>([\\s\\S]*?)<\\/title>/) || [])[1] || '';\n      const head = norm(t.split('|')[0].split('｜')[0]);\n      if (head && want && (head === want || head.startsWith(want) || want.startsWith(head))) {\n        out.ycUrl = u; out.ycHouseId = (u.match(/\\/house\\/(\\d+)/) || [])[1] || ''; page = p; break;\n      }\n    }\n    if (!page) {\n      out.ycNote = cands.length ? `候選 ${cands.length} 筆對不上標題` : '搜尋無候選';\n    } else {\n      const t = page.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');\n      const age = (t.match(/屋齡\\s*([0-9.]{1,5})\\s*年/) || [])[1];\n      if (age) out['屋齡'] = Math.round(Number(age));\n      out['學區'] = [...new Set((t.match(/[一-龥]{2,6}(?:國小|國中)/g) || [])\n        .map(s => s.replace(/^(近|鄰|臨|旁|到|往)/, '')))].filter(s => s.length >= 3).slice(0, 3).join('、');\n      const ycLayout = (t.match(/([0-9]+房[0-9]+廳[0-9]+衛)/) || [])[1] || '';\n      const ycFloor = ((t.match(/([0-9B]{1,3}\\s*\\/\\s*[0-9]{1,3})\\s*樓/) || [])[1] || '').replace(/\\s+/g, '');\n      // 交叉驗證：兩邊都有值但對不上 → 留白，寧可少講\n      if (ycLayout && src['格局']) {\n        if (norm(ycLayout) !== norm(src['格局'])) { out['格局'] = ''; out['交叉檢查'].push(`格局不一致(KEIS ${src['格局']} / 官網 ${ycLayout})`); }\n      } else if (ycLayout && !src['格局']) { out['格局'] = ycLayout; }\n      if (ycFloor && src['樓層']) {\n        if (norm(ycFloor) !== norm(src['樓層'])) { out['樓層'] = ''; out['交叉檢查'].push(`樓層不一致(KEIS ${src['樓層']} / 官網 ${ycFloor})`); }\n      } else if (ycFloor && !src['樓層']) { out['樓層'] = ycFloor; }\n      out.ycNote = 'ok';\n    }\n  } catch (e) {\n    out.ycNote = '查詢失敗：' + (e.message || e);\n  }\n  if (!out.ycUrl) out.ycUrl = src.official_url || '';\n  results.push({ json: { ...src, ...out } });\n}\nreturn results;\n"
+      },
+      "id": "v3c-y1",
+      "name": "永慶官網補資料",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 數字守門員 v2：\n// (1) 文案裡的每個數字都要在官方事實裡找得到\n// (2) 官方沒有的欄位（屋齡/學區），文案裡連提都不准提——擋 AI 自己腦補\nconst j = $input.first().json;\n\nconst facts = new Set();\nconst push = v => {\n  if (v === null || v === undefined || v === '') return;\n  const n = String(v).replace(/,/g, '');\n  facts.add(n);\n  if (/^\\d+\\.\\d+$/.test(n)) { facts.add(String(Math.round(Number(n)))); facts.add(n.split('.')[0]); }\n  if (/^\\d+$/.test(n)) facts.add(String(Number(n)));\n};\n[j['總價萬'], j['單價'], j['主建坪'], j['建物坪'], j['屋齡']].forEach(push);\nconst raw = [j['格局'], j['樓層'], j['地址'], j['案名'], j['社區'], j['車位'], j['學區'],\n  ...(j['賣點'] || []), ...Object.values(j['機能'] || {})].join(' ');\n(raw.match(/\\d+(?:\\.\\d+)?/g) || []).forEach(push);\n['0912877583', '11034791100', '417208', '111'].forEach(push);\n\nconst fb = String(j['粉專文案'] || '');\nconst grp = String(j['社團文案'] || '');\nconst body = fb + '\\n' + grp;\n\n// (1) 數字檢查（先把網址拿掉，LINE 連結的亂碼裡有數字，不是文案在講的數字）\nconst scan = body.replace(/https?:\\/\\/\\S+/g, ' ');\nconst used = [...new Set((scan.match(/\\d+(?:\\.\\d+)?/g) || []))];\nconst badNums = used.filter(n => !facts.has(n) && !facts.has(String(Number(n))));\n\n// (2) 沒資料就不准提\nconst banned = [];\nif (j['屋齡'] === null || j['屋齡'] === undefined || j['屋齡'] === '') {\n  if (/屋齡|年新|新成屋|中古/.test(body)) banned.push('屋齡（官方沒這筆資料）');\n}\nif (!j['學區']) {\n  if (/學區|國小|國中/.test(body)) banned.push('學區（官方沒這筆資料）');\n}\nif (!j['格局'] && /\\d+房\\d+廳/.test(body)) banned.push('格局（官方沒這筆資料）');\nif (!j['樓層'] && /\\d+\\s*\\/\\s*\\d+\\s*樓|樓層/.test(body)) banned.push('樓層（官方沒這筆資料）');\n\nconst ctx = n => {\n  const i = body.indexOf(n);\n  return i < 0 ? '' : body.slice(Math.max(0, i - 12), i + 12).replace(/\\n/g, ' ');\n};\nconst ok = badNums.length === 0 && banned.length === 0;\nconst msg = ok ? '' :\n  `⚠️ ${j.contract_no} 這篇沒發，文案沒過檢查：\\n` +\n  (badNums.length ? `・查無出處的數字：${badNums.map(n => `${n}（…${ctx(n)}…）`).join('；')}\\n` : '') +\n  (banned.length ? `・不該提的項目：${banned.join('、')}\\n` : '') +\n  `Notion 沒有建列，要發請手動處理。`;\n\nreturn [{ json: { ...j, _guardOk: ok, _guardBad: badNums, _guardBanned: banned, _guardMsg: msg } }];\n"
+      },
+      "id": "v3c-g1",
+      "name": "數字守門員",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v3a-g2c",
+              "leftValue": "={{ $json._guardOk }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "v3c-g2",
+      "name": "數字都有出處?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: $json._guardMsg }] }) }}",
+        "options": {}
+      },
+      "id": "v3c-g3",
+      "name": "LINE 守門員告警",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1650,
+        220
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://keis.kshouse.com.tw/api/v1/property-management/{{ $('補上下文').first().json.keisId }}/download-images",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('KEIS 登入').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "v3c-p1",
+      "name": "KEIS 下載照片zip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "decompress",
+        "binaryPropertyName": "data",
+        "outputPrefix": "img_"
+      },
+      "id": "v3c-p2",
+      "name": "解壓照片",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        2150,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 解壓後所有照片在同一筆的多個 binary 欄位裡，拆成一筆一張，最多 10 張（FB 單篇上限）\nconst item = $input.first();\nconst bin = item.binary || {};\nconst keys = Object.keys(bin).sort((a, b) => String(bin[a].fileName || a).localeCompare(String(bin[b].fileName || b), 'en', { numeric: true }));\nconst pick = keys.filter(k => /image\\//.test(bin[k].mimeType || '')).slice(0, 10);\nif (!pick.length) return [];\nreturn pick.map((k, i) => ({ json: { idx: i, fileName: bin[k].fileName }, binary: { photo: bin[k] } }));\n"
+      },
+      "id": "v3c-p3",
+      "name": "照片分筆",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        0
+      ]
     }
   ],
   "connections": {
@@ -506,7 +651,7 @@
       "main": [
         [
           {
-            "node": "Gemini 產文案",
+            "node": "永慶官網補資料",
             "type": "main",
             "index": 0
           }
@@ -528,7 +673,7 @@
       "main": [
         [
           {
-            "node": "補上下文",
+            "node": "數字守門員",
             "type": "main",
             "index": 0
           }
@@ -539,18 +684,7 @@
       "main": [
         [
           {
-            "node": "拆解照片",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "拆解照片": {
-      "main": [
-        [
-          {
-            "node": "FB 上傳照片",
+            "node": "KEIS 下載照片zip",
             "type": "main",
             "index": 0
           }
@@ -617,6 +751,79 @@
         [
           {
             "node": "LINE 重發通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "數字守門員": {
+      "main": [
+        [
+          {
+            "node": "數字都有出處?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "數字都有出處?": {
+      "main": [
+        [
+          {
+            "node": "補上下文",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LINE 守門員告警",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "永慶官網補資料": {
+      "main": [
+        [
+          {
+            "node": "Gemini 產文案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KEIS 下載照片zip": {
+      "main": [
+        [
+          {
+            "node": "解壓照片",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解壓照片": {
+      "main": [
+        [
+          {
+            "node": "照片分筆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "照片分筆": {
+      "main": [
+        [
+          {
+            "node": "FB 上傳照片",
             "type": "main",
             "index": 0
           }
