@@ -85,7 +85,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ filter: { property: '案件編號', rich_text: { equals: $json.contract_no } }, page_size: 1 }) }}",
+        "jsonBody": "={{ JSON.stringify((() => { const cands = $('篩選候選').all().map(i => i.json.contract_no).filter(Boolean); const conds = cands.length ? cands.map(c => ({ property: '案件編號', rich_text: { equals: c } })) : [{ property: '案件編號', rich_text: { equals: '__none__' } }]; return { filter: { or: conds }, page_size: 100 }; })()) }}",
         "options": {}
       },
       "id": "v3a-04-dedupq",
@@ -101,11 +101,12 @@
           "id": "edOz4T0LC6EP41Ug",
           "name": "Notion API Token"
         }
-      }
+      },
+      "executeOnce": true
     },
     {
       "parameters": {
-        "jsCode": "// HTTP 節點回應與輸入同序：帶回候選欄位 + 是否已存在\nconst cand = $('篩選候選').all();\nreturn $input.all().map((res, i) => {\n  const c = cand[i]?.json || {};\n  const exists = ((res.json.results || []).length) > 0;\n  return { json: { ...c, _exists: exists } };\n});"
+        "jsCode": "// 一次撈回整批已建過的案件編號，比對候選（原本是每個候選打一次 Notion，40 次 → 1 次）\nconst res = $input.first().json;\nconst built = new Set(\n  (res.results || [])\n    .map(p => (p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '').toUpperCase().trim())\n    .filter(Boolean)\n);\nreturn $('篩選候選').all().map(i => {\n  const c = i.json;\n  const no = String(c.contract_no || '').toUpperCase().trim();\n  return { json: { ...c, _exists: !no || built.has(no) } };\n});\n"
       },
       "id": "v3a-05-mark",
       "name": "標記是否已存在",
