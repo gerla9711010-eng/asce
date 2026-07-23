@@ -288,20 +288,6 @@
     },
     {
       "parameters": {
-        "jsCode": "const checked = $('判斷是否下架').all().map(i => i.json);\nconst total = checked.length;\nconst removed = checked.filter(x => x.isRemoved);\nconst today = new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' });\nlet outcomes = [];\ntry { outcomes = $('判定刪除結果').all().map(i => i.json); } catch (e) {}\nconst byPage = {}; outcomes.forEach(o => byPage[o.pageId] = o);\nlet text;\nif (total === 0) text = `🌅 下架偵測 ${today}\\n\\n沒有已發布的廣告需要偵測。`;\nelse if (removed.length === 0) text = `🌅 下架偵測 ${today}\\n\\n✅ 檢查 ${total} 筆，全部仍在架上。`;\nelse {\n  const lines = removed.map(r => {\n    const o = byPage[r.pageId] || {};\n    const tag = o.fbDeleteFailed ? `⚠️粉專刪除失敗（${o.fbDeleteError}）→ 狀態未改，請手動刪` : (o.fbDeleted ? '粉專貼文已自動刪除' : '無粉專貼文');\n    return `・${r.caseName}（${r.contract_no}）— ${r.reason}；${tag}`;\n  }).join('\\n');\n  const failCount = removed.filter(r => (byPage[r.pageId] || {}).fbDeleteFailed).length;\n  text = `🚨 下架偵測 ${today}\\n\\n檢查 ${total} 筆，${removed.length} 筆已下架：\\n\\n${lines}` + (failCount ? `\\n\\n⚠️ ${failCount} 筆粉專刪除失敗，需你手動處理。` : '');\n}\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text } }];"
-      },
-      "id": "v3b-12-summary",
-      "name": "彙總結果",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1120,
-        128
-      ],
-      "executeOnce": true
-    },
-    {
-      "parameters": {
         "method": "POST",
         "url": "https://api.line.me/v2/bot/message/push",
         "authentication": "genericCredentialType",
@@ -499,6 +485,95 @@
       ],
       "alwaysOutputData": true,
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f1",
+              "leftValue": "={{ $json.fbDeleteFailed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "篩出刪文失敗",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        660,
+        276
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// 只有「粉專貼文自動刪除失敗」才會走到這。把連結附上讓使用者點進去直接刪。\nconst rows = $input.all().map(i => i.json);\nconst lines = rows.map(r =>\n  `・${r.caseName}（${r.contract_no}）\\n　${r.fbPostUrl || '(Notion 沒存連結，請到粉專找)'}\\n　錯誤：${r.fbDeleteError || '未知'}`\n).join('\\n\\n');\nconst text = `⚠️ 粉專貼文自動刪除失敗（${rows.length} 筆）\\n\\n`\n  + `物件已下架但貼文還掛在粉專上，點連結進去手動刪：\\n\\n${lines}\\n\\n`\n  + `這幾筆的 Notion 狀態還是「已發布」，明天 08:00 會自動再試一次。\\n`\n  + `如果連續幾天都收到這則，代表 FB 權杖有問題，要重新產。`;\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text } }];"
+      },
+      "name": "組刪文失敗通知",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        276
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "k1",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "篩出 KEIS 故障",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        476
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// KEIS 撈不到資料 → 今天的下架偵測等於沒跑，要讓使用者知道（不然是靜悄悄地壞掉）。\nconst r = $input.first().json || {};\nconst code = r.statusCode ?? '無回應';\nconst text = `🔧 廣告下架偵測今天沒跑成功\\n\\n`\n  + `KEIS 廣告追蹤撈不到資料（HTTP ${code}）。\\n`\n  + `今天不會有任何自動下架動作，明天 08:00 會再試。\\n\\n`\n  + `連續兩天收到就要查 KEIS 帳密或系統狀態。`;\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text } }];"
+      },
+      "name": "組 KEIS 故障通知",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        476
+      ]
     }
   ],
   "connections": {
@@ -566,13 +641,7 @@
             "index": 0
           }
         ],
-        [
-          {
-            "node": "彙總結果",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "備妥刪文": {
@@ -604,6 +673,11 @@
             "node": "可標下架?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "篩出刪文失敗",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -617,13 +691,7 @@
             "index": 0
           }
         ],
-        [
-          {
-            "node": "彙總結果",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "PATCH 標記下架": {
@@ -657,24 +725,7 @@
             "index": 0
           }
         ],
-        [
-          {
-            "node": "彙總結果",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "KEIS 關閉廣告": {
-      "main": [
-        [
-          {
-            "node": "彙總結果",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "KEIS 登入": {
@@ -693,6 +744,55 @@
         [
           {
             "node": "查 Notion 已發布",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "篩出 KEIS 故障",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "篩出刪文失敗": {
+      "main": [
+        [
+          {
+            "node": "組刪文失敗通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組刪文失敗通知": {
+      "main": [
+        [
+          {
+            "node": "LINE Push 摘要",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "篩出 KEIS 故障": {
+      "main": [
+        [
+          {
+            "node": "組 KEIS 故障通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組 KEIS 故障通知": {
+      "main": [
+        [
+          {
+            "node": "LINE Push 摘要",
             "type": "main",
             "index": 0
           }
