@@ -111,7 +111,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const responses = $input.all();\nconst sources = $('展開結果').all();\nconst out = [];\nfor (let i = 0; i < responses.length; i++) {\n  const inItem = sources[i]?.json || {};\n  const r = responses[i].json || {};\n  const status = Number(r.statusCode ?? r.status ?? 0);\n  const body = r.body ?? r;\n  let keisOk = false, keisGone = false, reason = '';\n  if (status === 200 && body && typeof body === 'object') {\n    keisOk = true;\n    const items = body.items || body.data || [];\n    const total = body.total != null ? Number(body.total) : items.length;\n    if (total === 0) { keisGone = true; reason = 'KEIS 查無此案'; }\n    else if (items[0] && items[0].is_active === false) { keisGone = true; reason = 'KEIS is_active=false'; }\n    else { reason = '仍在架上'; }\n  } else {\n    reason = `KEIS 暫時無法確認(HTTP ${status})，本次略過`;\n  }\n\n  // 二次確認：KEIS 查無不代表下架——舊 v2 手動建檔的案子從來就不在 KEIS。\n  // 一定要來源連結也真的死了才動手，否則會刪掉還在賣的物件的粉專貼文。\n  let isRemoved = false;\n  if (keisOk && keisGone) {\n    const url = inItem.sourceUrl || '';\n    if (!url) {\n      reason += '；無來源連結可二次確認 → 略過';\n    } else {\n      try {\n        const resp = await this.helpers.httpRequest({\n          url, json: false, timeout: 20000, returnFullResponse: true, ignoreHttpStatusErrors: true,\n          headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' } });\n        const code = Number(resp.statusCode || 0);\n        const html = String(resp.body || '');\n        const dead = code >= 400 || /已下架|物件不存在|已成交|查無此物件|查無此案/.test(html);\n        if (dead) { isRemoved = true; reason += `；來源連結已失效(HTTP ${code}) → 判定下架`; }\n        else { reason += `；但來源連結仍正常(HTTP ${code}) → 略過`; }\n      } catch (e) {\n        reason += '；來源連結查詢失敗 → 略過';\n      }\n    }\n  }\n  out.push({ json: { ...inItem, isRemoved, reason, detectedAt: new Date().toISOString() } });\n}\nreturn out;"
+        "jsCode": "// 下架判定，兩套邏輯：\n//\n// (1) 有 KEIS廣告ID 的（v3 自己發的）→ 直接看 KEIS 廣告追蹤怎麼標。\n//     那個頁面本來就是拿來盯廣告死活的：KEIS 每天凌晨會去抓一輪 adcase_url，\n//     失效就把 url_invalid 設成 true、status_tags 加「案件下架」。實測新增時也會在 ~15 秒內抓一次。\n//     這比我們自己去打永慶網站準，也不用每筆手動確認。\n//\n// (2) 沒有 KEIS廣告ID 的（v2 時期用 LINE 手動建檔的舊資料，本來就不在 KEIS）\n//     → 退回雙重確認：property-management 查無 **而且** 來源連結真的死了。\n//     只看其中一邊都會誤判：舊資料本來就不在 KEIS；而 houseol 的來源連結會自己爛掉（物件還在賣）。\nconst responses = $input.all();\nconst sources = $('展開結果').all();\n\nconst adMap = {};\ntry {\n  const raw = $('KEIS 撈廣告清單').first().json;\n  const body = raw.body ?? raw;\n  for (const a of (body.adcases || [])) adMap[a.adcase_id] = a;\n} catch (e) {}\n\nconst out = [];\nfor (let i = 0; i < responses.length; i++) {\n  const inItem = sources[i]?.json || {};\n  const adId = Number(inItem.keisAdId || 0);\n  let isRemoved = false, reason = '';\n\n  if (adId > 0) {\n    const ad = adMap[adId];\n    if (!ad) {\n      reason = `KEIS 廣告追蹤查無 #${adId}（可能被手動刪掉）→ 略過`;\n    } else {\n      const tags = Array.isArray(ad.status_tags) ? ad.status_tags : [];\n      const tagDead = tags.some(t => String(t).includes('下架'));\n      if (ad.url_invalid === true || tagDead) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤標記官網連結已失效' + (tags.length ? `（${tags.join('、')}）` : '');\n      } else if (ad.is_expired === true) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤上這筆已結束';\n      } else {\n        reason = 'KEIS 廣告追蹤顯示連結正常';\n      }\n    }\n  } else {\n    const r = responses[i].json || {};\n    const status = Number(r.statusCode ?? r.status ?? 0);\n    const body = r.body ?? r;\n    let keisOk = false, keisGone = false;\n    if (status === 200 && body && typeof body === 'object') {\n      keisOk = true;\n      const items = body.items || body.data || [];\n      const total = body.total != null ? Number(body.total) : items.length;\n      if (total === 0) { keisGone = true; reason = '(舊資料) KEIS 查無此案'; }\n      else if (items[0] && items[0].is_active === false) { keisGone = true; reason = '(舊資料) KEIS is_active=false'; }\n      else { reason = '(舊資料) 仍在架上'; }\n    } else {\n      reason = `(舊資料) KEIS 暫時無法確認(HTTP ${status})，本次略過`;\n    }\n    if (keisOk && keisGone) {\n      const url = inItem.sourceUrl || '';\n      if (!url) {\n        reason += '；無來源連結可二次確認 → 略過';\n      } else {\n        try {\n          const resp = await this.helpers.httpRequest({\n            url, json: false, timeout: 20000, returnFullResponse: true, ignoreHttpStatusErrors: true,\n            headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' } });\n          const code = Number(resp.statusCode || 0);\n          const html = String(resp.body || '');\n          const dead = code >= 400 || /已下架|物件不存在|已成交|查無此物件|查無此案/.test(html);\n          if (dead) { isRemoved = true; reason += `；來源連結已失效(HTTP ${code}) → 判定下架`; }\n          else { reason += `；但來源連結仍正常(HTTP ${code}) → 略過`; }\n        } catch (e) {\n          reason += '；來源連結查詢失敗 → 略過';\n        }\n      }\n    }\n  }\n  out.push({ json: { ...inItem, isRemoved, reason, detectedAt: new Date().toISOString() } });\n}\nreturn out;"
       },
       "id": "v3b-05-judge",
       "name": "判斷是否下架",
@@ -466,6 +466,39 @@
         -1180,
         -32
       ]
+    },
+    {
+      "parameters": {
+        "url": "https://keis.kshouse.com.tw/api/v1/adcases?skip=0&limit=100",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('KEIS 登入').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "KEIS 撈廣告清單",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -980,
+        -32
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -645,6 +678,17 @@
       ]
     },
     "KEIS 登入": {
+      "main": [
+        [
+          {
+            "node": "KEIS 撈廣告清單",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KEIS 撈廣告清單": {
       "main": [
         [
           {

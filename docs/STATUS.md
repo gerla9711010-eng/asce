@@ -136,8 +136,8 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 
 - 網址：`https://keis.kshouse.com.tw/ad-tracker`
 - **有內部 API**，n8n 線 D 已全自動同步（新增/關閉），不需要 UI 自動化。端點與欄位見 `docs/v3-ad-auto-workorder.md` §15
-- 偵測邏輯：KEIS 自己會定時抓 `adcase_url` 驗證，回填 `url_price` / `url_invalid` / `offline_404_count`
-- 不靠 KEIS 做下架通知：下架判定一律用線 B 自家的 KEIS `is_active` 偵測，KEIS 廣告追蹤純當業務 dashboard
+- **它自己就是下架偵測器**：新增廣告後 15～20 秒、之後每天凌晨會去抓 `adcase_url`，死了就標 `url_invalid=true` + `status_tags:['案件下架']`，活著就把官網現價填進 `url_price`
+- 線 B 的下架判定**主要就是讀這個**（詳見工單 §17）。但 KEIS 只標記不會自動關閉，`is_expired` 要我們自己送
 
 ## 各 workflow / skill 行為
 
