@@ -1,5 +1,5 @@
 {
-  "_note": "LINE 主分流：依文字前綴或訊息類型分流到下游 workflow。新增『行事曆』『客戶』指令與『圖片自動分流』。",
+  "name": "LINE 指令分流器 v3",
   "nodes": [
     {
       "parameters": {
@@ -8,45 +8,264 @@
         "responseMode": "lastNode",
         "options": {}
       },
-      "id": "4e18c917-e9cd-43d7-b2b6-3ab52c08a091",
+      "id": "dc68373b-544e-46d4-8f48-2ed914b5e7c0",
       "name": "LINE Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-656, 208],
+      "position": [
+        -656,
+        368
+      ],
       "webhookId": "766bd943-f56c-4f78-b727-20e0d107d26a"
     },
     {
       "parameters": {
-        "jsCode": "// 解析 LINE 訊息：判斷文字前綴或圖片\nconst body = $input.first().json.body || $input.first().json;\nconst events = body.events || [];\n\nif (events.length === 0) {\n  return [{ json: { command: 'noop', text: '', replyToken: null, rawBody: body } }];\n}\n\nconst event = events[0];\nconst msg = event.message || {};\nconst msgType = msg.type || '';\nconst replyToken = event.replyToken || null;\n\nif (msgType === 'image') {\n  return [{ json: { command: 'image', text: '', replyToken, rawBody: body } }];\n}\n\nconst text = (msg.text || '').trim();\nlet command = 'unknown';\nif      (text.startsWith('建檔'))     command = 'create';\nelse if (text.startsWith('已撤除'))   command = 'remove';\nelse if (text.startsWith('生成文案')) command = 'rewrite';\nelse if (text.startsWith('發'))       command = 'publish';\nelse if (text.startsWith('停'))       command = 'stop';\nelse if (text.startsWith('行事曆'))   command = 'calendar';\nelse if (text.startsWith('客戶'))     command = 'customer';\nelse if (text === '戰果' || text === '今日戰果') command = 'battle';\nelse if (text === '天氣')             command = 'weather';\n\nreturn [{ json: { command, text, replyToken, rawBody: body } }];"
+        "jsCode": "// 解析 LINE 訊息：判斷文字前綴或圖片\nconst body = $input.first().json.body || $input.first().json;\nconst events = body.events || [];\n\nif (events.length === 0) {\n  return [{ json: { command: 'noop', text: '', replyToken: null, rawBody: body } }];\n}\n\nconst event = events[0];\nconst msg = event.message || {};\nconst msgType = msg.type || '';\nconst replyToken = event.replyToken || null;\n\nif (msgType === 'image') {\n  return [{ json: { command: 'image', text: '', replyToken, rawBody: body } }];\n}\n\nconst text = (msg.text || '').trim();\nlet command = 'unknown';\n// 2026-07-23 退役：建檔 / 生成文案 / 發 三個舊指令已由「廣告v3 掃描發文線」+ 桌面 /yc-ad skill 取代\nif      (text.startsWith('已撤除'))   command = 'remove';\nelse if (text.startsWith('停'))       command = 'stop';\nelse if (text.startsWith('行事曆'))   command = 'calendar';\nelse if (text.startsWith('客戶'))     command = 'customer';\nelse if (text === '戰果' || text === '今日戰果') command = 'battle';\nelse if (text === '天氣')             command = 'weather';\n\nreturn [{ json: { command, text, replyToken, rawBody: body } }];\n"
       },
-      "id": "fb843294-3b70-47c4-9de0-e9618bb9309e",
+      "id": "3d4d0a11-22a4-4a71-a956-6f61771425eb",
       "name": "解析 LINE 指令",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-448, 208]
+      "position": [
+        -448,
+        368
+      ]
     },
     {
       "parameters": {
         "rules": {
           "values": [
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c1", "leftValue": "={{ $json.command }}", "rightValue": "create",   "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "建檔" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c2", "leftValue": "={{ $json.command }}", "rightValue": "remove",   "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "已撤除" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c3", "leftValue": "={{ $json.command }}", "rightValue": "rewrite",  "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "生成文案" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c8", "leftValue": "={{ $json.command }}", "rightValue": "publish",  "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "發" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c4", "leftValue": "={{ $json.command }}", "rightValue": "calendar", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "行事曆" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c5", "leftValue": "={{ $json.command }}", "rightValue": "customer", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "客戶" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c6", "leftValue": "={{ $json.command }}", "rightValue": "image",    "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "圖片" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c7", "leftValue": "={{ $json.command }}", "rightValue": "battle",   "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "戰果" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "c9", "leftValue": "={{ $json.command }}", "rightValue": "stop",     "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "停" }
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c1",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "建檔"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c2",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "remove",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "已撤除"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c3",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "rewrite",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "生成文案"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c8",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "publish",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "發"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c4",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "calendar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "行事曆"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c5",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "customer",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "客戶"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c6",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "圖片"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c7",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "battle",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "戰果"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c9",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "stop",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "停"
+            }
           ]
         },
-        "options": { "fallbackOutput": "extra", "renameFallbackOutput": "其他" }
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "其他"
+        }
       },
-      "id": "2e79a655-1bc1-47d4-8601-466a4d6b6355",
+      "id": "80b06de8-b4fa-4acd-af98-2f6fa2670b30",
       "name": "Switch 指令分流",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [-272, 192]
+      "position": [
+        -272,
+        352
+      ]
     },
     {
       "parameters": {
@@ -57,11 +276,14 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "5892da4b-b3e4-4cdd-be70-cdf14be7294f",
+      "id": "6f4ef803-08e9-42ec-9249-655228048371",
       "name": "轉發到 Workflow 1 建檔",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, -160]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -74,8 +296,11 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
-      "position": [0, -32],
-      "id": "d49856a2-ae18-451e-b80d-3e17bf12c75b",
+      "position": [
+        0,
+        128
+      ],
+      "id": "0a08fe47-9e0a-4b24-ae83-671b1989090f",
       "name": "轉發到撤除回報器"
     },
     {
@@ -87,11 +312,14 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "f3a91c40-2b5e-4a8f-9c1d-5e2d1c4a7b01",
+      "id": "05c2e08c-8441-4746-8981-27425ca90684",
       "name": "轉發到文案重產器",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, 96]
+      "position": [
+        0,
+        256
+      ]
     },
     {
       "parameters": {
@@ -102,11 +330,14 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "f3a91c40-2b5e-4a8f-9c1d-5e2d1c4a7b06",
+      "id": "86957ea1-0fd3-437d-8ea2-71de4cf239f5",
       "name": "轉發到發文線",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, 160]
+      "position": [
+        0,
+        320
+      ]
     },
     {
       "parameters": {
@@ -117,11 +348,14 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "f3a91c40-2b5e-4a8f-9c1d-5e2d1c4a7b02",
+      "id": "fb28416f-3be2-4589-a7e2-fe4ba12cbb8e",
       "name": "轉發到行事曆建立",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, 224]
+      "position": [
+        0,
+        384
+      ]
     },
     {
       "parameters": {
@@ -132,11 +366,14 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "f3a91c40-2b5e-4a8f-9c1d-5e2d1c4a7b03",
+      "id": "0a213133-d821-48f8-a87a-a7c83c47180c",
       "name": "轉發到客戶建檔",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, 352]
+      "position": [
+        0,
+        512
+      ]
     },
     {
       "parameters": {
@@ -147,11 +384,14 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "f3a91c40-2b5e-4a8f-9c1d-5e2d1c4a7b04",
+      "id": "354f4c42-ad88-47f7-8c75-6befb95b365a",
       "name": "轉發到圖片分流",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, 480]
+      "position": [
+        0,
+        640
+      ]
     },
     {
       "parameters": {
@@ -162,11 +402,14 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "f3a91c40-2b5e-4a8f-9c1d-5e2d1c4a7b05",
+      "id": "1610392c-5c1d-4d4a-bbd4-5a7b3912ce90",
       "name": "轉發到戰果查詢",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, 608]
+      "position": [
+        0,
+        768
+      ]
     },
     {
       "parameters": {
@@ -177,21 +420,27 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "f3a91c40-2b5e-4a8f-9c1d-5e2d1c4a7b07",
+      "id": "eca29d74-3844-4eb3-b02a-1c0173b48088",
       "name": "轉發到廣告煞車",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, 672]
+      "position": [
+        0,
+        832
+      ]
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: { replyToken: $('解析 LINE 指令').first().json.replyToken, message: '❓ 無效指令\\n\\n可用指令：\\n• 建檔 [永慶網址]\\n• 已撤除 YCxxx\\n• 生成文案 YCxxx [風格描述]\\n• 發 YCxxx（發布粉專廣告）\\n• 停 / 停 AGxxx（攔截待發廣告）\\n• 行事曆 [日期 時間 標題 地點 說明]\\n• 客戶 [姓名 電話 需求 …]\\n• 戰果（查今天 KEIS 搶單）\\n\\n直接傳圖片：自動判斷是「行事曆」或「客戶」' } }];"
+        "jsCode": "return [{ json: { replyToken: $('解析 LINE 指令').first().json.replyToken, message: '❓ 無效指令\n\n可用指令：\n• 已撤除 YCxxx\n• 停 / 停 AGxxx（攔截待發廣告）\n• 行事曆 [日期 時間 標題 地點 說明]\n• 客戶 [姓名 電話 需求 …]\n• 戰果（查今天 KEIS 搶單）\n\n直接傳圖片：自動判斷是「行事曆」或「客戶」\n\n※ 廣告建檔／發文已全自動（廣告v3 掃描發文線），文案改用桌面 /yc-ad' } }];"
       },
-      "id": "cc7fd522-66f8-423c-8c07-71bcedf14832",
+      "id": "233061a4-4186-40d1-bd8c-297163e8fb1a",
       "name": "未知指令處理",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [0, 736]
+      "position": [
+        0,
+        896
+      ]
     },
     {
       "parameters": {
@@ -200,39 +449,147 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.message }] }) }}",
         "options": {}
       },
-      "id": "271e663c-66f1-4f26-be70-ebfa57ae6bc3",
+      "id": "c7346718-406a-4e9b-bec3-19d24959713f",
       "name": "LINE 回覆（fallback）",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [352, 608],
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "position": [
+        352,
+        768
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     }
   ],
   "connections": {
-    "LINE Webhook":     { "main": [[{ "node": "解析 LINE 指令", "type": "main", "index": 0 }]] },
-    "解析 LINE 指令":   { "main": [[{ "node": "Switch 指令分流", "type": "main", "index": 0 }]] },
-    "Switch 指令分流": {
+    "LINE Webhook": {
       "main": [
-        [{ "node": "轉發到 Workflow 1 建檔", "type": "main", "index": 0 }],
-        [{ "node": "轉發到撤除回報器",       "type": "main", "index": 0 }],
-        [{ "node": "轉發到文案重產器",       "type": "main", "index": 0 }],
-        [{ "node": "轉發到發文線",           "type": "main", "index": 0 }],
-        [{ "node": "轉發到行事曆建立",       "type": "main", "index": 0 }],
-        [{ "node": "轉發到客戶建檔",         "type": "main", "index": 0 }],
-        [{ "node": "轉發到圖片分流",         "type": "main", "index": 0 }],
-        [{ "node": "轉發到戰果查詢",         "type": "main", "index": 0 }],
-        [{ "node": "轉發到廣告煞車",         "type": "main", "index": 0 }],
-        [{ "node": "未知指令處理",           "type": "main", "index": 0 }]
+        [
+          {
+            "node": "解析 LINE 指令",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "未知指令處理":     { "main": [[{ "node": "LINE 回覆（fallback）", "type": "main", "index": 0 }]] }
+    "解析 LINE 指令": {
+      "main": [
+        [
+          {
+            "node": "Switch 指令分流",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch 指令分流": {
+      "main": [
+        [
+          {
+            "node": "轉發到 Workflow 1 建檔",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到撤除回報器",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到文案重產器",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到發文線",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到行事曆建立",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到客戶建檔",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到圖片分流",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到戰果查詢",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到廣告煞車",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "未知指令處理",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "未知指令處理": {
+      "main": [
+        [
+          {
+            "node": "LINE 回覆（fallback）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "pinData": {},
-  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  }
 }
