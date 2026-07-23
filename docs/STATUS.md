@@ -190,11 +190,11 @@ Skill 會自動：
 | 檔案 / n8n workflow | 用途 | 狀態 |
 |---|---|---|
 | `yc-v3-scan-publish.json`「廣告v3 掃描發文線」 | 線 A 掃描+發文+**同步 KEIS 廣告追蹤**（cron 09/11/13/15/17/19，每次 1 件） | 🟢 active、實測發文成功 |
-| `yc-v3-removal.json`「廣告v3 下架偵測線」 | 線 B 下架偵測+刪 FB 文+**關閉 KEIS 廣告**（每天 08:00） | 🟢 active；**整線尚未實測過**（要等有物件真的下架，或手動跑一次） |
+| `yc-v3-removal.json`「廣告v3 下架偵測線」 | 線 B 下架偵測+刪 FB 文+**關閉 KEIS 廣告**（每天 08:00） | 🟢 active；判定段與關閉段都試跑驗過（見工單 §17）；只剩「真的有物件下架時刪 FB 文」那一步沒遇過 |
 | `yc-v3-stop.json`「廣告v3 煞車（停）」 | 煞車 webhook | 🟢 已啟用、實測攔截成功 |
 | `line-command-router.json`「LINE 指令分流器 v3」 | 加「停」出口 | 🟢 已啟用（舊 router 已 Unpublish） |
 
-**credential**：`KEIS API Token`（id `EaVn8LzS7lT5tW10`，Header Auth，`Authorization: Bearer <token_desktop>`）。⚠️ 這是從 KEIS 前端 localStorage 取的 JWT，**可能會過期**；線 A/B 開始整批失敗且錯誤是 401 就是它，重取一次貼進同一個 credential 即可（步驟：KEIS 登入 → F12 Console → `copy(localStorage.token_desktop)`）。
+**credential**：`KEIS 帳密（自動登入）`（id `KPvi4Z4Z8IAhKbdz`，**Custom Auth**，內容 `{"body":{"username":…,"password":…}}`）。線 A/B 每次跑都先自己打 `/auth/login` 拿新 token，**不需要再手動貼 token**。原因：KEIS 的 JWT 只活 8 小時，靜態 token 撐不過一天（詳見工單 §16）。舊的 `KEIS API Token`（`EaVn8LzS7lT5tW10`）已停用不再參考。
 
 **2026-07-22 實測結果**：LINE「停」→ 攔截成功；線 A 手動跑 → KEIS 撈案、Gemini 產文案、Notion 建列、LINE 預告、10 分鐘後自動發粉專多圖文全部正常，第一篇真實廣告已上線（YG0158419）。過程修掉三個 bug：面議價 9999 萬會被當真實價（已加價格過濾）、完成通知抓錯欄位、FB permalink 格式。Notion「狀態」已加 `待發` / `取消` 兩個選項（select 選項不存在會讓 Notion query 直接回 400）。
 
@@ -207,10 +207,14 @@ Skill 會自動：
 - 永慶官網連結 KEIS 完全沒存（149 欄位掃過），只能反查 `buy.yungching.com.tw/list/{城市}-_c/{編號數字}_kw` 讀 JSON-LD。⚠️ **第一個候選永遠是假 id `4308114`，一定要開頁面用標題驗證**。
 - Notion 廣告 DB 加了 `KEIS廣告ID`(number) 和 `永慶官網連結`(url) 兩欄。
 
+**2026-07-23 補**：線 B 用臨時 webhook 複製節點試跑（只讀，沒動到真資料），修掉兩個會出事的問題——KEIS token 8 小時就過期導致全系統靜默停擺（§16）、以及「KEIS 查無此案」被當成下架會誤刪還在賣的物件的粉專貼文（§17）。線 A 也做了同樣的只讀試跑，自動登入→撈案→判重→洗個資都正常。
+
+**試跑手法備忘**：n8n Public API 沒有「執行 workflow」端點。做法是**用 API 複製要測的節點到一支臨時 webhook workflow**（把 schedule trigger 換成 webhook、砍掉會寫入的節點、尾巴接一個 Code 節點回報結果），打完 webhook 就刪掉。這樣能在不碰真資料的情況下驗證線上邏輯。腳本在對話紀錄裡，要重做直接照這個模式。
+
 ### ▶ 下次開工從這裡接
 
-1. **線 B 整線實測**（唯一沒驗過的一條）：手動觸發「廣告v3 下架偵測線」跑一次，確認 KEIS 查 is_active → 刪 FB 文 → PATCH Notion → 關閉 KEIS 廣告整串會通。
-2. **線 C 重發輪替**（防貼文沉底）：Notion 已有「下次重發時間」的設計，尚未動工。
+1. **線 C 重發輪替**（防貼文沉底）：Notion 已有「下次重發時間」的設計，尚未動工。⚠️ KEIS 擋重複 `adcase_url`（工單 §15.1），重發時不要重建 KEIS 廣告。
+2. Notion 裡 4 筆 v2 時期的舊資料（YC1868705 / YC1868650 / YE0095535 / YC1835328）不在 KEIS，線 B 每天都會掃到它們然後略過。不影響運作，想清乾淨可以手動把狀態改掉。
 
 ## 廣告系統 v2 改造計畫（2026-07-15 拍板，已被 v3 取代，僅保留設計依據）
 
