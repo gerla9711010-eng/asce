@@ -7,13 +7,13 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 21 * * *"
+              "expression": "30 9,11,13,15,17,19 * * *"
             }
           ]
         }
       },
       "id": "v3c-01-cron",
-      "name": "每天21點重發",
+      "name": "重發時段",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
@@ -42,7 +42,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ filter: { and: [ { property: '要重發', checkbox: { equals: true } }, { property: '狀態', select: { equals: '已發布' } }, { property: '粉專貼文連結', url: { is_not_empty: true } }, { property: 'KEIS物件ID', number: { is_not_empty: true } }, { or: [ { property: '下次重發時間', date: { is_empty: true } }, { property: '下次重發時間', date: { on_or_before: $now.setZone('Asia/Taipei').toISODate() } } ] } ] }, sorts: [{ property: '下次重發時間', direction: 'ascending' }], page_size: 5 }) }}",
+        "jsonBody": "={{ JSON.stringify({ filter: { and: [ { property: '要重發', checkbox: { equals: true } }, { property: '狀態', select: { equals: '已發布' } }, { property: '粉專貼文連結', url: { is_not_empty: true } }, { property: 'KEIS物件ID', number: { is_not_empty: true } } ] }, sorts: [{ property: '最後重發時間', direction: 'ascending' }], page_size: 5 }) }}",
         "options": {}
       },
       "id": "v3c-02-list",
@@ -391,7 +391,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ properties: { '粉專貼文連結': { url: $('取貼文結果').first().json.permalink || null }, '粉專文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['粉專文案']||'').slice(0,1900) } }] }, '社團文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['社團文案']||'').slice(0,1900) } }] }, '重發次數': { number: Number($('挑一件重發').first().json['重發次數'] || 0) + 1 }, '文案版本': { number: Number($('挑一件重發').first().json['文案版本'] || 1) + 1 }, '下次重發時間': { date: { start: $now.setZone('Asia/Taipei').plus({ days: 14 }).toISODate() } } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ properties: { '粉專貼文連結': { url: $('取貼文結果').first().json.permalink || null }, '粉專文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['粉專文案']||'').slice(0,1900) } }] }, '社團文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['社團文案']||'').slice(0,1900) } }] }, '重發次數': { number: Number($('挑一件重發').first().json['重發次數'] || 0) + 1 }, '文案版本': { number: Number($('挑一件重發').first().json['文案版本'] || 1) + 1 }, '要重發': { checkbox: false }, '最後重發時間': { date: { start: $now.setZone('Asia/Taipei').toISODate() } } } }) }}",
         "options": {}
       },
       "id": "v3c-13-notion",
@@ -426,7 +426,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `🔁 已重發 ${$('取貼文結果').first().json.contract_no}\\n${$('取貼文結果').first().json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n舊貼文已刪，社團分享請重按這篇的「分享」。\\n\\n━ 社團版 ━\\n${$('取貼文結果').first().json['社團文案'] || ''}` }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `🔁 已重發 ${$('取貼文結果').first().json.contract_no}\\n${$('取貼文結果').first().json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n舊貼文已刪，社團分享請重按這篇的「分享」。\\n（Notion 的勾勾已自動取消，要再發就再勾一次）\\n\\n━ 社團版 ━\\n${$('取貼文結果').first().json['社團文案'] || ''}` }] }) }}",
         "options": {}
       },
       "id": "v3c-14-line",
@@ -447,7 +447,7 @@
     }
   ],
   "connections": {
-    "每天21點重發": {
+    "重發時段": {
       "main": [
         [
           {
