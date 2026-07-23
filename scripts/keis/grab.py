@@ -63,16 +63,17 @@ ONLY_MOBILE = True            # True=只搶號碼是手機的，市話/空號一
 EXCLUDE_TYPES = ["公寓"]      # 這些類型不搶；類型空白 / "-" 不受影響照收
 MIN_BUDGET_CEILING = 1000     # 預算「上限」低於這個(萬)不搶；預算空白不受影響照收
 
-# ====== 可視範圍（2026-07-23 加）======
-# 舊版只抓 page1 / page_size=20，等於「照單號排序的最新 20 筆」窗口。池子裡卡著大量
-# CoolingDown，一旦某天新進池的批次超過 20 筆、或編號夾在中間，就會有成員擠不進窗口。
-# 修法：①每輪窗口 20 → 100；②每 DEEP_SWEEP_SEC 做一次全池分頁掃描，深到底都看得到。
-PAGE_SIZE = 100               # 每輪查詢的窗口大小（單次請求，成本跟 20 幾乎一樣）
-DEEP_SWEEP_SEC = 600          # 每隔幾秒做一次「全池分頁掃描」（目前約 29 頁 2800 筆）
-DEEP_SWEEP_MAX_PAGES = 40     # 全池掃描最多翻幾頁（每頁 100 筆），防呆用
-DEEP_SWEEP_ROTATE = True      # 每次全池掃描輪流換一個帳號查。原因：帳號看不到自己申請過的
-                              # 名單，固定用同一個帳號會有一塊永遠的盲區（實測三帳號視角
-                              # 分別看到 2823/2835/2836 筆，聯集 2856 筆）
+# ====== 可視範圍（2026-07-23 定案）======
+# 【教訓】原本 page_size=20 的小窗口，本身就是「只搶新單」的把關——池子照編號由大到小排，
+# 前 20 筆幾乎必然是剛進池的。2026-07-23 我把窗口拉到 100 + 全池掃描，等於拆掉這道把關，
+# 改用「總帳沒看過就是新」替代，結果 10 分鐘就誤搶一筆建檔 2026-01-13 的老案
+# （原因：三帳號看到的池子不一樣，2823/2835/2836，「沒看過」常常只是「這個帳號看不到」）。
+# 定案：**搶單只看窗口前 WINDOW_SIZE 筆**，全池掃描降級成純紀錄、不參與任何搶單判定。
+WINDOW_SIZE = 40              # 搶單決策的窗口：只看編號最大的前 N 筆（使用者 07-23 拍板 40）
+PAGE_SIZE = 100               # 全池掃描每頁抓幾筆（API 上限 100，超過會回 0 筆）
+DEEP_SWEEP_SEC = 3600         # 全池掃描間隔。它只負責寫 inventory.csv 給人稽核，不影響搶單
+DEEP_SWEEP_MAX_PAGES = 40     # 全池掃描最多翻幾頁，防呆用
+DEEP_SWEEP_ROTATE = True      # 全池掃描輪流換帳號（帳號看不到自己申請過的，固定一個會有盲區）
 
 # ====== 只要真新單、不要二手貨（2026-07-23 加，使用者明確要求）======
 # 【KEIS 的殘酷事實，2026-07-23 實測證明】名單被申請後進 CoolingDown 7 天，到期會
@@ -99,6 +100,14 @@ DEEP_SWEEP_ROTATE = True      # 每次全池掃描輪流換一個帳號查。原
 # 為了讓這條定義站得住，掃描必須是**完整全池**（分頁掃到底），否則「沒看過」會被
 # 「窗口太小沒掃到」污染——這就是 PAGE_SIZE/DEEP_SWEEP 要放大的真正理由。
 ONLY_TRULY_NEW = True         # True=只搶真新單（強烈建議；False 會連二手回鍋貨一起搶）
+
+# ====== 建檔日期：只當「否決權」，不當「認可權」（2026-07-23 定案）======
+# 名單發放大致按建檔順序，只是後台不會建檔完馬上放。所以：
+#   建檔舊 → 一定不是新單（否決權，成立）← 用這個方向
+#   建檔新 → 不代表是新單（認可權，不成立：有躺在池子裡好幾天的）← 不用這個方向
+# 實測佐證：111 筆觀測到的新到貨，建檔落差全部 ≤6.98 天；而今天誤搶的 41290 建檔
+# 2026-01-13（六個月前），這道門檻擋得掉。設 10 天有 3 天緩衝，一筆觀測資料都不會誤擋。
+MAX_AGE_DAYS = 10             # 建檔超過幾天的一律不搶（不管它在窗口裡看起來多新）
 
 # --- watch 常駐監控模式設定（本機時間，店裡電腦請設成 Asia/Taipei）---
 # 2026-07-15 改成全天分層輪詢，不再有「時段外」完全不看：熱門時段(早上開盤+晚上同業活躍)
@@ -305,7 +314,8 @@ class Keis:
     def check_ip(self) -> dict:
         return self._get("/call-purchase/check-ip")
 
-    def query(self, page: int = 1, page_size: int = PAGE_SIZE) -> dict:
+    def query(self, page: int = 1, page_size: int = WINDOW_SIZE) -> dict:
+        """預設抓搶單窗口（WINDOW_SIZE 筆）。全池掃描才用 page_size=PAGE_SIZE 分頁翻。"""
         year = datetime.now().year
         params = {
             "page": page, "page_size": page_size, "inquiry_type": INQUIRY_TYPE,
@@ -319,11 +329,11 @@ class Keis:
         """全池分頁掃描：把所有頁抓回來併成一個 body（quota 用第一頁的）。
         用途見 CONFIG 的「可視範圍」——單靠 page1 會漏掉名次很深的釋出批次。
         比較貴（十幾個請求），所以只在 DEEP_SWEEP_SEC 間隔 / 收盤補配額時跑。"""
-        first = self.query(page=1)
+        first = self.query(page=1, page_size=PAGE_SIZE)
         recs = list(first.get("data") or [])
         page = 2
         while len(first.get("data") or []) == PAGE_SIZE and page <= max_pages:
-            d = self.query(page=page).get("data") or []
+            d = self.query(page=page, page_size=PAGE_SIZE).get("data") or []
             recs += d
             if len(d) < PAGE_SIZE:
                 break
@@ -385,6 +395,8 @@ def skip_reason(rec: dict) -> str | None:
         return f"預算上限{ceiling:.0f}萬<{MIN_BUDGET_CEILING}"
     # ---- 品質控管篩選 end ----
 
+    if MAX_AGE_DAYS is not None and age_days(rec) > MAX_AGE_DAYS:
+        return f"建檔{age_days(rec):.0f}天前(>{MAX_AGE_DAYS}天)"
     if PROPERTY_TYPES and rec.get("property_category") not in PROPERTY_TYPES:
         return f"非白名單類型={rec.get('property_category')}"
     budget = rec.get("budget_start") or 0
@@ -1297,19 +1309,10 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 counted_today.clear()
             seen_day = today
 
-            # 每輪掃 page1（PAGE_SIZE=100）；每隔 DEEP_SWEEP_SEC 改成全池分頁掃描，
-            # 補抓「名次很深、但今天才釋出」的批次（07-23 漏接事故的根因，見 CONFIG 可視範圍）。
-            deep_due = (time.time() - last_deep_sweep >= DEEP_SWEEP_SEC
-                        and not in_expected_offline(now))
-            if deep_due and DEEP_SWEEP_ROTATE and len(clients) > 1:
-                # 輪流換帳號做全池掃描：帳號看不到自己申請過的名單，固定一個帳號會有盲區
-                order = clients[deep_sweep_turn % len(clients):] + clients[:deep_sweep_turn % len(clients)]
-                deep_sweep_turn += 1
-                body = query_any(order, deep=True)
-            else:
-                body = query_any(clients, deep=deep_due)   # 主帳號一逾時就換下一個查，別整輪全盲
-            if deep_due:
-                last_deep_sweep = time.time()
+            # 【搶單只看這個窗口】編號最大的前 WINDOW_SIZE 筆。窗口本身就是「只搶新單」的
+            # 把關（池子照編號由大到小排，最前面幾乎必然是剛進池的）。全池掃描另外做，
+            # 而且**只寫總帳、絕不進搶單流程**——2026-07-23 就是把兩者混在一起才誤搶老案。
+            body = query_any(clients)          # 主帳號一逾時就換下一個查，別整輪全盲
             if consecutive_errors >= ERROR_ESCALATE_AFTER:
                 log(f"✅ 網路恢復（先前連續失敗 {consecutive_errors} 次），回到正常監控頻率")
                 # 只有「斷線警告真的推出去過」才推恢復通知：每晚必斷的時段推不出警告
@@ -1320,34 +1323,43 @@ def run_watch(clients: list, dry_run: bool) -> int:
             consecutive_errors = 0
             records = body.get("data", [])
 
-            # 總帳：把這輪看到的每個編號都記起來（含不符條件的），並判定誰是真新單。
-            # 第一次建立時把當下整池標成「基準快照」——那些多半是輪過好幾手的二手貨，不能搶。
-            if not inventory_ready:
-                deep_body = body if deep_due else query_any(clients, deep=True)
-                last_deep_sweep = time.time()
-                records = deep_body.get("data", records)
-                update_inventory(inventory, records, baseline=True)
-                seed_inventory_from_grabbed(inventory)   # 我方歷史搶單的章不能被基準蓋掉
-                save_inventory(inventory)
-                inventory_ready = True
-                last_inventory_save = time.time()
-                log(f"📒 建立名單總帳 inventory.csv：當下池子 {len(inventory)} 筆全部標為「基準快照」"
-                    f"（來歷不明、一律不搶），之後新進池的編號才算真新單")
-                body = deep_body
-            else:
-                newly_seen = update_inventory(inventory, records)
+            # ---- 總帳（純紀錄，不參與搶單判定）----
+            # 窗口每輪記；全池掃描每 DEEP_SWEEP_SEC 一次、輪流換帳號，補齊窗口看不到的部分。
+            # 這裡「新編號」只是紀錄用的，不會因此去搶——搶什麼一律由下面的窗口候選決定。
+            try:
+                newly_seen = update_inventory(inventory, records, baseline=not inventory_ready)
+                deep_due = (time.time() - last_deep_sweep >= DEEP_SWEEP_SEC
+                            and not in_expected_offline(now))
+                if deep_due or not inventory_ready:
+                    order = clients
+                    if DEEP_SWEEP_ROTATE and len(clients) > 1:
+                        k = deep_sweep_turn % len(clients)
+                        order = clients[k:] + clients[:k]
+                        deep_sweep_turn += 1
+                    deep_records = query_any(order, deep=True).get("data", [])
+                    last_deep_sweep = time.time()
+                    newly_seen += update_inventory(inventory, deep_records,
+                                                   baseline=not inventory_ready)
+                    if not inventory_ready:
+                        seed_inventory_from_grabbed(inventory)   # 我方歷史搶單的章不能被基準蓋掉
+                        inventory_ready = True
+                        newly_seen = []
+                        log(f"📒 建立名單總帳 inventory.csv：當下 {len(inventory)} 筆全部標為「基準快照」"
+                            f"（搶單只看窗口前 {WINDOW_SIZE} 筆，總帳只是紀錄）")
                 if newly_seen or time.time() - last_inventory_save >= INVENTORY_SAVE_SEC:
                     save_inventory(inventory)
                     last_inventory_save = time.time()
-                observe_appearances(newly_seen)   # 上架偵測＝總帳說沒看過的編號（跟搶單同一條規則）
-                for r in newly_seen:              # 每個新編號都留一行 log，事後可追
-                    log(f"🆕 新進池 id{r.get('summary_id')} 首次看到＝{r.get('status')}"
+                observe_appearances(newly_seen)   # 上架偵測：總帳第一次看到的編號
+                for r in newly_seen[:20]:         # 每個新編號留一行 log（一次爆量只印前 20 行）
+                    log(f"🆕 新編號 id{r.get('summary_id')}＝{r.get('status')}"
                         f"｜{r.get('target_city') or ''}{fmt_district(r)} "
                         f"{r.get('property_category') or ''} {fmt_budget(r)}"
                         f"｜建檔{str(r.get('start_time'))[:16]}"
                         f"｜{'符合條件' if matches(r) else '不搶:' + str(skip_reason(r))}")
+            except Exception as e:
+                log(f"⚠ 總帳更新失敗（純紀錄，不影響搶單）：{type(e).__name__}: {e}")
 
-            cands, _ = pick_candidates(body)
+            cands, _ = pick_candidates(body)      # 候選只從窗口來，永遠不從全池掃描來
             status_seen = observe_status_changes(body.get("data", []), status_seen)  # 記錄狀態轉換(誰、幾點被申請)
 
             # 先算今日新名單累計——就算配額用完、還沒搶，也要算得到，這樣結算/搶到時 LINE
