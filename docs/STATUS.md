@@ -84,6 +84,9 @@
 | 狀態 | select | `草稿` / `待發` / `已發布` / `下架` / `取消`（下架偵測 / v3 各線會 PATCH） |
 | KEIS廣告ID | number | 線 D 寫入：KEIS `ad-tracker` 的 `adcase_id`，線 B 靠它關閉廣告 |
 | 永慶官網連結 | url | 線 D 寫入：反查出來的 `buy.yungching.com.tw/house/{id}` |
+| 專員 | rich_text | 線 A 寫入：KEIS `sales_agent_name`，帶看前要找誰就看這欄 |
+| 所屬門市 | rich_text | 線 A 寫入：KEIS `store_name`（加盟體系各店）|
+| 專員電話 | phone_number | **KEIS API 沒有這個欄位，線 A 填不了**（探過 14 個端點，只有 `/auth/me` 回自己的電話）。要自動帶就得另外建一張「專員通訊錄」對照表，用姓名 join |
 | 要重發 | checkbox | **線 C 的名單就是這一欄**：打勾＝排隊等重發，**重發完系統自動取消勾**（一次性） |
 | 最後重發時間 | date | 線 C 寫入：這次重發的日期。空的＝沒重發過，排最前面 |
 | 重發次數 | number | 線 C 每重發一次 +1 |
