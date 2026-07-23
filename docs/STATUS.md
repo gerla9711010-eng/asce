@@ -177,7 +177,7 @@ Skill 會自動：
 | 工具 | 狀態 | 深度文件 |
 |---|---|---|
 | **公買搶單** `scripts/keis/grab.py` | 🟢 已上線（門市電腦）。2026-07-22 加品質控管篩選（只搶手機/排除公寓/預算上限<1000萬不搶/記行政區）+ 穩定性加固（主帳號逾時自動換帳號查、400自動重登、觀測檔搬離OneDrive）；分層時段改為 07:30-10:00／10:00-17:30／17:30-24:00／00:00-07:30(等同停止)。Notion 搶單名單 DB「行政區」欄位已用 API 補上 | `scripts/keis/README.md`、`docs/keis-grab-hardening-and-filters.md` |
-| **KEIS 廣告上架** `scripts/keis/publish.py` | 🟡 待第一次實跑驗 selector，見下方待辦 | `scripts/keis/README.md` |
+| ~~**KEIS 廣告上架** `scripts/keis/publish.py`~~ | ⚫ **已作廢**（2026-07-23）。它是用 Playwright 跑 KEIS UI 上架廣告，現在線 D 直接打 `POST /api/v1/adcases` 全自動做完，這支從沒實跑過就退場。桌面沒有這支，不用同步 | — |
 | **自動簽到** `scripts/clockin/` | 🟢 已上線，2026-07-14 首跑成功 | `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-20 第4輪修完（PR#76，桌面已同步）：數字欄位全形→半形正規化（解決中文輸入法打不進小數點）、精靈加←→方向鍵導航、拿掉貸款三步確認視窗改回謄本全自動、租賃案 W3 單價改顯示「元/坪」。清單：桌面 `售屋表v3.6實測清單.md`。⚠️ 待門市拿真實案件實測；塗銷防護只用模擬文字驗過，遇真實含塗銷謄本要核對 log | `scripts/sale-form/README.md` |
 
@@ -233,7 +233,7 @@ Skill 會自動：
 1. ~~FB 永久 token~~ **已完成**（2026-07-16）：粉專「買房不費力,賣房好給力」，App `kaixuan-ad-bot`、系統使用者 `n8n-bot`（Employee，僅指派此粉專內容權限+此 App），權杖存進 n8n Credential `FB Page Token`
 2. n8n 發文線（**下一步**）：建檔 workflow 接「文案 → LINE 預覽 → 回『發』→ Graph API 發文（多照片）→ 存 permalink」
 3. 下架線：`yc-removal-detector` 接「Graph API 刪 post」+ 重新啟用 cron（舊的「等 6/1 額度」理由早已過期）
-4. KEIS 駐守：先驗證 `scripts/keis/publish.py` 能跑（`--login` 一次 → `publish.py YC1868650`，YC1868650 尚未上架），再改成輪詢模式駐店電腦
+4. ~~KEIS 駐守腳本~~ 已被 v3 線 D 取代（改走 KEIS API，不需要駐店電腦跑瀏覽器）
 5. 清舊：砍 `yc-rewrite-copy` workflow + router `生成文案` 出口；yc-ad skill 降級為維修工具（調文案/查狀態），改寫 SKILL.md
 
 **未來候補（FB 發文線步驟2-5全部跑順、驗收過後才排）**：多開一個 IG 帳號專門發廣告。使用者要先自己去 Meta Business Suite 把新 IG 轉商業帳號、綁到粉專＋開權限，之後才接 n8n（IG Graph API 是兩段式 container→publish，跟 FB 貼文 API 不同端點）。目前卡在使用者尚未建帳號，不用主動催。
