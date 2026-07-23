@@ -38,7 +38,6 @@
 
 | 指令格式 | 行為 | 下游 workflow |
 |---|---|---|
-| `已撤除 YCxxx` | 標記該物件「已撤除確認 = true」 | `yc-property-remove` |
 | `停` / `停 AGxxx` | 攔截待發廣告 | `yc-v3-stop` |
 | `行事曆 <自由描述>` | Gemini 解析時間/地點/說明 → 建到 Google primary 行事曆 | `line-calendar-create` |
 | `客戶 <自由描述>` | Gemini 抽姓名/電話/公司/需求 → 寫進 Notion 客戶名單 DB | `line-customer-create` |
@@ -78,7 +77,7 @@
 | 永慶官網連結 | url | 線 D 寫入：反查出來的 `buy.yungching.com.tw/house/{id}` |
 | 專員 | rich_text | 線 A 寫入：KEIS `sales_agent_name`，帶看前要找誰就看這欄 |
 | 所屬門市 | rich_text | 線 A 寫入：KEIS `store_name`（加盟體系各店）|
-| 專員電話 | phone_number | ⚠️ **沒有任何 workflow 在寫這欄**（2026-07-23 全 n8n 掃過確認）。KEIS API 沒有（探過 14 個端點）；真來源是展售系統，見下方「專員電話來源」，登入已打通但**還沒接進線 A**。目前 5 筆是手動補的 |
+| 專員電話 | phone_number | ❓**來源不明但確實會自動出現**：2026-07-22 起每一筆新物件都有值，且是在「建列 → 10 分鐘煞車視窗 → 標已發布」這段窗內被寫進去的（`重查狀態` 節點讀回來就已經有了）。但 2026-07-23 掃過 n8n 全部 workflow（21 支）+ 這台電腦的工作排程，**找不到任何在寫這欄的東西**，KEIS 詳情 API 也沒回這個值。**動這欄之前先查清楚是誰在寫** |
 | 要重發 | checkbox | **線 C 的名單就是這一欄**：打勾＝排隊等重發，**重發完系統自動取消勾**（一次性） |
 | 最後重發時間 | date | 線 C 寫入：這次重發的日期。空的＝沒重發過，排最前面 |
 | 重發次數 | number | 線 C 每重發一次 +1 |
@@ -109,7 +108,6 @@
 LINE Webhook (/766bd943-…)                  ← 行動 / 手機場景
    ↓
 LINE 指令分流 (Switch by command / message type)
-   ├── remove   → 撤除回報器       (/yc-property-remove)
    ├── stop     → 廣告v3 煞車      (/yc-v3-stop)
    ├── calendar → 行事曆建立器     (/line-calendar-create)
    ├── customer → 客戶建檔器       (/line-customer-create)
@@ -117,12 +115,11 @@ LINE 指令分流 (Switch by command / message type)
    └── image    → 圖片分流器       (/line-image-dispatcher)
                        └─ Gemini Vision 分類 → calendar 或 customer
 
-   ✂️ 2026-07-23 拔掉：create（物件建檔器）/ rewrite（文案重產器）/ publish（YC 發文線）
-      三支下游 workflow 已停用；Switch 分支與轉發節點保留但永遠不會被觸發
-
-殭屍（active 但 10 天 0 執行，功能已被 yc-v3-removal 取代，暫留未刪）
-   ├── YC 下架偵測線（yc-removal-detector）
-   └── 撤除回報器（仍掛在 LINE「已撤除」指令上，會被觸發）
+   ✂️ 2026-07-23 拔掉的指令：create（物件建檔器）/ rewrite（文案重產器）/ publish（YC 發文線）
+      → 三支 workflow 已停用（未刪），Switch 分支與轉發節點保留但不會被觸發
+   ✂️ 2026-07-23 刪除的 workflow：YC 下架偵測線、撤除回報器
+      → `已撤除 YCxxx` 指令一併退役（下架改由線 B yc-v3-removal 全自動偵測）
+      → JSON 備份在 backup/n8n-deleted-2026-07-23/
 
 Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
    /yc-ad 或自然語言「發 YCxxx」「同步 KEIS」等
@@ -192,9 +189,8 @@ GET https://es.houseol.com.tw/Function/FancyWindows.aspx?job=ContactDetails&HID=
 
 ## 各 workflow / skill 行為
 
-- **撤除回報器**：抓 YC 編號 → Notion query → PATCH 已撤除確認 + 下架偵測時間 → LINE 回覆（仍在線，LINE「已撤除 YCxxx」會用到）
-- **下架偵測（舊，yc-removal-detector）**：撈 `已撤除確認=false 且 狀態≠下架` → GET 來源連結 → 死了就 PATCH 狀態=下架 → Push/Reply 摘要。⚠️ active 但近 10 天 0 執行，功能已被線 B（yc-v3-removal）取代，可考慮停用
 - ~~物件建檔器 / 文案重產器 / YC 發文線~~：**2026-07-23 已停用**，功能由「廣告v3 掃描發文線」+ 桌面 `/yc-ad` skill 取代
+- ~~撤除回報器 / YC 下架偵測線（舊）~~：**2026-07-23 已刪除**，功能由線 B（yc-v3-removal）全自動取代
 - **行事曆建立器**：`行事曆 ...` 文字或圖片 → Gemini 抽 `{title,start,end,location,description}` → Google Calendar primary 建 event → LINE 回覆（含失敗原因）
 - **客戶建檔器**：`客戶 ...` 文字或圖片（名片）→ Gemini 抽姓名/電話/公司/LINE/來源/狀態/標籤/備註/追蹤日 → Notion 客戶名單 DB 新增 → LINE 回覆（失敗會帶 Notion API 原始錯誤）
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發到行事曆建立器或客戶建檔器（分不出時預設客戶）
