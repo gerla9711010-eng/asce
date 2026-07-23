@@ -1,64 +1,109 @@
 {
-  "_note": "客戶建檔器：LINE 收到「客戶 ...」文字或圖片（名片）→ Gemini 抽欄位 → Notion 客戶名單 DB (3eb990...) 新增頁面 → LINE 回覆。失敗會帶 Notion API 原始訊息。",
+  "name": "客戶建檔器",
   "nodes": [
     {
-      "parameters": { "httpMethod": "POST", "path": "line-customer-create", "options": {} },
-      "id": "b2000001-0001-0001-0001-000000000001",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "line-customer-create",
+        "options": {}
+      },
+      "id": "2cc9a48c-4aee-4477-a8f4-a616ac67efd5",
       "name": "Webhook 接收",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-1280, 0],
+      "position": [
+        -624,
+        112
+      ],
       "webhookId": "line-customer-create"
     },
     {
       "parameters": {
         "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst event = (body.events || [])[0] || {};\nconst msg = event.message || {};\nconst replyToken = event.replyToken || '';\nconst type = msg.type || 'text';\n\nlet text = '';\nlet imageId = '';\nif (type === 'image') {\n  imageId = msg.id || '';\n} else {\n  const raw = (msg.text || '').trim();\n  text = raw.replace(/^客戶[\\s:：]*/, '').trim();\n}\n\nconst todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });\nreturn [{ json: { type, text, imageId, replyToken, todayISO } }];"
       },
-      "id": "b2000001-0001-0001-0001-000000000002",
+      "id": "c18de3be-84fc-452f-bbc1-e4a48e3e033d",
       "name": "解析 LINE 輸入",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-1072, 0]
+      "position": [
+        -416,
+        112
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
-          "conditions": [{ "id": "isimg", "leftValue": "={{ $json.type }}", "rightValue": "image", "operator": { "type": "string", "operation": "equals" } }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "isimg",
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "image",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
       },
-      "id": "b2000001-0001-0001-0001-000000000003",
+      "id": "1d75a2e2-36a8-4eb1-a0d0-e0a633d22f06",
       "name": "是圖片嗎？",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [-864, 0]
+      "position": [
+        -208,
+        112
+      ]
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "=https://api-data.line.me/v2/bot/message/{{ $json.imageId }}/content",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": { "response": { "response": { "responseFormat": "file" } }, "timeout": 30000 }
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 30000
+        }
       },
-      "id": "b2000001-0001-0001-0001-000000000004",
+      "id": "bd71b3d8-efc5-45a5-a66f-a462df8cec6d",
       "name": "下載 LINE 圖片",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-656, -112],
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     },
     {
       "parameters": {
         "jsCode": "const item = $input.first();\nconst parsed = $('解析 LINE 輸入').first().json;\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst b64 = buf.toString('base64');\nconst mimeType = item.binary?.data?.mimeType || 'image/jpeg';\nreturn [{ json: { ...parsed, imageBase64: b64, imageMime: mimeType } }];"
       },
-      "id": "b2000001-0001-0001-0001-000000000005",
+      "id": "fe905f60-72f4-4c71-8cd1-20f011c16536",
       "name": "圖片轉 base64",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-448, -112]
+      "position": [
+        208,
+        0
+      ]
     },
     {
       "parameters": {
@@ -67,21 +112,43 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "content-type", "value": "application/json" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [\n    { inline_data: { mime_type: $json.imageMime, data: $json.imageBase64 } },\n    { text: `你是房仲客戶資料抽取助手。這張圖片可能是名片、聊天截圖、手寫聯絡資料，請抽取客戶資訊回傳純 JSON。\\n\\nJSON schema：\\n{\\n  \\\"客戶姓名\\\": \\\"必填，找不到就回空字串（下游會擋下）\\\",\\n  \\\"電話\\\": \\\"手機或市話，例 0912-345-678；多支號碼用逗號分隔\\\",\\n  \\\"公司\\\": \\\"只填【任職公司／服務單位名稱】，例如 台積電、永慶不動產。物件需求／地區／坪數／預算【絕對不要】放這欄，這些通通放備註並打對應標籤\\\",\\n  \\\"LINE\\\": \\\"LINE ID 或其他通訊軟體帳號\\\",\\n  \\\"地址\\\": \\\"住址或公司地址（會放進備註）\\\",\\n  \\\"來源\\\": \\\"必為其一：591/來電/介紹/路過/踩線/社群/其他；判斷不出就填 其他\\\",\\n  \\\"狀態\\\": \\\"預設 新名單；如果內容明顯是屋主委託，填 委託中屋主\\\",\\n  \\\"標籤\\\": [\\\"看到「找/想買/要買/預算/坪數/格局/區域偏好」→ 加買方；看到「想賣/委託出售」→ 加賣方；看到「想租/找租屋」→ 加租方；看到「出租中」→ 加出租；急、預算已確認 看明確程度加\\\"],\\n  \\\"備註\\\": \\\"其他資訊都塞這（職稱、email、物件需求例如「左營三房平車」、預算、坪數、區域、特殊條件）\\\",\\n  \\\"下次追蹤日\\\": \\\"YYYY-MM-DD，沒提到就空字串\\\"\\n}\\n\\n判斷要點：\\n- 「左營三房平車」「找三民3房」「想買透天」是【需求】→ 進備註 + 標籤買方\\n- 「永慶不動產博愛店」「ABC公司」是【公司名】→ 進公司\\n- 兩者都不是就把公司留空\\n\\n只回 JSON 物件，不要 markdown 不要說明。` }\n  ] }],\n  generationConfig: { temperature: 0.2, maxOutputTokens: 1024, responseMimeType: \"application/json\" }\n}) }}",
-        "options": { "timeout": 60000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
       },
-      "id": "b2000001-0001-0001-0001-000000000006",
+      "id": "8eba0cd3-99ea-4a1d-a583-118b8aac5df7",
       "name": "Gemini 解析（圖片）",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-240, -112],
+      "position": [
+        416,
+        0
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "zTIA89pDJJs0Ad29",
+          "name": "Gemini API Key"
+        }
+      }
     },
     {
       "parameters": {
@@ -90,46 +157,90 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "content-type", "value": "application/json" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [\n    { text: `你是房仲客戶資料抽取助手。請從以下文字抽取客戶資訊回傳純 JSON。\\n\\nJSON schema：\\n{\\n  \\\"客戶姓名\\\": \\\"必填\\\",\\n  \\\"電話\\\": \\\"\\\",\\n  \\\"公司\\\": \\\"只填【任職公司／服務單位】例如 台積電、永慶不動產。物件需求／地區／坪數／預算【絕對不要】放這欄\\\",\\n  \\\"LINE\\\": \\\"\\\",\\n  \\\"地址\\\": \\\"\\\",\\n  \\\"來源\\\": \\\"必為 591/來電/介紹/路過/踩線/社群/其他 之一，判斷不出填 其他\\\",\\n  \\\"狀態\\\": \\\"預設 新名單；明顯是屋主委託填 委託中屋主\\\",\\n  \\\"標籤\\\": [\\\"看到「找/想買/要買/預算/坪數/格局/區域偏好」→ 加買方；「想賣/委託出售」→ 賣方；「想租/找租屋」→ 租方；「出租中」→ 出租；急、預算已確認 看明確程度\\\"],\\n  \\\"備註\\\": \\\"物件需求例如「左營三房平車」「找三民3房」、預算、坪數、區域、職稱、email 都塞這\\\",\\n  \\\"下次追蹤日\\\": \\\"YYYY-MM-DD 或空字串\\\"\\n}\\n\\n判斷要點：\\n- 「左營三房平車」「找三民3房」「想買透天」是【需求】→ 進備註 + 標籤買方\\n- 「永慶不動產博愛店」「ABC公司」是【公司名】→ 進公司\\n- 兩者都不是公司就留空\\n\\n只回 JSON 物件。\\n\\n文字：\\n${$json.text}` }\n  ] }],\n  generationConfig: { temperature: 0.2, maxOutputTokens: 1024, responseMimeType: \"application/json\" }\n}) }}",
-        "options": { "timeout": 60000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
       },
-      "id": "b2000001-0001-0001-0001-000000000007",
+      "id": "7a4f6131-916c-488a-9e92-d41014f89aa0",
       "name": "Gemini 解析（文字）",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-448, 112],
+      "position": [
+        208,
+        224
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "zTIA89pDJJs0Ad29",
+          "name": "Gemini API Key"
+        }
+      }
     },
     {
       "parameters": {
         "jsCode": "const parsed = $('解析 LINE 輸入').first().json;\nconst resp = $input.first().json;\n\nif (resp.error) {\n  return [{ json: { ok: false, replyToken: parsed.replyToken, reason: `Gemini 錯誤：${resp.error.message || JSON.stringify(resp.error)}` } }];\n}\nconst aiText = resp.candidates?.[0]?.content?.parts?.[0]?.text || '';\nif (!aiText) {\n  return [{ json: { ok: false, replyToken: parsed.replyToken, reason: 'Gemini 沒回內容（可能 quota 用完或圖片無法辨識）' } }];\n}\nlet ai;\ntry {\n  const clean = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\n  ai = JSON.parse(clean);\n} catch (e) {\n  return [{ json: { ok: false, replyToken: parsed.replyToken, reason: `AI 回傳非 JSON：${aiText.slice(0,120)}` } }];\n}\n\nconst name = String(ai['客戶姓名'] || '').trim();\nif (!name) return [{ json: { ok: false, replyToken: parsed.replyToken, reason: '找不到客戶姓名' } }];\n\nconst allowedSource = ['591','來電','介紹','路過/踩線','社群','其他'];\nconst allowedStatus = ['新名單','已聯絡','可帶看','斡旋中','已成交','暫緩/無效','委託中屋主'];\nconst allowedTags   = ['買方','賣方','租方','出租','急','預算已確認'];\n\nlet source = String(ai['來源'] || '其他').trim();\nif (!allowedSource.includes(source)) source = '其他';\nlet status = String(ai['狀態'] || '新名單').trim();\nif (!allowedStatus.includes(status)) status = '新名單';\nlet tags = Array.isArray(ai['標籤']) ? ai['標籤'] : [];\ntags = tags.map(t => String(t).trim()).filter(t => allowedTags.includes(t));\n\nconst phone   = String(ai['電話'] || '').trim();\nconst company = String(ai['公司'] || '').trim();\nconst lineId  = String(ai['LINE'] || '').trim();\nconst address = String(ai['地址'] || '').trim();\nconst extra   = String(ai['備註'] || '').trim();\nconst followup= String(ai['下次追蹤日'] || '').trim();\n\n// 地址塞進備註\nconst noteParts = [];\nif (extra)   noteParts.push(extra);\nif (address) noteParts.push(`地址：${address}`);\nconst note = noteParts.join('\\n');\n\n// 組 Notion properties\nconst properties = {\n  '客戶姓名': { title: [{ text: { content: name } }] },\n  '來源': { select: { name: source } },\n  '狀態': { select: { name: status } }\n};\nif (phone)   properties['電話'] = { phone_number: phone };\nif (company) properties['公司'] = { rich_text: [{ text: { content: company } }] };\nif (lineId)  properties['LINE / 通訊軟體'] = { rich_text: [{ text: { content: lineId } }] };\nif (note)    properties['備註'] = { rich_text: [{ text: { content: note } }] };\nif (tags.length) properties['標籤'] = { multi_select: tags.map(name => ({ name })) };\nif (/^\\d{4}-\\d{2}-\\d{2}$/.test(followup)) properties['下次追蹤日'] = { date: { start: followup } };\n\nconst body = { parent: { database_id: '3eb9902989534654976e2f677b6957b3' }, properties };\nreturn [{ json: { ok: true, replyToken: parsed.replyToken, name, summary: { phone, company, lineId, source, status, tags, followup }, notionBody: body } }];"
       },
-      "id": "b2000001-0001-0001-0001-000000000008",
+      "id": "89294fb9-42cf-43ef-a4c7-fcc43f1fe6cd",
       "name": "驗證 + 組 Notion body",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [0, 0]
+      "position": [
+        656,
+        112
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
-          "conditions": [{ "id": "isok", "leftValue": "={{ $json.ok }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "isok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
       },
-      "id": "b2000001-0001-0001-0001-000000000009",
+      "id": "0000038e-851b-490c-a588-0fb967d05e8e",
       "name": "解析成功？",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [208, 0]
+      "position": [
+        864,
+        112
+      ]
     },
     {
       "parameters": {
@@ -138,41 +249,70 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "Notion-Version", "value": "2022-06-28" },
-          { "name": "Content-Type", "value": "application/json" }
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.notionBody) }}",
-        "options": { "timeout": 30000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
       },
-      "id": "b2000001-0001-0001-0001-00000000000a",
+      "id": "75152637-3001-4595-b917-24bcd6767add",
       "name": "Notion 建客戶",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [416, -96],
-      "credentials": { "httpHeaderAuth": { "id": "edOz4T0LC6EP41Ug", "name": "Notion API Token" } }
+      "position": [
+        1072,
+        16
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     },
     {
       "parameters": {
         "jsCode": "const data = $('驗證 + 組 Notion body').first().json;\nconst resp = $input.first().json;\n\nif (resp.object === 'error' || !resp.id) {\n  const errMsg = resp.message || resp.error?.message || JSON.stringify(resp).slice(0,200);\n  const msg = `❌ 客戶建檔失敗\\n\\n姓名：${data.name}\\n原因：${errMsg}\\n\\n可能原因：\\n• Notion DB 沒分享給 integration（去 DB 右上 ⋯ → Connections 加入）\\n• 欄位名被改過（必須是「客戶姓名/電話/公司/LINE / 通訊軟體/來源/狀態/標籤/備註/下次追蹤日」）`;\n  return [{ json: { replyToken: data.replyToken, message: msg } }];\n}\n\nconst s = data.summary;\nconst lines = ['✅ 客戶已建檔', '', `👤 ${data.name}`];\nif (s.phone)    lines.push(`📞 ${s.phone}`);\nif (s.company)  lines.push(`🏢 ${s.company}`);\nif (s.lineId)   lines.push(`💬 ${s.lineId}`);\nlines.push(`📥 來源：${s.source}　狀態：${s.status}`);\nif (s.tags.length) lines.push(`🏷 ${s.tags.join('、')}`);\nif (s.followup)    lines.push(`⏰ 追蹤：${s.followup}`);\nif (resp.url)      lines.push('', resp.url);\nreturn [{ json: { replyToken: data.replyToken, message: lines.join('\\n') } }];"
       },
-      "id": "b2000001-0001-0001-0001-00000000000b",
+      "id": "0902cdd4-cedd-4d3e-9144-b2999dbbbf14",
       "name": "組成功/失敗訊息",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [624, -96]
+      "position": [
+        1280,
+        16
+      ]
     },
     {
       "parameters": {
         "jsCode": "const data = $input.first().json;\nreturn [{ json: { replyToken: data.replyToken, message: `❌ 客戶建檔失敗\\n\\n原因：${data.reason}\\n\\n格式範例：\\n• 客戶 王大明 0912345678 找三民區3房預算1500萬 介紹\\n• 客戶 陳小姐 LINE: abc123 想出租左營透天 急\\n（也可以直接傳一張名片照片）` } }];"
       },
-      "id": "b2000001-0001-0001-0001-00000000000c",
+      "id": "1c59ad00-e4aa-4896-a281-0d0e812906df",
       "name": "組失敗訊息（解析錯）",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [416, 96]
+      "position": [
+        1072,
+        208
+      ]
     },
     {
       "parameters": {
@@ -181,44 +321,185 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.message }] }) }}",
         "options": {}
       },
-      "id": "b2000001-0001-0001-0001-00000000000d",
+      "id": "10085e32-2425-4425-87d4-8fe67fcac20d",
       "name": "回覆 LINE",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [832, 0],
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "position": [
+        1488,
+        112
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     }
   ],
   "connections": {
-    "Webhook 接收":            { "main": [[{ "node": "解析 LINE 輸入",        "type": "main", "index": 0 }]] },
-    "解析 LINE 輸入":          { "main": [[{ "node": "是圖片嗎？",            "type": "main", "index": 0 }]] },
+    "Webhook 接收": {
+      "main": [
+        [
+          {
+            "node": "解析 LINE 輸入",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析 LINE 輸入": {
+      "main": [
+        [
+          {
+            "node": "是圖片嗎？",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "是圖片嗎？": {
       "main": [
-        [{ "node": "下載 LINE 圖片",  "type": "main", "index": 0 }],
-        [{ "node": "Gemini 解析（文字）", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "下載 LINE 圖片",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini 解析（文字）",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "下載 LINE 圖片":          { "main": [[{ "node": "圖片轉 base64",         "type": "main", "index": 0 }]] },
-    "圖片轉 base64":           { "main": [[{ "node": "Gemini 解析（圖片）",   "type": "main", "index": 0 }]] },
-    "Gemini 解析（圖片）":     { "main": [[{ "node": "驗證 + 組 Notion body", "type": "main", "index": 0 }]] },
-    "Gemini 解析（文字）":     { "main": [[{ "node": "驗證 + 組 Notion body", "type": "main", "index": 0 }]] },
-    "驗證 + 組 Notion body":   { "main": [[{ "node": "解析成功？",            "type": "main", "index": 0 }]] },
+    "下載 LINE 圖片": {
+      "main": [
+        [
+          {
+            "node": "圖片轉 base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "圖片轉 base64": {
+      "main": [
+        [
+          {
+            "node": "Gemini 解析（圖片）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini 解析（圖片）": {
+      "main": [
+        [
+          {
+            "node": "驗證 + 組 Notion body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini 解析（文字）": {
+      "main": [
+        [
+          {
+            "node": "驗證 + 組 Notion body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "驗證 + 組 Notion body": {
+      "main": [
+        [
+          {
+            "node": "解析成功？",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "解析成功？": {
       "main": [
-        [{ "node": "Notion 建客戶",        "type": "main", "index": 0 }],
-        [{ "node": "組失敗訊息（解析錯）", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Notion 建客戶",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "組失敗訊息（解析錯）",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Notion 建客戶":           { "main": [[{ "node": "組成功/失敗訊息", "type": "main", "index": 0 }]] },
-    "組成功/失敗訊息":         { "main": [[{ "node": "回覆 LINE",       "type": "main", "index": 0 }]] },
-    "組失敗訊息（解析錯）":    { "main": [[{ "node": "回覆 LINE",       "type": "main", "index": 0 }]] }
+    "Notion 建客戶": {
+      "main": [
+        [
+          {
+            "node": "組成功/失敗訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組成功/失敗訊息": {
+      "main": [
+        [
+          {
+            "node": "回覆 LINE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組失敗訊息（解析錯）": {
+      "main": [
+        [
+          {
+            "node": "回覆 LINE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "pinData": {},
-  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
 }

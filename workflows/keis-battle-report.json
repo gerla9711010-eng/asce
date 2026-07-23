@@ -1,6 +1,5 @@
 {
   "name": "KEIS 戰果查詢",
-  "_note": "LINE 打「戰果」→ router 轉發到 /webhook/keis-battle-report → 查 Notion 搶單名單 DB 今天的紀錄 → LINE reply 回覆（reply 不吃 push 月額度）。取代原本每天固定推的跨日結算：想知道才問，不想被吵。",
   "nodes": [
     {
       "parameters": {
@@ -8,22 +7,28 @@
         "path": "keis-battle-report",
         "options": {}
       },
-      "id": "br-webhook-0001",
+      "id": "99d9f322-31cb-4715-a783-84d0d790e0df",
       "name": "Webhook 收查詢",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [220, 300],
+      "position": [
+        -1024,
+        -144
+      ],
       "webhookId": "keis-battle-report-fixed-id"
     },
     {
       "parameters": {
         "jsCode": "// 從 router 轉發過來的 LINE 原始 body 取 replyToken\nconst body = $input.first().json.body || $input.first().json || {};\nconst events = body.events || [];\nconst replyToken = events.length ? (events[0].replyToken || null) : null;\nreturn [{ json: { replyToken } }];"
       },
-      "id": "br-parse-0001",
+      "id": "958da6db-b288-423a-afe5-672d4826048d",
       "name": "取 replyToken",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 300]
+      "position": [
+        -800,
+        -144
+      ]
     },
     {
       "parameters": {
@@ -49,11 +54,14 @@
         "jsonBody": "={{ JSON.stringify({ filter: { property: '搶到時間', date: { on_or_after: $now.setZone('Asia/Taipei').toFormat('yyyy-MM-dd') + 'T00:00:00+08:00' } }, sorts: [{ property: '搶到時間', direction: 'descending' }], page_size: 50 }) }}",
         "options": {}
       },
-      "id": "br-notion-0001",
+      "id": "bad57f8e-4988-4a73-acbd-6c5589178a67",
       "name": "查今天搶到的",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 300],
+      "position": [
+        -592,
+        -144
+      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "edOz4T0LC6EP41Ug",
@@ -65,11 +73,14 @@
       "parameters": {
         "jsCode": "// 組戰果訊息\nconst replyToken = $('取 replyToken').first().json.replyToken;\nconst results = ($input.first().json.results) || [];\nconst today = $now.setZone('Asia/Taipei').toFormat('yyyy-MM-dd');\n\nconst pick = (p, kind) => {\n  if (!p) return '';\n  if (kind === 'title') return (p.title || []).map(t => t.plain_text).join('');\n  if (kind === 'rich') return (p.rich_text || []).map(t => t.plain_text).join('');\n  if (kind === 'select') return p.select ? p.select.name : '';\n  if (kind === 'phone') return p.phone_number || '';\n  if (kind === 'date') return p.date ? p.date.start : '';\n  return '';\n};\n\nconst lines = results.map(r => {\n  const p = r.properties || {};\n  const name = pick(p['姓名'], 'title') || '(未提供)';\n  const phone = pick(p['電話'], 'phone');\n  const city = pick(p['縣市'], 'select');\n  const cat = pick(p['類型'], 'select');\n  const budget = pick(p['預算'], 'rich');\n  const acct = pick(p['帳號'], 'select');\n  const t = pick(p['搶到時間'], 'date');\n  const hhmm = t && t.length >= 16 ? t.slice(11, 16) : '';\n  return `・${name} ${phone}｜${city} ${cat} ${budget}${hhmm ? `（${hhmm}${acct ? ' ' + acct : ''}）` : ''}`;\n}).join('\\n');\n\nlet text;\nif (results.length > 0) {\n  text = `🎯 KEIS 今日戰果 ${today}\\n搶到 ${results.length} 筆：\\n${lines}`;\n} else {\n  text = `😴 KEIS 今日戰果 ${today}\\n目前 0 筆（還沒出貨或還沒搶到）\\n\\nℹ️ 系統若掛掉會另外收到「⚠ 沒心跳」通知；沒收到就代表監控正常運作中`;\n}\nreturn [{ json: { replyToken, text } }];"
       },
-      "id": "br-compose-0001",
+      "id": "ad8d2161-e239-4290-9561-8e709e3ed8a1",
       "name": "組戰果訊息",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 300]
+      "position": [
+        -368,
+        -144
+      ]
     },
     {
       "parameters": {
@@ -91,11 +102,14 @@
         "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.text }] }) }}",
         "options": {}
       },
-      "id": "br-reply-0001",
+      "id": "f7c7a462-69b9-4bd0-a5ce-664ed91f541e",
       "name": "LINE Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1100, 300],
+      "position": [
+        -144,
+        -144
+      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "OmFzUGgZ1xIpAAP5",
@@ -150,6 +164,9 @@
       ]
     }
   },
-  "pinData": {},
-  "meta": {}
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  }
 }

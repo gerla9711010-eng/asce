@@ -1,6 +1,5 @@
 {
   "name": "KEIS 心跳檢查",
-  "_note": "grab.py watch 每10分鐘 POST /webhook/keis-heartbeat；本workflow把時間戳存在workflow static data。排程每天10:00~22:00每2小時檢查一次，超過2小時沒心跳才推LINE告警（正常日子零訊息）。檢查時段刻意避開每晚00:00~約07:22的門市斷網（該時段心跳暫停屬正常，不能當死亡判定）。",
   "nodes": [
     {
       "parameters": {
@@ -8,22 +7,28 @@
         "path": "keis-heartbeat",
         "options": {}
       },
-      "id": "hb-webhook-0001",
+      "id": "5a404121-18d4-4827-8990-6d24f73dc7e6",
       "name": "Webhook 收心跳",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [240, 160],
+      "position": [
+        -592,
+        -384
+      ],
       "webhookId": "keis-heartbeat-fixed-id"
     },
     {
       "parameters": {
         "jsCode": "// 把最後心跳時刻存進 workflow static data（production 執行才會持久化）\nconst sd = $getWorkflowStaticData('global');\nsd.lastHeartbeat = Date.now();\nconst body = $input.first().json.body || $input.first().json || {};\nsd.lastHeartbeatText = body.ts || new Date().toISOString();\nreturn [{ json: { ok: true, saved: sd.lastHeartbeatText } }];"
       },
-      "id": "hb-save-0001",
+      "id": "6d35cf8d-6d4f-4b19-8cf7-2ac9e890dbb1",
       "name": "存心跳時間",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 160]
+      "position": [
+        -368,
+        -384
+      ]
     },
     {
       "parameters": {
@@ -36,21 +41,27 @@
           ]
         }
       },
-      "id": "hb-cron-0001",
+      "id": "8c8cadb3-835d-4396-a16e-554368943b78",
       "name": "排程檢查 10:00~22:00 每2小時",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [240, 400]
+      "position": [
+        -592,
+        -144
+      ]
     },
     {
       "parameters": {
         "jsCode": "// 檢查心跳新鮮度：超過2小時沒更新 = 系統可能掛了（門市電腦被關/程序消失/整天斷網）\n// 檢查排程只落在 10:00~22:00——每晚 00:00~約07:22 門市固定斷網，心跳暫停屬正常，\n// 不能在那段時間判死刑；10:00 檢查時若系統正常，心跳早已恢復（07:2x 起每10分鐘一跳）。\nconst sd = $getWorkflowStaticData('global');\nconst last = sd.lastHeartbeat || 0;\nconst ageMin = last ? Math.round((Date.now() - last) / 60000) : null;\nconst THRESHOLD_MIN = 120;\n\nif (last && ageMin < THRESHOLD_MIN) {\n  return [];  // 心跳新鮮 → 不吵你\n}\n\nconst lastText = sd.lastHeartbeatText || '（從未收到——可能剛匯入還沒收過心跳，或 grab.py 沒在跑）';\nconst text = `⚠ KEIS 搶單系統沒心跳\\n最後心跳：${lastText}` +\n  (ageMin != null ? `（${Math.floor(ageMin / 60)} 小時 ${ageMin % 60} 分前）` : '') +\n  `\\n\\n可能原因：門市電腦被關機／grab.py 程序消失／網路整天斷線\\n請回店裡看一下黑視窗還在不在，或重跑 run.bat`;\nreturn [{ json: { text } }];"
       },
-      "id": "hb-check-0001",
+      "id": "4e4dd625-1170-4a06-b768-9899933186e6",
       "name": "心跳過期才往下",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 400]
+      "position": [
+        -368,
+        -144
+      ]
     },
     {
       "parameters": {
@@ -72,11 +83,14 @@
         "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: $json.text }] }) }}",
         "options": {}
       },
-      "id": "hb-push-0001",
+      "id": "4cd3865b-c126-4f89-9632-20ec6a60c5ac",
       "name": "LINE Push 告警",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 400],
+      "position": [
+        -144,
+        -144
+      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "OmFzUGgZ1xIpAAP5",
@@ -120,6 +134,9 @@
       ]
     }
   },
-  "pinData": {},
-  "meta": {}
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  }
 }

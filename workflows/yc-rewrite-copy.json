@@ -1,4 +1,5 @@
 {
+  "name": "文案重產器",
   "nodes": [
     {
       "parameters": {
@@ -7,39 +8,62 @@
         "responseMode": "lastNode",
         "options": {}
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b001",
+      "id": "fe01a0c7-bd9d-43ee-b299-e995bec59c33",
       "name": "Webhook 接收",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-1856, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "yc-rewrite-copy"
     },
     {
       "parameters": {
         "jsCode": "const event = $input.first().json.events?.[0] || $input.first().json.body?.events?.[0];\nconst messageText = event?.message?.text || '';\nconst replyToken = event?.replyToken || '';\nconst userId = event?.source?.userId || '';\n\n// 格式：生成文案 YC123456 風格描述（YC 前空白可省略）\nconst m = messageText.match(/^生成文案[\\s]*([Yy][Cc]\\w+)[\\s\\u3000]+(.+)$/);\nif (!m) {\n  return [{ json: {\n    _isError: true,\n    replyToken,\n    replyText: `❌ 指令格式錯誤\\n\\n正確格式：\\n生成文案 YC編號 風格描述\\n例：生成文案 YC1835328 精簡口語\\n\\n收到：「${messageText}」`\n  }}];\n}\nconst caseId = m[1].toUpperCase();\nconst styleText = m[2].trim();\n\nreturn [{ json: { _isError: false, caseId, styleText, replyToken, userId, rawMessage: messageText } }];"
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b002",
+      "id": "385a6a36-77a8-4ff8-9c41-518296544573",
       "name": "解析 LINE 指令",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-1632, 0]
+      "position": [
+        224,
+        0
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
-            { "id": "fmt1", "leftValue": "={{ $json._isError }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+            {
+              "id": "fmt1",
+              "leftValue": "={{ $json._isError }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
           ],
           "combinator": "and"
         },
         "options": {}
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b010",
+      "id": "e600d637-625b-468c-a272-04a54d3464f1",
       "name": "格式錯誤?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [-1500, 0]
+      "position": [
+        368,
+        0
+      ]
     },
     {
       "parameters": {
@@ -50,8 +74,14 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Notion-Version", "value": "2022-06-28" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -59,11 +89,14 @@
         "jsonBody": "={{ JSON.stringify({ filter: { property: '案件編號', rich_text: { equals: $json.caseId } }, page_size: 1 }) }}",
         "options": {}
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b003",
+      "id": "e25784cd-8b07-48fc-bb77-9184413d2eeb",
       "name": "查 Notion 找物件",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-1408, 0],
+      "position": [
+        448,
+        0
+      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "edOz4T0LC6EP41Ug",
@@ -75,11 +108,14 @@
       "parameters": {
         "jsCode": "const cmd = $('解析 LINE 指令').first().json;\nconst page = ($json.results || [])[0];\nif (!page) {\n  throw new Error(`找不到 ${cmd.caseId}，請確認案件編號是否存在於 Notion`);\n}\n\nconst props = page.properties || {};\nconst rt = k => (props[k]?.rich_text?.[0]?.plain_text) || '';\nconst tt = k => (props[k]?.title?.[0]?.plain_text) || '';\nconst sel = k => props[k]?.select?.name || '';\nconst num = k => props[k]?.number ?? null;\nconst chk = k => !!props[k]?.checkbox;\n\nconst data = {\n  notionPageId: page.id,\n  existingVersion: num('文案版本') || 0,\n  案名: tt('案名'),\n  案件編號: rt('案件編號'),\n  社區名稱: rt('社區名稱'),\n  地址: rt('地址'),\n  建物類型: sel('建物類型'),\n  格局: rt('格局'),\n  樓層: rt('樓層'),\n  屋齡: num('屋齡'),\n  總價: rt('總價'),\n  單價: rt('單價'),\n  建物坪數: num('建物坪數'),\n  主建物坪數: num('主建物坪數'),\n  公設坪數: num('公設坪數'),\n  附屬建物: rt('附屬建物'),\n  土地坪數: num('土地坪數'),\n  有無車位: chk('有無車位'),\n  車位類型: sel('車位類型'),\n  特色說明: rt('特色說明'),\n  舊文案: rt('產生的文案'),\n  styleText: cmd.styleText,\n  replyToken: cmd.replyToken,\n  caseId: cmd.caseId\n};\nreturn [{ json: data }];"
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b004",
+      "id": "20437e24-8376-4bfa-8b9d-f834de6d3805",
       "name": "取出物件資料",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-1184, 0]
+      "position": [
+        672,
+        0
+      ]
     },
     {
       "parameters": {
@@ -90,19 +126,27 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "content-type", "value": "application/json" }
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是房地產文案寫手。請依「指定風格」重寫這個物件的臉書社團文案。\n\n【指定風格 — 必須遵守】\n${$json.styleText}\n\n【共通規則】\n- 開頭直接點出格局、地點、總價，不用標語或 emoji\n- 條列 4-6 項關鍵事實（坪數/屋齡/樓層/車位/特色），每項用「・」開頭\n- 結尾一句說明看屋請私訊或來電即可\n- 全文控制在 100 字以內\n- 若指定風格與共通規則衝突，以指定風格為準\n\n【物件資料】\n案名：${$json['案名']}\n案件編號：${$json['案件編號']}\n社區：${$json['社區名稱']}\n地址：${$json['地址']}\n建物類型：${$json['建物類型']}\n格局：${$json['格局']}\n樓層：${$json['樓層']}\n屋齡：${$json['屋齡']} 年\n總價：${$json['總價']}\n單價：${$json['單價']}\n建物坪數：${$json['建物坪數']}\n主建物坪數：${$json['主建物坪數']}\n公設坪數：${$json['公設坪數']}\n附屬建物：${$json['附屬建物']}\n土地坪數：${$json['土地坪數']}\n車位：${$json['有無車位'] ? ($json['車位類型'] || '有') : '無'}\n特色說明：${$json['特色說明']}\n\n【舊文案（參考用，不要照抄）】\n${$json['舊文案']}\n\n【輸出格式】\n只回傳一個 JSON 物件，格式：{\"產生的文案\":\"\"}\n不要 Markdown code block、不要任何說明文字。` }] }],\n  generationConfig: { temperature: 0.8, maxOutputTokens: 2048, responseMimeType: \"application/json\" }\n}) }}",
-        "options": { "timeout": 60000 }
+        "options": {
+          "timeout": 60000
+        }
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b005",
+      "id": "5c1fc84d-4721-44d8-b418-58f20715a69a",
       "name": "Gemini 重產文案",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-960, 0],
+      "position": [
+        896,
+        0
+      ],
       "retryOnFail": true,
       "waitBetweenTries": 5000,
       "credentials": {
@@ -116,11 +160,14 @@
       "parameters": {
         "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); }\ncatch (e) {\n  // 若 AI 沒回 JSON，直接把整段當文案吃進去\n  parsed = { 產生的文案: aiText.trim() };\n}\nconst src = $('取出物件資料').first().json;\nreturn [{ json: { ...src, 新文案: parsed['產生的文案'] || aiText.trim(), newVersion: (src.existingVersion || 0) + 1 } }];"
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b006",
+      "id": "1d8cc715-8720-43f4-9e95-8280889313c7",
       "name": "解析 AI 輸出",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-736, 0]
+      "position": [
+        1120,
+        0
+      ]
     },
     {
       "parameters": {
@@ -131,8 +178,14 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Notion-Version", "value": "2022-06-28" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -140,11 +193,14 @@
         "jsonBody": "={{ JSON.stringify({ properties: { '產生的文案': { rich_text: [{ text: { content: String($json['新文案'] || '') } }] }, '文案版本': { number: $json.newVersion } } }) }}",
         "options": {}
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b007",
+      "id": "7b310e8e-16db-4f52-a472-e49f67038b04",
       "name": "PATCH 更新文案",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-512, 0],
+      "position": [
+        1344,
+        0
+      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "edOz4T0LC6EP41Ug",
@@ -156,11 +212,14 @@
       "parameters": {
         "jsCode": "const notionPage = $input.first().json;\nconst src = $('解析 AI 輸出').first().json;\nconst notionUrl = notionPage.url || `https://www.notion.so/${String(notionPage.id || '').replace(/-/g, '')}`;\nconst replyText = `✅ 文案已重產（v${src.newVersion}）\\n\\n📋 ${src['案名']}\\n🏷 ${src.caseId}\\n🎨 風格：${src.styleText}\\n🔗 ${notionUrl}\\n\\n━━━ 新文案 ━━━\\n${src['新文案']}`;\nreturn [{ json: { replyToken: src.replyToken, replyText } }];"
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b008",
+      "id": "bc3d78ec-db52-4f03-8ab4-1a095fba488d",
       "name": "組 LINE 回覆訊息",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-288, 0]
+      "position": [
+        1568,
+        0
+      ]
     },
     {
       "parameters": {
@@ -171,7 +230,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -179,11 +241,14 @@
         "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.replyText }] }) }}",
         "options": {}
       },
-      "id": "a1f4d2c0-1b71-4e9b-9c45-7e3f51a8b009",
+      "id": "7b0b41a9-b742-4b6f-bdb9-a10cd20595ab",
       "name": "LINE 回覆",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-64, 0],
+      "position": [
+        1792,
+        0
+      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "OmFzUGgZ1xIpAAP5",
@@ -193,21 +258,115 @@
     }
   ],
   "connections": {
-    "Webhook 接收":      { "main": [[{ "node": "解析 LINE 指令", "type": "main", "index": 0 }]] },
-    "解析 LINE 指令":    { "main": [[{ "node": "格式錯誤?", "type": "main", "index": 0 }]] },
-    "格式錯誤?": {
+    "Webhook 接收": {
       "main": [
-        [{ "node": "LINE 回覆", "type": "main", "index": 0 }],
-        [{ "node": "查 Notion 找物件", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "解析 LINE 指令",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "查 Notion 找物件":  { "main": [[{ "node": "取出物件資料", "type": "main", "index": 0 }]] },
-    "取出物件資料":      { "main": [[{ "node": "Gemini 重產文案", "type": "main", "index": 0 }]] },
-    "Gemini 重產文案":   { "main": [[{ "node": "解析 AI 輸出", "type": "main", "index": 0 }]] },
-    "解析 AI 輸出":      { "main": [[{ "node": "PATCH 更新文案", "type": "main", "index": 0 }]] },
-    "PATCH 更新文案":    { "main": [[{ "node": "組 LINE 回覆訊息", "type": "main", "index": 0 }]] },
-    "組 LINE 回覆訊息":  { "main": [[{ "node": "LINE 回覆", "type": "main", "index": 0 }]] }
+    "解析 LINE 指令": {
+      "main": [
+        [
+          {
+            "node": "格式錯誤?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "格式錯誤?": {
+      "main": [
+        [
+          {
+            "node": "LINE 回覆",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "查 Notion 找物件",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查 Notion 找物件": {
+      "main": [
+        [
+          {
+            "node": "取出物件資料",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取出物件資料": {
+      "main": [
+        [
+          {
+            "node": "Gemini 重產文案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini 重產文案": {
+      "main": [
+        [
+          {
+            "node": "解析 AI 輸出",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析 AI 輸出": {
+      "main": [
+        [
+          {
+            "node": "PATCH 更新文案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PATCH 更新文案": {
+      "main": [
+        [
+          {
+            "node": "組 LINE 回覆訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組 LINE 回覆訊息": {
+      "main": [
+        [
+          {
+            "node": "LINE 回覆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "pinData": {},
-  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
 }

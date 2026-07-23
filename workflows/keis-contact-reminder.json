@@ -12,13 +12,13 @@
           ]
         }
       },
-      "id": "a1b2c3d4-0001-4a00-9000-000000000001",
+      "id": "de433ccc-86c5-4070-a15e-ae54d4d831cc",
       "name": "每日 09:00 Asia/Taipei",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -1120,
-        300
+        32,
+        -176
       ]
     },
     {
@@ -45,13 +45,13 @@
         "jsonBody": "={{ JSON.stringify({\n  filter: { property: '聯絡狀態', select: { equals: '未聯絡' } },\n  page_size: 100\n}) }}",
         "options": {}
       },
-      "id": "a1b2c3d4-0002-4a00-9000-000000000002",
+      "id": "c13c9590-195a-4a68-9512-922d7f654311",
       "name": "查 Notion 未聯絡名單",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -900,
-        300
+        256,
+        -176
       ],
       "credentials": {
         "httpHeaderAuth": {
@@ -64,13 +64,13 @@
       "parameters": {
         "jsCode": "// 從未聯絡名單中，挑出「搶到時間 + 7 天」剩 <= 2 天（含當天、含已過期）的\n// 剩 2/1 天、今天 = 黃燈🟡；已過期 = 紅燈🔴。沒有符合的就回空陣列 → 不推 LINE。\nconst USER_ID = 'Ufab42c56b2eb9b9a9ff18c367b85a6dd'; // 薛力瑜\nconst DAY = 24 * 3600 * 1000;\nconst results = $input.first().json.results || [];\nconst now = new Date();\n\nconst rows = [];\nfor (const p of results) {\n  const props = p.properties || {};\n  const grab = props['搶到時間'] && props['搶到時間'].date && props['搶到時間'].date.start;\n  if (!grab) continue; // 沒搶到時間不算\n  const deadline = new Date(new Date(grab).getTime() + 7 * DAY);\n  const daysLeft = Math.trunc((deadline - now) / DAY); // 與 Notion dateBetween 一致（截斷）\n  if (daysLeft > 1) continue; // 以 Notion「🔔 待聯絡」view 為準：只推剩≤1天(含今天/過期)\n  const name = (props['姓名'] && props['姓名'].title && props['姓名'].title[0] && props['姓名'].title[0].plain_text) || '(未命名)';\n  const phone = (props['電話'] && props['電話'].phone_number) || '';\n  const city = (props['縣市'] && props['縣市'].select && props['縣市'].select.name) || '';\n  const cat = (props['類型'] && props['類型'].select && props['類型'].select.name) || '';\n  const acct = (props['帳號'] && props['帳號'].select && props['帳號'].select.name) || '';\n  let flag;\n  if (daysLeft < 0) flag = '🔴已過期';\n  else if (daysLeft === 0) flag = '🟡今天到期';\n  else flag = '🟡剩' + daysLeft + '天';\n  rows.push({ daysLeft, name, phone, city, cat, acct, flag });\n}\n\nif (rows.length === 0) return []; // 沒有待提醒 → 不推 LINE\n\nrows.sort((a, b) => a.daysLeft - b.daysLeft); // 最急（已過期）排前面\nconst today = now.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' });\nconst lines = rows.map(function (r) {\n  const parts = [r.name, r.city + r.cat, r.phone, r.acct].filter(Boolean).join('｜');\n  return '・' + r.flag + '｜' + parts;\n}).join('\\n');\nconst text = '🔔 待聯絡提醒 ' + today + '\\n以下 ' + rows.length + ' 筆「未聯絡」快到期，記得跟進：\\n\\n' + lines;\nreturn [{ json: { userId: USER_ID, text } }];\n"
       },
-      "id": "a1b2c3d4-0003-4a00-9000-000000000003",
+      "id": "70a6236a-3b87-4002-b193-e563c598f1f1",
       "name": "挑出快到期未聯絡",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -680,
-        300
+        480,
+        -176
       ]
     },
     {
@@ -93,13 +93,13 @@
         "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
         "options": {}
       },
-      "id": "a1b2c3d4-0004-4a00-9000-000000000004",
+      "id": "dabce31a-c78c-4431-a1bc-0cec451d9386",
       "name": "LINE Push",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -460,
-        300
+        704,
+        -176
       ],
       "credentials": {
         "httpHeaderAuth": {
@@ -144,6 +144,8 @@
       ]
     }
   },
-  "pinData": {},
-  "meta": {}
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
 }
