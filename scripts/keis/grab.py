@@ -63,6 +63,32 @@ ONLY_MOBILE = True            # True=只搶號碼是手機的，市話/空號一
 EXCLUDE_TYPES = ["公寓"]      # 這些類型不搶；類型空白 / "-" 不受影響照收
 MIN_BUDGET_CEILING = 1000     # 預算「上限」低於這個(萬)不搶；預算空白不受影響照收
 
+# ====== 可視範圍（2026-07-23 加，修「看不到就搶不到」）======
+# 事故：07-22、07-23 兩天，同業在 08:03~08:35 掃掉十幾筆完全符合我們條件的名單，
+# 我們的 log 從頭到尾沒出現過那些單號。原因不是慢、也不是篩選太嚴，是「看不到」：
+#   KEIS 的 query 是照 summary_id(建檔序) 由大到小排，不是照「什麼時候變可搶」排。
+#   舊版只抓 page1 / page_size=20，等於一個「最新 20 筆」的窗口。而池子裡卡著一堆
+#   CoolingDown(含我們自己搶的 30 筆)，07-23 當天釋出的那批單號名次落在 27~54，
+#   永遠擠不進那 20 格 → 整批從未進入視野。
+# 修法：①每輪窗口從 20 拉到 100；②每 DEEP_SWEEP_SEC 做一次全池分頁掃描，
+#      名次再深也看得到。同時加「新鮮度閘門」，否則一次看到幾百筆陳年 Available
+#      會當場把配額燒在沒人要的舊貨上。
+PAGE_SIZE = 100               # 每輪查詢的窗口大小（單次請求，成本跟 20 幾乎一樣）
+DEEP_SWEEP_SEC = 600          # 每隔幾秒做一次「全池分頁掃描」，補抓名次很深的釋出批次
+DEEP_SWEEP_MAX_PAGES = 15     # 全池掃描最多翻幾頁（每頁 100 筆），防呆用
+FRESH_MAX_AGE_DAYS = 10       # 高頻搶單只認「建檔 N 天內」的名單＝剛釋出的新貨
+                              # （實測釋出 = 建檔+7 天，抓 10 天有緩衝又不會撈到陳年舊貨）
+
+# ====== 收盤補配額（2026-07-23 加）======
+# 配額每天歸零、不用就浪費。實測池子裡隨時有幾百筆符合我們條件的 Available，
+# 同業每天申請 50~90 筆、名次一路挖到 1300 名，等於他們把整個池子當貨架在翻。
+# 所以晚上收盤前若配額還有剩，就從全池補滿——挑建檔最新的優先。
+POOL_FILL_ENABLED = True      # False = 關掉補配額，只搶當天釋出的新貨
+POOL_FILL_AFTER = "21:00"     # 這個時間之後才補（把白天留給新貨，晚上同業活躍潮也過了）
+POOL_FILL_MAX_AGE_DAYS = 60   # 補配額時放寬到建檔 N 天內；再舊的不碰
+POOL_FILL_MAX_PER_DAY = 6     # 每晚最多補幾筆（先保守，確認存貨品質可接受再往上調；
+                              # None = 有多少配額補多少，目前 3 帳號 = 最多 21 筆）
+
 # --- watch 常駐監控模式設定（本機時間，店裡電腦請設成 Asia/Taipei）---
 # 2026-07-15 改成全天分層輪詢，不再有「時段外」完全不看：熱門時段(早上開盤+晚上同業活躍)
 # 用高頻、白天一般時段用中頻、深夜幾乎沒人動用低頻。(開始, 結束, 間隔秒數)，24h 制、需連續涵蓋一整天。
@@ -267,15 +293,32 @@ class Keis:
     def check_ip(self) -> dict:
         return self._get("/call-purchase/check-ip")
 
-    def query(self) -> dict:
+    def query(self, page: int = 1, page_size: int = PAGE_SIZE) -> dict:
         year = datetime.now().year
         params = {
-            "page": 1, "page_size": 20, "inquiry_type": INQUIRY_TYPE,
+            "page": page, "page_size": page_size, "inquiry_type": INQUIRY_TYPE,
             "only_my_applications": "false",
             "start_date": f"{year}-01-01 00:00:00", "end_date": f"{year}-12-31 23:59:59",
             "target_area": "", "property_category": "",
         }
         return self._get(f"/call-purchase/query?{urlencode(params)}")
+
+    def query_deep(self, max_pages: int = DEEP_SWEEP_MAX_PAGES) -> dict:
+        """全池分頁掃描：把所有頁抓回來併成一個 body（quota 用第一頁的）。
+        用途見 CONFIG 的「可視範圍」——單靠 page1 會漏掉名次很深的釋出批次。
+        比較貴（十幾個請求），所以只在 DEEP_SWEEP_SEC 間隔 / 收盤補配額時跑。"""
+        first = self.query(page=1)
+        recs = list(first.get("data") or [])
+        page = 2
+        while len(first.get("data") or []) == PAGE_SIZE and page <= max_pages:
+            d = self.query(page=page).get("data") or []
+            recs += d
+            if len(d) < PAGE_SIZE:
+                break
+            page += 1
+        body = dict(first)
+        body["data"] = recs
+        return body
 
     def apply(self, summary_id: int) -> dict:
         r = self.c.post(f"{API}/call-purchase/apply/{summary_id}", headers=self._auth())
@@ -373,22 +416,41 @@ def desc(r: dict) -> str:
             f"{fmt_budget(r)}（建檔 {r['start_time'][:16]}）")
 
 
-def pick_candidates(body: dict):
+def age_days(rec: dict) -> float:
+    """這筆名單建檔到現在幾天。解析不出來回傳 0（當成新的，寧可看到也別漏掉）。"""
+    t = str(rec.get("start_time") or "")[:19].replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return (datetime.now() - datetime.strptime(t, fmt)).total_seconds() / 86400
+        except ValueError:
+            continue
+    return 0.0
+
+
+def pick_candidates(body: dict, max_age_days: float | None = FRESH_MAX_AGE_DAYS):
+    """挑出符合條件、可申請的名單（新→舊）。
+
+    max_age_days：新鮮度閘門。窗口從 20 拉到 100 + 全池掃描之後，視野裡會同時出現
+    幾百筆放到長毛的 Available（同業挑剩的舊貨），不擋的話開機第一輪就把配額燒光。
+    高頻搶單用 FRESH_MAX_AGE_DAYS(剛釋出的新貨)；收盤補配額時才放寬；None = 不限。"""
     records = body.get("data", [])
     quota = body.get("new_case_quota_remaining")
     quota = quota if quota is not None else 0
     cands = [r for r in records if matches(r)]
+    if max_age_days is not None:
+        cands = [r for r in cands if age_days(r) <= max_age_days]
     cands.sort(key=lambda r: r.get("start_time", ""), reverse=True)
     return cands, quota
 
 
-def query_any(clients: list) -> dict:
+def query_any(clients: list, deep: bool = False) -> dict:
     """依序用各帳號查詢，第一個成功的就用。避免主帳號一次逾時/抽風就整輪全盲、
-    錯過開盤那幾秒。IP 被擋是全帳號共通(同一台同一 IP)→ 直接往上拋。"""
+    錯過開盤那幾秒。IP 被擋是全帳號共通(同一台同一 IP)→ 直接往上拋。
+    deep=True 走全池分頁掃描（貴，只在固定間隔/收盤補配額用）。"""
     last_exc = None
     for cl in clients:
         try:
-            return cl.query()
+            return cl.query_deep() if deep else cl.query()
         except IPBlocked:
             raise
         except Exception as e:
@@ -966,7 +1028,14 @@ def run_once(clients: list, dry_run: bool) -> int:
         _, q = pick_candidates(cl.query())
         print(f"   帳號 {cl.label}：剩餘配額 {q}")
         tot_quota += q
-    print(f"📋 符合條件可申請 {len(cands)} 筆，{len(clients)} 帳號合計剩餘配額 {tot_quota} 筆")
+    print(f"📋 符合條件可申請 {len(cands)} 筆（建檔 {FRESH_MAX_AGE_DAYS} 天內的新貨），"
+          f"{len(clients)} 帳號合計剩餘配額 {tot_quota} 筆")
+    try:   # 順便報一下整個池子的存貨，才看得出來「沒新貨」不等於「沒得搶」
+        pool, _ = pick_candidates(clients[0].query_deep(), max_age_days=POOL_FILL_MAX_AGE_DAYS)
+        print(f"🧺 全池存貨（建檔 {POOL_FILL_MAX_AGE_DAYS} 天內、符合條件）：{len(pool)} 筆"
+              f"｜watch 模式會在 {POOL_FILL_AFTER} 之後拿剩餘配額補")
+    except Exception as e:
+        print(f"（全池掃描失敗，略過：{type(e).__name__}）")
     if not cands:
         print("😴 沒有符合條件且可申請的名單，這次不動作")
         return 0
@@ -1037,6 +1106,8 @@ def run_watch(clients: list, dry_run: bool) -> int:
         log(f"↺ 回填當日累計：今天已搶 {day_grabbed} 筆（重啟不歸零）")
     appear_day, appear_max = _load_appear_state()   # 上架偵測狀態（撐過重啟）
     status_seen: dict = {}                          # 狀態變化觀測（記憶體，重啟會清空）
+    last_deep_sweep = 0.0            # 上次全池掃描時刻；0=啟動後第一輪就先掃一次全池
+    pool_filled_day = None           # 今天有沒有做過「收盤補配額」
     consecutive_errors = 0           # 連續失敗次數；判斷是暫時塞車還是真的斷網
     alerted_disconnect = False       # 「斷線警告」有沒有真的送達；沒送達就別推恢復通知
     last_heartbeat = 0.0             # 上次心跳時刻；0=啟動後第一輪就先打一下
@@ -1069,7 +1140,13 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 counted_today.clear()
             seen_day = today
 
-            body = query_any(clients)      # 主帳號一逾時就換下一個查，別整輪全盲
+            # 每輪掃 page1（PAGE_SIZE=100）；每隔 DEEP_SWEEP_SEC 改成全池分頁掃描，
+            # 補抓「名次很深、但今天才釋出」的批次（07-23 漏接事故的根因，見 CONFIG 可視範圍）。
+            deep_due = (time.time() - last_deep_sweep >= DEEP_SWEEP_SEC
+                        and not in_expected_offline(now))
+            body = query_any(clients, deep=deep_due)   # 主帳號一逾時就換下一個查，別整輪全盲
+            if deep_due:
+                last_deep_sweep = time.time()
             if consecutive_errors >= ERROR_ESCALATE_AFTER:
                 log(f"✅ 網路恢復（先前連續失敗 {consecutive_errors} 次），回到正常監控頻率")
                 # 只有「斷線警告真的推出去過」才推恢復通知：每晚必斷的時段推不出警告
@@ -1114,6 +1191,35 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 grabbed_ids_this_round = [g["summary_id"] for g in grabbed]
                 if grabbed:
                     notify_grabbed(grabbed, qleft, day_new, day_grabbed)
+
+            # ---------- 收盤補配額（2026-07-23 加）----------
+            # 配額每天歸零，剩下的等於白白丟掉。實測池子裡隨時有幾百筆符合條件的
+            # Available（同業每天從整個池子挖 50~90 筆），所以晚上收盤前把配額補滿，
+            # 挑建檔最新的優先。時間點刻意壓在晚上同業活躍潮之後、跨日結算之前。
+            if (POOL_FILL_ENABLED and pool_filled_day != today
+                    and now.hour * 60 + now.minute >= _hhmm_to_min(POOL_FILL_AFTER)):
+                pool_filled_day = today
+                try:
+                    pool, _ = pick_candidates(query_any(clients, deep=True),
+                                              max_age_days=POOL_FILL_MAX_AGE_DAYS)
+                    pool = [r for r in pool if r["summary_id"] not in seen]
+                    stock = len(pool)
+                    if POOL_FILL_MAX_PER_DAY is not None:
+                        pool = pool[:POOL_FILL_MAX_PER_DAY]
+                    if pool:
+                        log(f"🧺 收盤補配額：池子裡有 {stock} 筆符合條件"
+                            f"（建檔 {POOL_FILL_MAX_AGE_DAYS} 天內），這次最多補 {len(pool)} 筆")
+                        filled, newly_done, qleft = grab_across_accounts(
+                            active, pool, dry_run, seen=seen, persist=True)
+                        done_accounts |= newly_done
+                        day_grabbed += len(filled)
+                        if filled:
+                            log(f"🧺 補配額搶到 {len(filled)} 筆")
+                            notify_grabbed(filled, qleft, day_new, day_grabbed)
+                    else:
+                        log("🧺 收盤補配額：池子沒有符合條件的存貨，略過")
+                except Exception as e:
+                    log(f"⚠ 收盤補配額失敗（明天再補，不影響搶新貨）：{type(e).__name__}: {e}")
 
             # 這一輪自己剛搶到的id也一起納入，避免clients[0]自己申請過的名單從自己視野消失、
             # 造成 max_id 誤判變小（見 track_top_id 說明）
