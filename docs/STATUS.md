@@ -38,21 +38,21 @@
 
 | 指令格式 | 行為 | 下游 workflow |
 |---|---|---|
-| `建檔 <永慶網址>` | 抓 HTML → AI 解析 → 寫進 Notion（新建或 PATCH，文案版本 +1） | `yc-property-create` |
 | `已撤除 YCxxx` | 標記該物件「已撤除確認 = true」 | `yc-property-remove` |
-| `生成文案 YCxxx <風格描述>` | 用 Notion 既有資料 + 自由風格描述，AI 重產文案（版本 +1） | `yc-rewrite-copy`（**桌面端改用 `/yc-ad` skill**，本指令暫保留） |
-| `發 YCxxx` | 缺文案先 Gemini 產粉專+社團版 → 抓照片 → FB Graph API 發多圖粉專貼文 → 回寫 permalink/狀態=已發布/KEIS同步=未同步 → LINE Reply 帶社團版 | `yc-fb-publish`（🟡 待匯入測試） |
+| `停` / `停 AGxxx` | 攔截待發廣告 | `yc-v3-stop` |
 | `行事曆 <自由描述>` | Gemini 解析時間/地點/說明 → 建到 Google primary 行事曆 | `line-calendar-create` |
 | `客戶 <自由描述>` | Gemini 抽姓名/電話/公司/需求 → 寫進 Notion 客戶名單 DB | `line-customer-create` |
 | （純圖片，無前綴） | Gemini Vision 自動分類 → 轉發到行事曆或客戶 | `line-image-dispatcher` |
 | `戰果` / `今日戰果` | 查 Notion 搶單名單 DB 今天的紀錄 → 回筆數＋名單（reply 不吃 push 額度） | `keis-battle-report`（🟡 待匯入） |
 | `天氣` | 目前 router 認得但沒接下游（佔位） | — |
 
-> 風格描述可以是任意自由文字，例如「精簡」、「投資客口吻強調學區」。`生成文案` 跟 `YC` 之間空白可省略，全形/半形空白都接受。
+> **2026-07-23 退役**：`建檔 <網址>`、`發 YCxxx`、`生成文案 YCxxx` 三個舊指令已從 router 拔掉（下游 `YC 建檔器 v2` / `YC 發文線` / `文案重產器` 三支 workflow 一併停用）。建檔＋發文改由「廣告v3 掃描發文線」全自動處理，文案改用桌面 `/yc-ad` skill。打這三個指令現在會收到「無效指令」提示。要復原：n8n 把三支 workflow 開回 active，router 的 `解析 LINE 指令` 節點加回 create/publish/rewrite 三行對應（Switch 分支與轉發節點都還在，沒刪）。原始 router JSON 備份在 `backup/n8n-router-v3-before-2026-07-23.json`
 >
 > `行事曆`/`客戶` 也接受傳圖片（手寫便條、會議截圖、名片）→ 下游一律過 Gemini Vision 抽欄位。直接丟圖片沒前綴 → `line-image-dispatcher` 用 Gemini 分類後再轉發。
 
 ## Notion DB 欄位（`07ee845168b64f8a9b5682e5069c733b`）
+
+> 2026-07-23 清掉 10 個舊系統遺留欄位：`公設坪數` `土地坪數` `附屬建物` `單價` `有無車位` `車位類型` `文案風格` `物件照片` `特色說明` `產生的文案`。刪除前的資料快照在 `backup/notion-ad-db-dropped-fields-2026-07-23.md`（只有前 4 筆舊資料有值）。v3 各線不寫這些欄；「單價」在 v3 是內部變數（餵數字守門員），本來就沒寫進 Notion。
 
 | 欄位名 | 型別 | 備註 |
 |---|---|---|
@@ -65,14 +65,7 @@
 | 樓層 | rich_text | |
 | 屋齡 | number | 單位：年 |
 | 總價 | rich_text | 含「萬」字串，例 `338 萬` |
-| 單價 | rich_text | |
-| 建物坪數 / 主建物坪數 / 公設坪數 / 土地坪數 | number | 單位：坪 |
-| 附屬建物 | rich_text | |
-| 有無車位 | checkbox | |
-| 車位類型 | select | `坡道平面` / `機械` / `法定` / `無` |
-| 特色說明 | rich_text | |
-| 文案風格 | select | `首購溫馨` / `投資自用` / `急售吸睛` / `AI判斷`（重產器**不會**改這欄） |
-| 產生的文案 | rich_text | 早期單一文案欄（被 `粉專文案`+`社團文案` 取代，新流程不寫這欄） |
+| 建物坪數 / 主建物坪數 | number | 單位：坪 |
 | 粉專文案 | rich_text | yc-ad skill 寫入：粉專詳細版（200-300 字） |
 | 社團文案 | rich_text | yc-ad skill 寫入：社團簡短版（50-80 字） |
 | 粉專貼文連結 | url | yc-ad skill 寫入：使用者發完粉專回報後存進來 |
@@ -80,13 +73,12 @@
 | KEIS同步 | select | `未同步`(預設) / `已同步`，KEIS 上架完成後 yc-ad skill 標 |
 | 文案版本 | number | 每次重產 +1 |
 | 來源連結 | url | 建檔器用這個判重 |
-| 物件照片 | files | 寫 Drive 資料夾 external URL |
 | 狀態 | select | `草稿` / `待發` / `已發布` / `下架` / `取消`（下架偵測 / v3 各線會 PATCH） |
 | KEIS廣告ID | number | 線 D 寫入：KEIS `ad-tracker` 的 `adcase_id`，線 B 靠它關閉廣告 |
 | 永慶官網連結 | url | 線 D 寫入：反查出來的 `buy.yungching.com.tw/house/{id}` |
 | 專員 | rich_text | 線 A 寫入：KEIS `sales_agent_name`，帶看前要找誰就看這欄 |
 | 所屬門市 | rich_text | 線 A 寫入：KEIS `store_name`（加盟體系各店）|
-| 專員電話 | phone_number | KEIS API **沒有**（探過 14 個端點，只有 `/auth/me` 回自己的電話）。真正的來源是展售系統，見下方「專員電話來源」。目前 3 筆手動補，自動化**卡在帳密** |
+| 專員電話 | phone_number | ⚠️ **沒有任何 workflow 在寫這欄**（2026-07-23 全 n8n 掃過確認）。KEIS API 沒有（探過 14 個端點）；真來源是展售系統，見下方「專員電話來源」，登入已打通但**還沒接進線 A**。目前 5 筆是手動補的 |
 | 要重發 | checkbox | **線 C 的名單就是這一欄**：打勾＝排隊等重發，**重發完系統自動取消勾**（一次性） |
 | 最後重發時間 | date | 線 C 寫入：這次重發的日期。空的＝沒重發過，排最前面 |
 | 重發次數 | number | 線 C 每重發一次 +1 |
@@ -117,17 +109,20 @@
 LINE Webhook (/766bd943-…)                  ← 行動 / 手機場景
    ↓
 LINE 指令分流 (Switch by command / message type)
-   ├── create   → 物件建檔器       (/yc-property-create)
    ├── remove   → 撤除回報器       (/yc-property-remove)
-   ├── rewrite  → 文案重產器       (/yc-rewrite-copy)  ← 將被 yc-ad skill 取代，暫並存
+   ├── stop     → 廣告v3 煞車      (/yc-v3-stop)
    ├── calendar → 行事曆建立器     (/line-calendar-create)
    ├── customer → 客戶建檔器       (/line-customer-create)
+   ├── battle   → KEIS 戰果查詢    (/keis-battle-report)
    └── image    → 圖片分流器       (/line-image-dispatcher)
                        └─ Gemini Vision 分類 → calendar 或 customer
 
-下架偵測 (yc-removal-detector)
-   ├── cron 09:00 Asia/Taipei → LINE Push 摘要
-   └── 手動 webhook /yc-check-removed → LINE Reply 摘要
+   ✂️ 2026-07-23 拔掉：create（物件建檔器）/ rewrite（文案重產器）/ publish（YC 發文線）
+      三支下游 workflow 已停用；Switch 分支與轉發節點保留但永遠不會被觸發
+
+殭屍（active 但 10 天 0 執行，功能已被 yc-v3-removal 取代，暫留未刪）
+   ├── YC 下架偵測線（yc-removal-detector）
+   └── 撤除回報器（仍掛在 LINE「已撤除」指令上，會被觸發）
 
 Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
    /yc-ad 或自然語言「發 YCxxx」「同步 KEIS」等
@@ -197,10 +192,9 @@ GET https://es.houseol.com.tw/Function/FancyWindows.aspx?job=ContactDetails&HID=
 
 ## 各 workflow / skill 行為
 
-- **物件建檔器**：抓 HTML → Gemini 解析 + 文案 → 列 Drive 子資料夾 → 案名正規化比對（只留中英數字）→ 查 Notion 判重（來源連結）→ 新建或 PATCH 更新（`文案版本` +1，`物件照片` 寫 Drive 連結）→ LINE 回覆
-- **撤除回報器**：抓 YC 編號 → Notion query → PATCH 已撤除確認 + 下架偵測時間 → LINE 回覆
-- **下架偵測**：撈 `已撤除確認=false 且 狀態≠下架` → GET 來源連結 → HTTP ≥400 或關鍵字（已下架/物件不存在/已成交…）→ PATCH 狀態=下架 → Push/Reply 摘要
-- **文案重產器**：LINE 指令 `生成文案 YC123 風格描述` → 查 Notion（案件編號）→ Gemini 依自由風格重產 → PATCH `產生的文案` + `文案版本` +1 → LINE 回覆完整新文案。**將被 yc-ad skill 取代**，新流程改用桌面 Claude Code 走 skill；LINE 指令暫保留並存，等 skill 用順手後再砍
+- **撤除回報器**：抓 YC 編號 → Notion query → PATCH 已撤除確認 + 下架偵測時間 → LINE 回覆（仍在線，LINE「已撤除 YCxxx」會用到）
+- **下架偵測（舊，yc-removal-detector）**：撈 `已撤除確認=false 且 狀態≠下架` → GET 來源連結 → 死了就 PATCH 狀態=下架 → Push/Reply 摘要。⚠️ active 但近 10 天 0 執行，功能已被線 B（yc-v3-removal）取代，可考慮停用
+- ~~物件建檔器 / 文案重產器 / YC 發文線~~：**2026-07-23 已停用**，功能由「廣告v3 掃描發文線」+ 桌面 `/yc-ad` skill 取代
 - **行事曆建立器**：`行事曆 ...` 文字或圖片 → Gemini 抽 `{title,start,end,location,description}` → Google Calendar primary 建 event → LINE 回覆（含失敗原因）
 - **客戶建檔器**：`客戶 ...` 文字或圖片（名片）→ Gemini 抽姓名/電話/公司/LINE/來源/狀態/標籤/備註/追蹤日 → Notion 客戶名單 DB 新增 → LINE 回覆（失敗會帶 Notion API 原始錯誤）
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發到行事曆建立器或客戶建檔器（分不出時預設客戶）

@@ -1,5 +1,5 @@
 {
-  "_note": "廣告 v3 線 B：下架偵測（用 KEIS is_active，非爬 HTML）。詳規見 docs/v3-ad-auto-workorder.md。\n流程：cron → 查 Notion『狀態=已發布』→ 逐件 KEIS 列表 API `?search=合約編號` 查 is_active → 已 false 或查無 → 刪 FB 貼文 → Notion 標下架 → LINE Push 通知。\n安全設計：\n1. 只有 KEIS 明確回『查無(total=0)』或 is_active=false 才判下架；KEIS API 逾時/非 200/回傳異常 → 一律當『還在架上』略過，避免 KEIS 掛掉時誤刪全部廣告。\n2. 刪 FB 失敗 → 不標下架，列入故障通知等人工。\n匯入前設 credential：KEIS API Token（換 EaVn8LzS7lT5tW10）、FB Page Token（換 Y6myWnsH0lkRL3CF）、Notion/LINE 沿用。\n開新空白 workflow 再 Import。",
+  "name": "廣告v3 下架偵測線",
   "nodes": [
     {
       "parameters": {
@@ -333,7 +333,8 @@
         1100,
         -96
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "id": "0b823a48-27f4-4a5b-bf4b-c23f2dd20ecd"
     },
     {
       "parameters": {
@@ -365,7 +366,8 @@
       "position": [
         1300,
         -96
-      ]
+      ],
+      "id": "42f97e5a-7db9-439b-9ed9-b47c94ad8449"
     },
     {
       "parameters": {
@@ -406,7 +408,8 @@
         -96
       ],
       "onError": "continueRegularOutput",
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "id": "14b794d8-af08-4408-81ac-5a7c2ad848f6"
     },
     {
       "parameters": {
@@ -451,7 +454,8 @@
       "position": [
         -1180,
         -32
-      ]
+      ],
+      "id": "8e2a2cc6-cfd4-41fc-aa9c-edeec26160cf"
     },
     {
       "parameters": {
@@ -484,7 +488,8 @@
         -32
       ],
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "id": "63a757eb-86e3-4008-95f7-4d4c797e6fb4"
     },
     {
       "parameters": {
@@ -517,7 +522,8 @@
       "position": [
         660,
         276
-      ]
+      ],
+      "id": "14266bb0-e37f-48c9-a19b-87d70d6a0213"
     },
     {
       "parameters": {
@@ -529,7 +535,8 @@
       "position": [
         860,
         276
-      ]
+      ],
+      "id": "e2be5ef4-4e30-497c-a090-ef71cde3f7ef"
     },
     {
       "parameters": {
@@ -561,7 +568,8 @@
       "position": [
         -140,
         476
-      ]
+      ],
+      "id": "0fa89571-dffa-42bc-87ca-5ceb87a203f8"
     },
     {
       "parameters": {
@@ -573,7 +581,8 @@
       "position": [
         60,
         476
-      ]
+      ],
+      "id": "4e3ecf9c-b9a9-4e0d-91fa-fb7cff293e40"
     }
   ],
   "connections": {
@@ -800,8 +809,9 @@
       ]
     }
   },
-  "pinData": {},
-  "meta": {
-    "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69"
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
   }
 }
