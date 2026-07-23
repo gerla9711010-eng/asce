@@ -1,0 +1,192 @@
+{
+  "name": "LINE 新聞推播",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const xml = $input.first().json.data;\n\nconst items = [];\nconst itemRegex = /<item>([\\s\\S]*?)<\\/item>/g;\nlet match;\n\n// 重大關鍵字清單\nconst importantKeywords = [\n  '建商', '購地', '重劃', '捷運', 'BOT', '利率', '央行',\n  '房價', '地上權', '都更', '容積', '開發', '重大建設',\n  '土地標售', '地價', '建照', '預售', '實價登錄', '打房',\n  '升息', '降息', '囤房稅', '房地合一'\n];\n\n// 分類對照\nconst categoryMap = [\n  { keywords: ['購地', '土地', '地上權', '標售', '地價'], category: '🏗️ 建商購地' },\n  { keywords: ['捷運', 'BOT', '重劃', '開發', '建設'], category: '🚇 捷運重劃' },\n  { keywords: ['利率', '央行', '升息', '降息', '打房', '囤房', '房地合一'], category: '🏦 利率政策' },\n  { keywords: ['都更', '容積', '建照'], category: '🏢 都更容積' },\n  { keywords: ['房價', '預售', '實價'], category: '💰 房價動態' }\n];\n\nwhile ((match = itemRegex.exec(xml)) !== null) {\n  const itemXml = match[1];\n  \n  const titleMatch = itemXml.match(/<title><!\\[CDATA\\[(.+?)\\]\\]><\\/title>/) || itemXml.match(/<title>(.+?)<\\/title>/);\n  const linkMatch = itemXml.match(/<link>(.+?)<\\/link>/);\n  const pubDateMatch = itemXml.match(/<pubDate>(.+?)<\\/pubDate>/);\n  const sourceMatch = itemXml.match(/<source[^>]*><!\\[CDATA\\[(.+?)\\]\\]><\\/source>/) || itemXml.match(/<source[^>]*>(.+?)<\\/source>/);\n  \n  if (titleMatch) {\n    const pubDate = pubDateMatch ? new Date(pubDateMatch[1]) : new Date();\n    const now = new Date();\n    const diffMinutes = (now - pubDate) / 1000 / 60;\n    \n    // 只取35分鐘內的新聞（多5分鐘緩衝）\n    if (diffMinutes <= 1440) {\n      const title = titleMatch[1].trim();\n      \n      // 檢查是否包含重要關鍵字\n      const matchedKeywords = importantKeywords.filter(kw => title.includes(kw));\n      const isImportant = matchedKeywords.length > 0;\n      \n      // 判斷分類\n      let category = '📰 高雄房市';\n      for (const cat of categoryMap) {\n        if (cat.keywords.some(kw => title.includes(kw))) {\n          category = cat.category;\n          break;\n        }\n      }\n      \n      items.push({\n        title,\n        link: linkMatch ? linkMatch[1].trim() : '',\n        pubDate: pubDate.toISOString(),\n        source: sourceMatch ? sourceMatch[1].trim() : '未知來源',\n        diffMinutes: Math.round(diffMinutes),\n        isImportant,\n        matchedKeywords,\n        category\n      });\n    }\n  }\n}\n\nif (items.length === 0) {\n  return [{ json: { hasNews: false } }];\n}\n\nreturn items.map(item => ({ json: { hasNews: true, ...item } }));"
+      },
+      "id": "d7c7a039-44dc-45df-9de0-af0fb97c0e58",
+      "name": "解析RSS並過濾關鍵字",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "important-check",
+              "leftValue": "={{ $json.isImportant }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "be74f211-6ec8-4dd1-890f-c56bb738960d",
+      "name": "命中關鍵字嗎",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "1a4cc2b5-e945-4da1-8d4e-8364dcd57650",
+      "name": "每30分鐘觸發1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -784,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=%E9%AB%98%E9%9B%84+%E6%88%BF%E5%B8%82+OR+%E5%BB%BA%E5%95%86+OR+%E6%8D%B7%E9%81%8B+OR+%E9%87%8D%E5%8A%83+OR+%E5%88%A9%E7%8E%87&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "ca1c4654-e7be-41e6-88fe-f8d65536c204",
+      "name": "抓取Google新聞RSS1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -480,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/broadcast",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 0wnSDYsLztu04faRWEn8VfqxqoTrBAJQNRw2JP6MClMepIBd08At8bHrtLcMnOmbn0hd8OcRY0vro4V6hfZ7TccYh+SFSIGHEqlV/mej5ylmjqXd2HCVPQCsXvUPGwY4+h7IgRLjkJYWnPhK4aiOhgdB04t89/1O/w1cDnyilFU="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messages\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"🏠 高雄房市重大新聞\\n\\n{{ $json.category }}\\n\\n📌 {{ $json.title }}\\n\\n🔑 關鍵字：{{ $json.matchedKeywords.join('、') }}\\n\\n🔗 {{ $json.link }}\\n\\n⏰ {{ $json.diffMinutes }}分鐘前 | {{ $json.source }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "4b45c6f3-6a41-4012-802b-aa8d2cbbba24",
+      "name": "推播LINE訊息1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        192,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 非重大新聞，靜默略過\nreturn [{ json: { skipped: true, title: $json.title } }];"
+      },
+      "id": "02182b3d-9792-47a8-b227-74c10b60f47e",
+      "name": "略過非重大新聞1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        656
+      ]
+    }
+  ],
+  "connections": {
+    "解析RSS並過濾關鍵字": {
+      "main": [
+        [
+          {
+            "node": "命中關鍵字嗎",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "命中關鍵字嗎": {
+      "main": [
+        [
+          {
+            "node": "推播LINE訊息1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "略過非重大新聞1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "每30分鐘觸發1": {
+      "main": [
+        [
+          {
+            "node": "抓取Google新聞RSS1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "抓取Google新聞RSS1": {
+      "main": [
+        [
+          {
+            "node": "解析RSS並過濾關鍵字",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}

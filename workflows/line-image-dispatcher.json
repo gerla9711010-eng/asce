@@ -1,49 +1,76 @@
 {
-  "_note": "圖片分流器：純圖片無前綴 → Gemini Vision 分類（calendar/customer）→ 轉發到 line-calendar-create 或 line-customer-create。失敗會直接 LINE 回覆。",
+  "name": "圖片分流器（LINE 傳圖自動分類）",
   "nodes": [
     {
-      "parameters": { "httpMethod": "POST", "path": "line-image-dispatcher", "options": {} },
-      "id": "c3000001-0001-0001-0001-000000000001",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "line-image-dispatcher",
+        "options": {}
+      },
+      "id": "a78158fb-4015-4dc7-a598-2b9fef74d424",
       "name": "Webhook 接收",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-1280, 0],
+      "position": [
+        -1472,
+        96
+      ],
       "webhookId": "line-image-dispatcher"
     },
     {
       "parameters": {
         "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst event = (body.events || [])[0] || {};\nconst msg = event.message || {};\nconst replyToken = event.replyToken || '';\nconst imageId = msg.id || '';\nif (!imageId) return [{ json: { ok: false, replyToken, reason: '訊息不是圖片', rawBody: body } }];\nreturn [{ json: { ok: true, replyToken, imageId, rawBody: body } }];"
       },
-      "id": "c3000001-0001-0001-0001-000000000002",
+      "id": "105a3681-488c-47c5-ab71-fd4dce12e656",
       "name": "解析 LINE 輸入",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-1072, 0]
+      "position": [
+        -1264,
+        96
+      ]
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "=https://api-data.line.me/v2/bot/message/{{ $json.imageId }}/content",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": { "response": { "response": { "responseFormat": "file" } }, "timeout": 30000 }
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 30000
+        }
       },
-      "id": "c3000001-0001-0001-0001-000000000003",
+      "id": "37f3c35a-da34-4a94-8e63-68547efd000f",
       "name": "下載 LINE 圖片",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-864, 0],
-      "credentials": { "httpHeaderAuth": { "id": "OmFzUGgZ1xIpAAP5", "name": "LINE Channel Access Token" } }
+      "position": [
+        -1056,
+        96
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     },
     {
       "parameters": {
         "jsCode": "const item = $input.first();\nconst parsed = $('解析 LINE 輸入').first().json;\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst b64 = buf.toString('base64');\nconst mimeType = item.binary?.data?.mimeType || 'image/jpeg';\nreturn [{ json: { ...parsed, imageBase64: b64, imageMime: mimeType } }];"
       },
-      "id": "c3000001-0001-0001-0001-000000000004",
+      "id": "fff9fa67-2753-4447-8f7e-82bcd2b7af05",
       "name": "圖片轉 base64",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-656, 0]
+      "position": [
+        -848,
+        96
+      ]
     },
     {
       "parameters": {
@@ -52,47 +79,121 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "content-type", "value": "application/json" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [\n    { inline_data: { mime_type: $json.imageMime, data: $json.imageBase64 } },\n    { text: `這張圖片是要建「行事曆事件」還是「客戶資料」？\\n\\n判斷依據：\\n- 有日期/時間/地點 + 待辦事件 → calendar（例：手寫便條「5/20 14:00 看屋」、會議邀請截圖）\\n- 有人名/電話/公司/職稱 → customer（例：名片、聊天截圖中對方提供聯絡方式）\\n- 兩者都有時優先看主體：名片型版面=customer；行程便條=calendar\\n\\n回傳純 JSON：{\\\"intent\\\": \\\"calendar\\\" 或 \\\"customer\\\", \\\"confidence\\\": 0~1, \\\"reason\\\": \\\"簡述判斷依據\\\"}` }\n  ] }],\n  generationConfig: { temperature: 0.1, maxOutputTokens: 256, responseMimeType: \"application/json\" }\n}) }}",
-        "options": { "timeout": 60000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
       },
-      "id": "c3000001-0001-0001-0001-000000000005",
+      "id": "69d16eda-61f0-43c5-967b-ccd71b67fb5f",
       "name": "Gemini 分類",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-448, 0],
+      "position": [
+        -640,
+        96
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "credentials": { "httpHeaderAuth": { "id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "zTIA89pDJJs0Ad29",
+          "name": "Gemini API Key"
+        }
+      }
     },
     {
       "parameters": {
         "jsCode": "const parsed = $('解析 LINE 輸入').first().json;\nconst resp = $input.first().json;\nconst aiText = resp.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet intent = 'customer';\ntry {\n  const ai = JSON.parse(aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, ''));\n  if (ai.intent === 'calendar' || ai.intent === 'customer') intent = ai.intent;\n} catch (e) { /* 無法判斷，預設 customer（名片是常見情境）*/ }\nreturn [{ json: { intent, replyToken: parsed.replyToken, rawBody: parsed.rawBody } }];"
       },
-      "id": "c3000001-0001-0001-0001-000000000006",
+      "id": "6adb1286-e944-4231-ad20-915b25a5a4a3",
       "name": "解出 intent",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-240, 0]
+      "position": [
+        -432,
+        96
+      ]
     },
     {
       "parameters": {
         "rules": {
           "values": [
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "cal", "leftValue": "={{ $json.intent }}", "rightValue": "calendar", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "行事曆" },
-            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 }, "conditions": [{ "id": "cus", "leftValue": "={{ $json.intent }}", "rightValue": "customer", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "客戶" }
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cal",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "calendar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "行事曆"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cus",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "customer",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "客戶"
+            }
           ]
         },
         "options": {}
       },
-      "id": "c3000001-0001-0001-0001-000000000007",
+      "id": "d160debe-2dfa-4194-9e87-3ddd272a175a",
       "name": "Switch intent",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [-32, 0]
+      "position": [
+        -224,
+        96
+      ]
     },
     {
       "parameters": {
@@ -103,11 +204,14 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "c3000001-0001-0001-0001-000000000008",
+      "id": "bfd81ad5-3c66-4f57-86ed-93f5cc8744c8",
       "name": "轉發到行事曆",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [192, -96]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -118,27 +222,104 @@
         "jsonBody": "={{ JSON.stringify($json.rawBody) }}",
         "options": {}
       },
-      "id": "c3000001-0001-0001-0001-000000000009",
+      "id": "37dc846f-c86d-40ee-a0cb-4474910b80a4",
       "name": "轉發到客戶建檔",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [192, 96]
+      "position": [
+        0,
+        192
+      ]
     }
   ],
   "connections": {
-    "Webhook 接收":   { "main": [[{ "node": "解析 LINE 輸入", "type": "main", "index": 0 }]] },
-    "解析 LINE 輸入": { "main": [[{ "node": "下載 LINE 圖片", "type": "main", "index": 0 }]] },
-    "下載 LINE 圖片": { "main": [[{ "node": "圖片轉 base64",  "type": "main", "index": 0 }]] },
-    "圖片轉 base64":  { "main": [[{ "node": "Gemini 分類",    "type": "main", "index": 0 }]] },
-    "Gemini 分類":    { "main": [[{ "node": "解出 intent",    "type": "main", "index": 0 }]] },
-    "解出 intent":    { "main": [[{ "node": "Switch intent",  "type": "main", "index": 0 }]] },
+    "Webhook 接收": {
+      "main": [
+        [
+          {
+            "node": "解析 LINE 輸入",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析 LINE 輸入": {
+      "main": [
+        [
+          {
+            "node": "下載 LINE 圖片",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "下載 LINE 圖片": {
+      "main": [
+        [
+          {
+            "node": "圖片轉 base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "圖片轉 base64": {
+      "main": [
+        [
+          {
+            "node": "Gemini 分類",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini 分類": {
+      "main": [
+        [
+          {
+            "node": "解出 intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解出 intent": {
+      "main": [
+        [
+          {
+            "node": "Switch intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Switch intent": {
       "main": [
-        [{ "node": "轉發到行事曆",   "type": "main", "index": 0 }],
-        [{ "node": "轉發到客戶建檔", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "轉發到行事曆",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "轉發到客戶建檔",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
-  "pinData": {},
-  "meta": { "instanceId": "7ba581e9dd81831121dfd6e8e7d2138fd3f9916fe6e8e591c654d8745a11fd69" }
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
 }

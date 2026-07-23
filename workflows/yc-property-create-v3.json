@@ -1,5 +1,5 @@
 {
-  "name": "YC 建檔器 v2（抓真物編productID）",
+  "name": "YC 建檔器 v3（鎖物編+總價）",
   "nodes": [
     {
       "parameters": {
@@ -8,7 +8,7 @@
         "responseMode": "lastNode",
         "options": {}
       },
-      "id": "a48bf9ef-226b-40a4-85ef-01d2f4b1ed1a",
+      "id": "e4e656ef-0368-43cc-a7d4-fc0fdc31e88b",
       "name": "LINE Webhook (測試用)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -22,7 +22,7 @@
       "parameters": {
         "jsCode": "const event = $input.first().json.events?.[0] || $input.first().json.body?.events?.[0];\nconst messageText = event?.message?.text || '';\nconst replyToken = event?.replyToken || '';\nconst userId = event?.source?.userId || '';\n\nconst urlMatch = messageText.match(/(https?:\\/\\/[^\\s]+)/);\nconst targetUrl = urlMatch ? urlMatch[1] : '';\n\nconst ycMatch = targetUrl.match(/([A-Z]{2}\\d{6,})/i) || targetUrl.match(/\\/(\\d+)(?:[\\/?#]|$)/);\nconst caseId = ycMatch ? ycMatch[1].toUpperCase() : '';\n\nif (!targetUrl) {\n  throw new Error(`找不到網址。原始訊息：「${messageText}」長度=${messageText.length}`);\n}\n\nreturn [{ json: { targetUrl, caseId, replyToken, userId, rawMessage: messageText } }];"
       },
-      "id": "80b51da0-aaa3-4f76-a161-60bb57bc6cf4",
+      "id": "b06e8b64-205f-4362-b490-722fa6da6a1a",
       "name": "解析 LINE 指令",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -65,7 +65,7 @@
           "timeout": 15000
         }
       },
-      "id": "0688ed95-28a2-4107-a528-03a1d01bd59e",
+      "id": "eb763c99-a07e-4098-b3eb-d454bd3db605",
       "name": "抓取永慶 HTML",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -76,9 +76,9 @@
     },
     {
       "parameters": {
-        "jsCode": "let html = $input.first().json.data || $input.first().json.body || '';\n// 砍 script 前先從 JSON-LD 抓真物件編號 productID（例 YC1868705），這才是官網依據，不用網址尾號\nconst pidMatch = html.match(/\"productID\"\\s*:\\s*\"([A-Za-z]{2}\\d{5,})\"/);\nconst productId = pidMatch ? pidMatch[1].toUpperCase() : '';\nhtml = html.replace(/<script[\\s\\S]*?<\\/script>/gi, '');\nhtml = html.replace(/<style[\\s\\S]*?<\\/style>/gi, '');\nhtml = html.replace(/<!--[\\s\\S]*?-->/g, '');\nhtml = html.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, '');\nconst bodyMatch = html.match(/<body[\\s\\S]*?<\\/body>/i);\nlet content = bodyMatch ? bodyMatch[0] : html;\ncontent = content.replace(/\\s+/g, ' ').trim();\nif (content.length > 80000) content = content.substring(0, 80000);\nreturn [{ json: { ...$('解析 LINE 指令').first().json, productId, cleanedHtml: content, htmlLength: content.length } }];"
+        "jsCode": "let html = $input.first().json.data || $input.first().json.body || '';\n// 砍 script 前先從 JSON-LD 抓真物件編號 productID（例 YC1868705），這才是官網依據，不用網址尾號\nconst pidMatch = html.match(/\"productID\"\\s*:\\s*\"([A-Za-z]{2}\\d{5,})\"/);\nconst productId = pidMatch ? pidMatch[1].toUpperCase() : '';\n// 同樣從 JSON-LD 抓官方開價（offers.price，單位:萬）— 總價是廣告紅線，不能讓 AI 猜\nconst priceMatch = html.match(/\"offers\"[\\s\\S]{0,150}?\"price\"\\s*:\\s*\"?(\\d{2,7})/) || html.match(/\"price\"\\s*:\\s*\"?(\\d{2,7})\"?\\s*,\\s*\"priceCurrency\"/);\nconst priceWan = priceMatch ? Number(priceMatch[1]) : null;\nhtml = html.replace(/<script[\\s\\S]*?<\\/script>/gi, '');\nhtml = html.replace(/<style[\\s\\S]*?<\\/style>/gi, '');\nhtml = html.replace(/<!--[\\s\\S]*?-->/g, '');\nhtml = html.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, '');\nconst bodyMatch = html.match(/<body[\\s\\S]*?<\\/body>/i);\nlet content = bodyMatch ? bodyMatch[0] : html;\ncontent = content.replace(/\\s+/g, ' ').trim();\nif (content.length > 80000) content = content.substring(0, 80000);\nreturn [{ json: { ...$('解析 LINE 指令').first().json, productId, priceWan, cleanedHtml: content, htmlLength: content.length } }];"
       },
-      "id": "0c2b2b02-9e21-4416-a705-59c6afcaf21a",
+      "id": "2702a570-5629-4ac6-80d9-c69b4b08a81e",
       "name": "清理 HTML",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -104,12 +104,12 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是房地產資料解析專家。請從以下永慶房屋的 HTML 中萃取物件資訊，並產生臉書社團文案。\n\n【解析規則】\n- 必須回傳完整的 JSON 物件，包含下方所有欄位\n- 不可只回傳文案字串，必須是物件格式 {\"案名\":\"...\",\"總價\":\"...\",\"產生的文案\":\"...\"}\n- 不要任何前後說明文字、不要 Markdown code block\n- 找不到的欄位填 null(數字欄位)或空字串(文字欄位)\n- 坪數一律轉成數字(單位:坪),不含單位\n- 屋齡轉成數字(單位:年)\n- 總價含「萬」單位字串(例:'338 萬')\n- 文案風格判斷:1 房或主建物 < 15 坪 → 投資自用;其他 → 首購溫馨\n\n【文案規則】\n- 開頭一句吸睛標題(含 emoji)\n- 中段 4-6 個重點,前 2-3 個用 ✨ 開頭,後面用「・」開頭\n- 結尾留簡短行動呼籲\n- 全文 200-350 字\n\n【輸出 JSON 格式】\n{\"案名\":\"\",\"案件編號\":\"\",\"社區名稱\":\"\",\"地址\":\"\",\"建物類型\":\"電梯大樓|華廈|公寓|透天|套房|店面|其他\",\"格局\":\"\",\"樓層\":\"\",\"屋齡\":0,\"總價\":\"\",\"單價\":\"\",\"建物坪數\":0,\"主建物坪數\":0,\"公設坪數\":0,\"附屬建物\":\"\",\"土地坪數\":0,\"有無車位\":false,\"車位類型\":\"坡道平面|機械|法定|無\",\"特色說明\":\"\",\"文案風格\":\"首購溫馨|投資自用\",\"產生的文案\":\"\"}\n\n【已知資訊】\n來源網址:${$json.targetUrl}\n推測案件編號:${$json.caseId}\n\n重要:你的回應必須是 JSON 物件 {} 開頭,絕對不能直接回傳字串!\n【HTML 內容】\n${$json.cleanedHtml}` }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 4096, responseMimeType: \"application/json\" }\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是房地產資料解析專家。請從以下永慶房屋的 HTML 中萃取物件資訊，並產生臉書社團文案。\n\n【解析規則】\n- 必須回傳完整的 JSON 物件，包含下方所有欄位\n- 不可只回傳文案字串，必須是物件格式 {\"案名\":\"...\",\"總價\":\"...\",\"產生的文案\":\"...\"}\n- 不要任何前後說明文字、不要 Markdown code block\n- 找不到的欄位填 null(數字欄位)或空字串(文字欄位)\n- 坪數一律轉成數字(單位:坪),不含單位\n- 屋齡轉成數字(單位:年)\n- 總價含「萬」單位字串(例:'338 萬')\n- 文案風格判斷:1 房或主建物 < 15 坪 → 投資自用;其他 → 首購溫馨\n\n【文案規則】\n- 開頭一句吸睛標題(含 emoji)\n- 中段 4-6 個重點,前 2-3 個用 ✨ 開頭,後面用「・」開頭\n- 結尾留簡短行動呼籲\n- 全文 200-350 字\n\n【輸出 JSON 格式】\n{\"案名\":\"\",\"案件編號\":\"\",\"社區名稱\":\"\",\"地址\":\"\",\"建物類型\":\"電梯大樓|華廈|公寓|透天|套房|店面|其他\",\"格局\":\"\",\"樓層\":\"\",\"屋齡\":0,\"總價\":\"\",\"單價\":\"\",\"建物坪數\":0,\"主建物坪數\":0,\"公設坪數\":0,\"附屬建物\":\"\",\"土地坪數\":0,\"有無車位\":false,\"車位類型\":\"坡道平面|機械|法定|無\",\"特色說明\":\"\",\"文案風格\":\"首購溫馨|投資自用\",\"產生的文案\":\"\"}\n\n【官方鐵律事實，優先於你從 HTML 的判讀，絕對不可更改】\n案件編號:${$json.productId}\n總價:${$json.priceWan}萬 ← 文案內文與『總價』欄位一律使用「${$json.priceWan}萬」，禁止出現任何其他價格數字\n\n【已知資訊】\n來源網址:${$json.targetUrl}\n\n重要:你的回應必須是 JSON 物件 {} 開頭,絕對不能直接回傳字串!\n【HTML 內容】\n${$json.cleanedHtml}` }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 4096, responseMimeType: \"application/json\" }\n}) }}",
         "options": {
           "timeout": 60000
         }
       },
-      "id": "ce87fa0f-0d11-41f1-aa69-2438007c8d01",
+      "id": "1fd0816b-be10-4fcc-98e4-4b88dab6a328",
       "name": "Gemini AI 解析 + 產文案",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -118,19 +118,13 @@
         -352
       ],
       "retryOnFail": true,
-      "waitBetweenTries": 5000,
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "zTIA89pDJJs0Ad29",
-          "name": "Gemini API Key"
-        }
-      }
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
-        "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); }\ncatch (e) { throw new Error('AI 回傳 JSON 解析失敗: ' + e.message + ' 原始: ' + aiText.substring(0, 500)); }\nconst inputData = $('清理 HTML').first().json;\nreturn [{ json: { ...parsed, targetUrl: inputData.targetUrl, replyToken: inputData.replyToken, userId: inputData.userId, 案件編號: (() => { const raw = String(inputData.productId || parsed.案件編號 || inputData.caseId || '').trim(); if (!raw) return ''; return /^[A-Za-z]{2}\\d/.test(raw) ? raw.toUpperCase() : 'YC' + raw; })() } }];"
+        "jsCode": "const response = $input.first().json;\nconst aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';\nlet jsonText = aiText.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\nlet parsed;\ntry { parsed = JSON.parse(jsonText); }\ncatch (e) { throw new Error('AI 回傳 JSON 解析失敗: ' + e.message + ' 原始: ' + aiText.substring(0, 500)); }\nconst inputData = $('清理 HTML').first().json;\n// 總價鎖成官方開價(priceWan)；並把 AI 文案內若寫錯的開價換成正確值\nconst priceWan = inputData.priceWan;\nlet 總價 = String(parsed['總價'] || '').trim();\nlet copy = String(parsed['產生的文案'] || '');\nif (priceWan) {\n  const aiNum = (總價.match(/\\d{2,7}/) || [])[0];\n  if (aiNum && Number(aiNum) !== priceWan) {\n    copy = copy.split(aiNum + ' 萬').join(priceWan + ' 萬').split(aiNum + '萬').join(priceWan + '萬');\n  }\n  總價 = priceWan + ' 萬';\n}\nreturn [{ json: { ...parsed, 總價, 產生的文案: copy, targetUrl: inputData.targetUrl, replyToken: inputData.replyToken, userId: inputData.userId, 案件編號: (() => { const raw = String(inputData.productId || parsed.案件編號 || inputData.caseId || '').trim(); if (!raw) return ''; return /^[A-Za-z]{2}\\d/.test(raw) ? raw.toUpperCase() : 'YC' + raw; })() } }];"
       },
-      "id": "dd32ec76-f861-44db-8eea-a0483d8441e7",
+      "id": "0e5cdcf2-5d14-4fba-b0d1-4c26271f812f",
       "name": "解析 AI 輸出",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -163,7 +157,7 @@
         "jsonBody": "={{ JSON.stringify({ filter: { property: '來源連結', url: { equals: $json.targetUrl } }, page_size: 1 }) }}",
         "options": {}
       },
-      "id": "0a449b58-6548-4c0b-8e54-0ee42f6d38bf",
+      "id": "afa83eeb-2e10-4aee-8bec-84864c631d1e",
       "name": "查 Notion 是否已存在",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -182,7 +176,7 @@
       "parameters": {
         "jsCode": "const ai = $('解析 AI 輸出').first().json;\nconst existing = ($json.results || [])[0] || null;\nreturn [{ json: { ...ai,\n  existingPageId: existing?.id || null,\n  existingVersion: existing?.properties?.['文案版本']?.number ?? 0,\n  action: existing ? '更新' : '建檔'\n}}];"
       },
-      "id": "98a9ce5d-1977-4ad7-9ef1-67e83fa8229d",
+      "id": "8a70d7ae-f813-4881-a124-5e20c4970dc4",
       "name": "取出 existingPageId",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -214,7 +208,7 @@
         },
         "options": {}
       },
-      "id": "b9787047-7480-4cc8-9c2c-a63a17b5480f",
+      "id": "b042650a-6cb4-49e6-904c-e9f44bfa8bd5",
       "name": "判斷是否已存在",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -247,7 +241,7 @@
         "jsonBody": "={{ JSON.stringify({ properties: { '案名': { title: [{ text: { content: String($json['案名'] || '') } }] }, '案件編號': { rich_text: [{ text: { content: String($json['案件編號'] || '') } }] }, '社區名稱': { rich_text: [{ text: { content: String($json['社區名稱'] || '') } }] }, '地址': { rich_text: [{ text: { content: String($json['地址'] || '') } }] }, '建物類型': { select: $json['建物類型'] ? { name: $json['建物類型'] } : null }, '格局': { rich_text: [{ text: { content: String($json['格局'] || '') } }] }, '樓層': { rich_text: [{ text: { content: String($json['樓層'] || '') } }] }, '屋齡': { number: $json['屋齡'] != null ? $json['屋齡'] : null }, '總價': { rich_text: [{ text: { content: String($json['總價'] || '') } }] }, '單價': { rich_text: [{ text: { content: String($json['單價'] || '') } }] }, '建物坪數': { number: $json['建物坪數'] != null ? $json['建物坪數'] : null }, '主建物坪數': { number: $json['主建物坪數'] != null ? $json['主建物坪數'] : null }, '公設坪數': { number: $json['公設坪數'] != null ? $json['公設坪數'] : null }, '附屬建物': { rich_text: [{ text: { content: String($json['附屬建物'] || '') } }] }, '土地坪數': { number: $json['土地坪數'] != null ? $json['土地坪數'] : null }, '有無車位': { checkbox: !!$json['有無車位'] }, '車位類型': { select: $json['車位類型'] ? { name: $json['車位類型'] } : null }, '特色說明': { rich_text: [{ text: { content: String($json['特色說明'] || '') } }] }, '文案風格': { select: $json['文案風格'] ? { name: $json['文案風格'] } : null }, '產生的文案': { rich_text: [{ text: { content: String($json['產生的文案'] || '') } }] }, '文案版本': { number: ($json.existingVersion || 0) + 1 } } }) }}",
         "options": {}
       },
-      "id": "8e876a81-1544-4020-a5b0-4cdd362aa65e",
+      "id": "6420c6e0-1c39-4460-801b-ce7eda9d8916",
       "name": "PATCH 更新已存在",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -365,7 +359,7 @@
         },
         "options": {}
       },
-      "id": "48c938b0-d9d0-45d2-b575-3cf9e6799ab3",
+      "id": "c831aaca-f54e-4ec3-9c95-e8695d5052c9",
       "name": "寫入 Notion",
       "type": "n8n-nodes-base.notion",
       "typeVersion": 2.2,
@@ -384,7 +378,7 @@
       "parameters": {
         "jsCode": "const notionPage = $input.first().json;\nconst aiData = $('解析 AI 輸出').first().json;\nconst existData = $('取出 existingPageId').first().json;\nconst action = existData.action || '建檔';\nconst notionUrl = notionPage.url || `https://www.notion.so/${notionPage.id?.replace(/-/g, '')}`;\nconst caseName = aiData['案名'] || '未命名物件';\nconst caseId = aiData['案件編號'] || '無編號';\nconst totalPrice = aiData['總價'] || '';\nconst layout = aiData['格局'] || '';\nconst copy = aiData['產生的文案'] || '';\nconst replyText = `✅ ${action}完成\\n\\n📋 ${caseName}\\n🏷 ${caseId}　💰 ${totalPrice}　🏠 ${layout}\\n\\n🔗 ${notionUrl}\\n\\n━━━ 文案預覽 ━━━\\n${copy}`;\nreturn [{ json: { replyToken: aiData.replyToken, replyText, notionUrl, notionPageId: notionPage.id } }];"
       },
-      "id": "7e29189c-6408-4f59-aa81-2c995291786b",
+      "id": "31ca41f2-df2a-4dfc-b741-13c073ecc325",
       "name": "組 LINE 回覆訊息",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -413,7 +407,7 @@
         "jsonBody": "={\n  \"replyToken\": \"{{ $json.replyToken }}\",\n  \"messages\": [\n    { \"type\": \"text\", \"text\": {{ JSON.stringify($json.replyText) }} }\n  ]\n}",
         "options": {}
       },
-      "id": "54cf70f4-dc6c-47e0-8d30-dce2857f26b3",
+      "id": "ece9c1ff-0a1e-4d75-9405-0ca12557fee3",
       "name": "LINE 回覆",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
