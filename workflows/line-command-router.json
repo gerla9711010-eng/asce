@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 解析 LINE 訊息：判斷文字前綴或圖片\nconst body = $input.first().json.body || $input.first().json;\nconst events = body.events || [];\n\nif (events.length === 0) {\n  return [{ json: { command: 'noop', text: '', replyToken: null, rawBody: body } }];\n}\n\nconst event = events[0];\nconst msg = event.message || {};\nconst msgType = msg.type || '';\nconst replyToken = event.replyToken || null;\n\nif (msgType === 'image') {\n  return [{ json: { command: 'image', text: '', replyToken, rawBody: body } }];\n}\n\nconst text = (msg.text || '').trim();\nlet command = 'unknown';\n// 2026-07-23 退役：建檔 / 生成文案 / 發 三個舊指令已由「廣告v3 掃描發文線」+ 桌面 /yc-ad skill 取代\nif      (text.startsWith('已撤除'))   command = 'remove';\nelse if (text.startsWith('停'))       command = 'stop';\nelse if (text.startsWith('行事曆'))   command = 'calendar';\nelse if (text.startsWith('客戶'))     command = 'customer';\nelse if (text === '戰果' || text === '今日戰果') command = 'battle';\nelse if (text === '天氣')             command = 'weather';\n\nreturn [{ json: { command, text, replyToken, rawBody: body } }];\n"
+        "jsCode": "// 解析 LINE 訊息：判斷文字前綴或圖片\nconst body = $input.first().json.body || $input.first().json;\nconst events = body.events || [];\n\nif (events.length === 0) {\n  return [{ json: { command: 'noop', text: '', replyToken: null, rawBody: body } }];\n}\n\nconst event = events[0];\nconst msg = event.message || {};\nconst msgType = msg.type || '';\nconst replyToken = event.replyToken || null;\n\nif (msgType === 'image') {\n  return [{ json: { command: 'image', text: '', replyToken, rawBody: body } }];\n}\n\nconst text = (msg.text || '').trim();\nlet command = 'unknown';\n// 2026-07-23 退役：建檔 / 生成文案 / 發 三個舊指令已由「廣告v3 掃描發文線」+ 桌面 /yc-ad skill 取代\n// 2026-07-23 撤除回報器已刪除，'已撤除' 指令一併退役（下架改由線 B 全自動偵測）\nif      (text.startsWith('停'))       command = 'stop';\nelse if (text.startsWith('行事曆'))   command = 'calendar';\nelse if (text.startsWith('客戶'))     command = 'customer';\nelse if (text === '戰果' || text === '今日戰果') command = 'battle';\nelse if (text === '天氣')             command = 'weather';\n\nreturn [{ json: { command, text, replyToken, rawBody: body } }];\n"
       },
       "id": "3d4d0a11-22a4-4a71-a956-6f61771425eb",
       "name": "解析 LINE 指令",
@@ -431,7 +431,7 @@
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: { replyToken: $('解析 LINE 指令').first().json.replyToken, message: '❓ 無效指令\n\n可用指令：\n• 已撤除 YCxxx\n• 停 / 停 AGxxx（攔截待發廣告）\n• 行事曆 [日期 時間 標題 地點 說明]\n• 客戶 [姓名 電話 需求 …]\n• 戰果（查今天 KEIS 搶單）\n\n直接傳圖片：自動判斷是「行事曆」或「客戶」\n\n※ 廣告建檔／發文已全自動（廣告v3 掃描發文線），文案改用桌面 /yc-ad' } }];"
+        "jsCode": "return [{ json: { replyToken: $('解析 LINE 指令').first().json.replyToken, message: '❓ 無效指令\n\n可用指令：\n• 停 / 停 AGxxx（攔截待發廣告）\n• 行事曆 [日期 時間 標題 地點 說明]\n• 客戶 [姓名 電話 需求 …]\n• 戰果（查今天 KEIS 搶單）\n\n直接傳圖片：自動判斷是「行事曆」或「客戶」\n\n※ 廣告建檔／發文已全自動（廣告v3 掃描發文線），文案改用桌面 /yc-ad' } }];"
       },
       "id": "233061a4-4186-40d1-bd8c-297163e8fb1a",
       "name": "未知指令處理",
