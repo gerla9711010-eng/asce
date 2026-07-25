@@ -391,7 +391,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ properties: { '粉專貼文連結': { url: $('取貼文結果').first().json.permalink || null }, '粉專文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['粉專文案']||'').slice(0,1900) } }] }, '社團文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['社團文案']||'').slice(0,1900) } }] }, '重發次數': { number: Number($('挑一件重發').first().json['重發次數'] || 0) + 1 }, '文案版本': { number: Number($('挑一件重發').first().json['文案版本'] || 1) + 1 }, '要重發': { checkbox: false }, '最後重發時間': { date: { start: $now.setZone('Asia/Taipei').toISODate() } } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ properties: { '粉專貼文連結': { url: $('取貼文結果').first().json.permalink || null }, '粉專文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['粉專文案']||'').slice(0,1900) } }] }, '社團文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['社團文案']||'').slice(0,1900) } }] }, '重發次數': { number: Number($('挑一件重發').first().json['重發次數'] || 0) + 1 }, '文案版本': { number: Number($('挑一件重發').first().json['文案版本'] || 1) + 1 }, '專員電話': { phone_number: ($('查專員電話').first().json['專員電話'] || null) }, '要重發': { checkbox: false }, '最後重發時間': { date: { start: $now.setZone('Asia/Taipei').toISODate() } } } }) }}",
         "options": {}
       },
       "id": "v3c-13-notion",
@@ -606,6 +606,28 @@
         2300,
         0
       ]
+    },
+    {
+      "id": "v3c-phone",
+      "name": "查專員電話",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1400,
+        200
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "GGguwcmUhpRXXcBu",
+          "mode": "list",
+          "cachedResultName": "查專員電話（展售系統）"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
     }
   ],
   "connections": {
@@ -789,7 +811,7 @@
       "main": [
         [
           {
-            "node": "補上下文",
+            "node": "查專員電話",
             "type": "main",
             "index": 0
           }
@@ -841,6 +863,17 @@
         [
           {
             "node": "FB 上傳照片",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查專員電話": {
+      "main": [
+        [
+          {
+            "node": "補上下文",
             "type": "main",
             "index": 0
           }

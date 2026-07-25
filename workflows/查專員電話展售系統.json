@@ -1,0 +1,301 @@
+{
+  "name": "查專員電話（展售系統）",
+  "nodes": [
+    {
+      "id": "es-00",
+      "name": "輸入",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -600,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "es-01",
+      "name": "展售 取登入頁",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -380,
+        0
+      ],
+      "parameters": {
+        "url": "https://es.houseol.com.tw/login.aspx",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "body"
+            }
+          }
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "es-02",
+      "name": "組登入參數",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// 從登入頁撈 ASP.NET 的三個 hidden 欄位 + 第一段 cookie\nconst r = $input.first().json || {};\nconst html = String(r.body || r.data || '');\nconst pick = (n) => {\n  const m = html.match(new RegExp('id=\"' + n + '\"[^>]*value=\"([^\"]*)\"'));\n  return m ? m[1] : '';\n};\nconst raw = (r.headers || {})['set-cookie'] || (r.headers || {})['Set-Cookie'] || [];\nconst cookie = (Array.isArray(raw) ? raw : [raw])\n  .map(c => String(c).split(';')[0]).filter(Boolean).join('; ');\nreturn [{ json: {\n  viewstate: pick('__VIEWSTATE'),\n  gen: pick('__VIEWSTATEGENERATOR'),\n  ev: pick('__EVENTVALIDATION'),\n  cookie,\n  ok: pick('__VIEWSTATE') !== '',\n} }];"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "es-03",
+      "name": "展售 登入",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        0
+      ],
+      "parameters": {
+        "url": "https://es.houseol.com.tw/login.aspx",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "body"
+            }
+          }
+        },
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            },
+            {
+              "name": "Cookie",
+              "value": "={{ $json.cookie }}"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "__EVENTTARGET",
+              "value": "LinkButton1"
+            },
+            {
+              "name": "__EVENTARGUMENT",
+              "value": ""
+            },
+            {
+              "name": "__VIEWSTATE",
+              "value": "={{ $json.viewstate }}"
+            },
+            {
+              "name": "__VIEWSTATEGENERATOR",
+              "value": "={{ $json.gen }}"
+            },
+            {
+              "name": "__EVENTVALIDATION",
+              "value": "={{ $json.ev }}"
+            }
+          ]
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "ZkOT0wWz3oZTpdME",
+          "name": "展售系統帳密（自動登入）"
+        }
+      }
+    },
+    {
+      "id": "es-04",
+      "name": "組查詢 cookie",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// 登入後把新舊 cookie 併起來給查詢用\nconst r = $input.first().json || {};\nconst raw = (r.headers || {})['set-cookie'] || (r.headers || {})['Set-Cookie'] || [];\nconst fresh = (Array.isArray(raw) ? raw : [raw])\n  .map(c => String(c).split(';')[0]).filter(Boolean);\nconst old = String($('組登入參數').first().json.cookie || '')\n  .split('; ').filter(Boolean);\nconst seen = new Set();\nconst all = [...fresh, ...old].filter(c => {\n  const k = c.split('=')[0];\n  if (seen.has(k)) return false;\n  seen.add(k); return true;\n});\nreturn [{ json: { cookie: all.join('; ') } }];"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "es-05",
+      "name": "展售 查聯絡資訊",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "url": "=https://es.houseol.com.tw/Function/FancyWindows.aspx?job=ContactDetails&HID=H888&MainID={{ $('輸入').first().json.contract_no }}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "body"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $json.cookie }}"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "es-06",
+      "name": "解析專員電話",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// 解析「詳細聯絡資訊」彈窗。查不到一律回空字串，絕不 throw。\nconst src = $('輸入').first().json || {};\nlet phone = '', from = '查不到';\ntry {\n  const html = String(($input.first().json || {}).body || '');\n  const text = html.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');\n\n  // 「經紀人 經紀人 吳冠圻 / 0978329823」、空的長「經紀人2 經紀人2 / 」\n  const agents = [];\n  for (const m of text.matchAll(/經紀人(\\d*)\\s+經紀人\\1\\s*([^\\/\\s]*)\\s*\\/\\s*([0-9\\-]*)/g)) {\n    const name = (m[2] || '').trim();\n    const tel = (m[3] || '').trim();\n    if (name) agents.push({ name, tel });\n  }\n  const store = text.match(/分店\\s+分店\\s*([^\\/\\s]*)\\s*\\/\\s*([0-9\\-]+)/);\n\n  const want = String(src['專員'] || '').trim();\n  const hit = agents.find(a => a.name === want && a.tel);\n  if (hit) { phone = hit.tel; from = '本人手機'; }\n  else {\n    const any = agents.find(a => a.tel);\n    if (want && any) { phone = any.tel; from = '同案經紀人 ' + any.name; }\n    else if (any) { phone = any.tel; from = '經紀人 ' + any.name; }\n  }\n  // 有些經紀人沒留手機（例：詹屏），退回分店電話\n  if (!phone && store && store[2]) { phone = store[2]; from = '分店 ' + (store[1] || ''); }\n} catch (e) {\n  from = '解析失敗：' + e.message;\n}\nreturn [{ json: { ...src, '專員電話': phone, '電話來源': from } }];"
+      },
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "輸入": {
+      "main": [
+        [
+          {
+            "node": "展售 取登入頁",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "展售 取登入頁": {
+      "main": [
+        [
+          {
+            "node": "組登入參數",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組登入參數": {
+      "main": [
+        [
+          {
+            "node": "展售 登入",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "展售 登入": {
+      "main": [
+        [
+          {
+            "node": "組查詢 cookie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組查詢 cookie": {
+      "main": [
+        [
+          {
+            "node": "展售 查聯絡資訊",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "展售 查聯絡資訊": {
+      "main": [
+        [
+          {
+            "node": "解析專員電話",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
