@@ -31,3 +31,5 @@ Claude Code 每次開 session 會自動建新 branch，基礎點不一定是最�
 - 不要從 Notion 讀取狀態，那邊已停止維護
 - 不要在現有 workflow 裡直接 Import JSON，會覆蓋；一律開新空白 workflow 再匯入
 - 不要手改 `docs/n8n-live.md` 和 `workflows/_map.json`，那是 n8n_sync.py 產的
+- 用 Public API 改「已啟用」的 workflow 後，**一定要 deactivate + activate 一次**，否則排程觸發器還在跑舊版（2026-07-25 踩過：節點接好了但整班跳過）。
+  另外子流程要先自己 activate，主流程才啟用得起來（否則報 `references workflow ... which is not published`）
