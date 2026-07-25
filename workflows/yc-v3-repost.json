@@ -58,7 +58,10 @@
           "id": "edOz4T0LC6EP41Ug",
           "name": "Notion API Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -117,7 +120,10 @@
         200,
         0
       ],
-      "id": "v3c-844e-4ae7-a76c-f96e309a082e"
+      "id": "v3c-844e-4ae7-a76c-f96e309a082e",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -147,7 +153,10 @@
       "position": [
         400,
         0
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -199,7 +208,8 @@
           "id": "zTIA89pDJJs0Ad29",
           "name": "Gemini API Key"
         }
-      }
+      },
+      "maxTries": 3
     },
     {
       "parameters": {
@@ -268,7 +278,8 @@
           "id": "Y6myWnsH0lkRL3CF",
           "name": "FB Page Token"
         }
-      }
+      },
+      "maxTries": 3
     },
     {
       "parameters": {
@@ -396,7 +407,10 @@
           "id": "edOz4T0LC6EP41Ug",
           "name": "Notion API Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -560,7 +574,10 @@
       "position": [
         2000,
         0
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
