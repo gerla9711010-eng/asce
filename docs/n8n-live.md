@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-07-23 23:53 自動產生）
+# n8n 線上現況（2026-07-25 18:14 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -7,19 +7,19 @@
 
 | 狀態 | 名稱 | 檔案 | 節點 | 最近執行 |
 |---|---|---|---|---|
-| 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-07-23T01:00 success |
-| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-07-23T15:48 success |
-| 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | 2026-07-23T00:05 success |
-| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | 2026-07-23T03:47 success |
-| 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 14 | 2026-07-23T00:05 success |
+| 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-07-25T01:00 success |
+| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-07-25T10:11 success |
+| 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | 2026-07-24T13:48 success |
+| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | 2026-07-25T00:01 success |
+| 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 14 | 2026-07-24T13:48 success |
 | 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | 2026-07-22T15:06 success |
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | 2026-07-16T10:15 success |
 | 🟢 | 市場週報 LINE 通知 | `market-report-notify.json` | 3 | 2026-07-21T11:00 success |
-| 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 21 | 2026-07-23T00:00 success |
-| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 41 | 2026-07-23T11:52 success |
+| 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 21 | 2026-07-25T00:00 success |
+| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 41 | 2026-07-25T09:00 success |
 | 🟢 | 廣告v3 煞車（停） | `yc-v3-stop.json` | 9 | 2026-07-22T14:02 success |
-| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 23 | 2026-07-23T11:30 success |
-| 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | 2026-07-23T01:51 success |
+| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 23 | 2026-07-25T09:30 success |
+| 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | 2026-07-25T01:02 success |
 | 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | 2026-07-22T15:06 success |
 | ⚪ | LINE 新聞推播 | `line-news-push.json` | 6 | — |
 | ⚪ | YC 建檔器 v2（抓真物編productID） | `yc-property-create.json` | 13 | 2026-07-20T15:15 success |
