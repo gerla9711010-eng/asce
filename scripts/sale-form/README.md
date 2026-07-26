@@ -5,8 +5,25 @@
 
 謄本 PDF → 自動查 104 社區資料 + 高雄市使用分區 → 跳確認視窗逐項核對 → 產出售屋表 Excel。
 
+## ⚠️ 實際在用的那份在桌面，這裡是備份
+
+使用者雙擊執行的是**桌面**這個路徑（資料夾名字還停在舊版號 v3.4，裡面那層叫 `zipinspect`，
+但內容是最新的）：
+
+```
+C:\Users\user\OneDrive\桌面\工具\不動產售屋表工具_v3.4\zipinspect\
+```
+
+**改完程式兩邊都要同步**，別只改一邊。2026-07-26 清桌面時差點把它當空資料夾刪掉——
+因為第一層只看得到一個名字很怪的 `zipinspect`，要點進去才看得到東西。
+
 ## 檔案
 - `gui_main.py`：主程式（tkinter GUI）+ 填表邏輯（`fill_excel`）
+- `template/sale_template.xltx`、`template/land_template.xltx`：**Excel 範本，程式非它不可**
+  （`gui_main.py` 開頭寫死要讀這兩個檔），2026-07-26 才補進版控——在那之前只存在使用者
+  那台電腦，repo 這份是拿不出成品的殘缺副本
+- `zone_query.py`：高雄市土地使用分區查詢的獨立小工具（主程式沒 import，可單獨跑）
+- `售屋表v3.6實測清單.md`：門市實測待辦清單
 - `bot_104.py`：Selenium 駕駛 104woo（自動登入、搜社區）+ 高雄市使用分區查詢（`fetch_zoning`）
 - `confirm_wizard.py`：開始產出前的逐項確認視窗
 - `parser.py`：謄本 PDF 解析（`parse_land` / `parse_building` / `merge`）——2026-07-15 起改進版控（之前只在本機，改壞了沒有版本可以回頭救）
