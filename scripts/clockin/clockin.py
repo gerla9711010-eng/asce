@@ -177,8 +177,11 @@ def do_login() -> None:
 
 def run(dry_run: bool, jitter: int) -> int:
     if jitter > 0:
-        s = random.randint(0, jitter)
-        log(f"[jitter] 隨機延遲 {s} 秒後動作")
+        # 常態分佈取樣，中心點=區間中點，std=區間的1/6 → 99.7%落在[0, jitter]內，
+        # 避免均勻分佈時常常抽到太早或壓在邊界的觀感。超出範圍才 clip。
+        s = int(random.gauss(jitter / 2, jitter / 6))
+        s = max(0, min(jitter, s))
+        log(f"[jitter] 常態分佈隨機延遲 {s} 秒後動作")
         time.sleep(s)
 
     headless = HEADLESS_ENV
