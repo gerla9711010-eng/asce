@@ -826,13 +826,16 @@ def notify(payload: dict) -> bool:
 
 
 def notify_grabbed(grabbed: list[dict], quota_left: int,
-                   new_today: int | None = None, grabbed_today: int | None = None) -> None:
+                   new_today: int | None = None, grabbed_today: int | None = None,
+                   match_today: int | None = None) -> None:
     payload = {"event": "grabbed", "grabbed": grabbed, "quota_left": quota_left}
     if new_today is not None:                # 開盤搶單才帶今日累計；補漏回查不帶（退回本批數）
         payload["new_today"] = new_today
         payload["grabbed_today"] = grabbed_today
+        payload["match_today"] = match_today  # 2026-07-26 新增：符合條件筆數（新名單與打中之間的那一段）
     ok = notify(payload)
-    extra = f"（今日新名單 {new_today}／搶到 {grabbed_today}）" if new_today is not None else ""
+    extra = (f"（今日新名單 {new_today}／符合條件 {match_today}／打中 {grabbed_today}）"
+             if new_today is not None else "")
     # 2026-07-21：這裡原本不管 notify() 有沒有真的送出去，都固定印「已推」——
     # 導致一筆 LINE 因斷線送失敗（notify() 已回傳 False、且上面已印過失敗原因），
     # 這行卻照樣宣稱成功，讓人以為訊息有送到，白白錯過補救時機。資料本身沒有
@@ -857,21 +860,27 @@ def push_heartbeat() -> None:
         pass
 
 
-def write_daily_summary(date_str: str, new_today: int, grabbed_today: int, recovered: int = 0) -> None:
+def write_daily_summary(date_str: str, new_today: int, match_today: int,
+                        grabbed_today: int, recovered: int = 0) -> None:
     """跨日結算落地到本機 CSV（一天一行）。取代原本每天推 LINE 的跨日結算——
     使用者嫌訊息多，改成：戰果想查用 LINE 打「戰果」；系統死活靠心跳告警；
-    事後稽核看這個檔。date_str 是「被結算的那一天」（跨日前記住的昨天）。"""
+    事後稽核看這個檔。date_str 是「被結算的那一天」（跨日前記住的昨天）。
+
+    2026-07-26 加了「符合條件」欄：只有「新名單／搶到」兩欄時，掛 0 分不出是公買沒出貨
+    還是出了但全不符我們的條件。欄序固定 日期,新名單,符合條件,搶到,補回。
+    （2026-07-26 之前的舊資料列，當年的「新名單」欄其實記的是符合條件數，已在遷移時搬到
+    正確的欄位，新名單欄留空表示當時沒有這個數字。）"""
     try:
         new = not DAILY_SUMMARY_CSV.exists()
         with DAILY_SUMMARY_CSV.open("a", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f)
             if new:
-                w.writerow(["日期", "新名單", "搶到", "補回"])
-            w.writerow([date_str, new_today, grabbed_today, recovered])
+                w.writerow(["日期", "新名單", "符合條件", "搶到", "補回"])
+            w.writerow([date_str, new_today, match_today, grabbed_today, recovered])
     except Exception as e:
         log(f"⚠ 寫 daily_summary.csv 失敗：{type(e).__name__}")
-    log(f"📒 跨日結算已落地（{date_str} 新名單 {new_today}／搶到 {grabbed_today}"
-        f"{f'／補回 {recovered}' if recovered else ''}）")
+    log(f"📒 跨日結算已落地（{date_str} 新名單 {new_today}／符合條件 {match_today}"
+        f"／打中 {grabbed_today}{f'／補回 {recovered}' if recovered else ''}）")
 
 
 def _notion_dt(s: str) -> str:
@@ -1261,12 +1270,21 @@ def run_watch(clients: list, dry_run: bool) -> int:
     # 今日戰果累計（跨日歸零）。counted_today 專門給「新名單計數」用，跟搶單的 seen 分開——
     # seen 只在真的搶到/明確被拒才標，才能讓逾時中斷的單留給下一輪補搶；日累計不能干擾它。
     # 啟動時從 grabbed.csv 回填「今天已搶」——計數器存記憶體，白天重啟過的話跨日結算
-    # 會少算重啟前搶到的（07-15 實際發生：全天 13 筆只報 6）。day_new 沒有可靠的落地
-    # 來源可回讀（appearances.csv 沒存預算、也含不符篩選的），用「已搶筆數」當下限起算：
+    # 會少算重啟前搶到的（07-15 實際發生：全天 13 筆只報 6）。day_seen/day_match 沒有可靠的
+    # 落地來源可回讀（appearances.csv 沒存預算、也含不符篩選的），用「已搶筆數」當下限起算：
     # 每筆搶到的當時都算過一次新名單，重啟後頂多少算「看過但沒搶到」的，不會多算。
+    #
+    # 2026-07-26 拆成三個數字（使用者要求的回報格式：新名單 N／符合條件 M／打中 K）：
+    #   day_seen   新名單  ＝ 今天第一次進總帳的編號，不管符不符合條件（分母：公買到底出了多少貨）
+    #   day_match  符合條件＝ 其中通過 matches() 篩選的（分子的上限：真正輪得到我們搶的）
+    #   day_grabbed 打中   ＝ 實際申請成功的
+    # 三者恆為 day_seen >= day_match >= day_grabbed，看一眼就知道是「沒貨」還是「搶輸」。
+    # （舊版只有兩個數字，且那個「新名單」其實算的是 day_match，會讓人以為公買沒出貨。）
     day_grabbed, _today_sids = load_today_grabbed()
-    day_new = day_grabbed
-    counted_today: set = set(_today_sids)   # 回填過的不再重複算 day_new
+    day_match = day_grabbed
+    day_seen = day_grabbed
+    seen_ids_today: set = set(_today_sids)  # 已計入 day_seen 的編號（避免重複算）
+    counted_today: set = set(_today_sids)   # 已計入 day_match 的編號
     seen |= _today_sids                      # 也不用再嘗試搶（本來就已搶到）
     if day_grabbed:
         log(f"↺ 回填當日累計：今天已搶 {day_grabbed} 筆（重啟不歸零）")
@@ -1303,14 +1321,16 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     n = reconcile_notion()
                     if n:
                         log(f"↩ 跨日回查補寫 Notion {n} 筆")
-                    write_daily_summary(seen_day.isoformat(), day_new,
+                    write_daily_summary(seen_day.isoformat(), day_seen, day_match,
                                         day_grabbed + len(rec), recovered=len(rec))  # 結算的是「昨天」
                 except Exception as e:
                     log(f"⚠ 跨日收尾失敗（略過）：{type(e).__name__}")
                 seen.clear()
                 done_accounts.clear()
-                day_new = 0
+                day_seen = 0
+                day_match = 0
                 day_grabbed = 0
+                seen_ids_today.clear()
                 counted_today.clear()
             seen_day = today
 
@@ -1355,6 +1375,12 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     save_inventory(inventory)
                     last_inventory_save = time.time()
                 observe_appearances(newly_seen)   # 上架偵測：總帳第一次看到的編號
+                # 「新名單」分母就從這裡算：第一次進總帳＝剛進池，跟符不符合條件無關。
+                for r in newly_seen:
+                    sid = r.get("summary_id")
+                    if sid is not None and sid not in seen_ids_today:
+                        seen_ids_today.add(sid)
+                        day_seen += 1
                 for r in newly_seen[:20]:         # 每個新編號留一行 log（一次爆量只印前 20 行）
                     log(f"🆕 新編號 id{r.get('summary_id')}＝{r.get('status')}"
                         f"｜{r.get('target_city') or ''}{fmt_district(r)} "
@@ -1367,15 +1393,20 @@ def run_watch(clients: list, dry_run: bool) -> int:
             cands, _ = pick_candidates(body)      # 候選只從窗口來，永遠不從全池掃描來
             status_seen = observe_status_changes(body.get("data", []), status_seen)  # 記錄狀態轉換(誰、幾點被申請)
 
-            # 先算今日新名單累計——就算配額用完、還沒搶，也要算得到，這樣結算/搶到時 LINE
-            # 才能顯示「新名單 N 筆卻只搶到 M 筆」，一眼分辨貨少 vs 搶輸/配額滿。用獨立的
-            # counted_today，不動搶單的 seen。
+            # 先算今日「符合條件」累計——就算配額用完、還沒搶，也要算得到，這樣結算/搶到時
+            # LINE 才能顯示「符合條件 M 筆卻只打中 K 筆」，一眼分辨貨少 vs 搶輸/配額滿。
+            # 用獨立的 counted_today，不動搶單的 seen。
             # 2026-07-23：只算「真新單」，別把二手回鍋貨算成今日新名單灌水
             for r in cands:
                 if r["summary_id"] not in counted_today and (
                         not ONLY_TRULY_NEW or is_truly_new(inventory, r)):
                     counted_today.add(r["summary_id"])
-                    day_new += 1
+                    day_match += 1
+                    # 總帳更新那段若剛好丟例外，這筆可能還沒被算進分母；補上，
+                    # 保證「符合條件」永遠不會大於「新名單」。
+                    if r["summary_id"] not in seen_ids_today:
+                        seen_ids_today.add(r["summary_id"])
+                        day_seen += 1
 
             interval = current_tier_interval(now)  # 全天分層：熱門時段5秒、一般1分鐘、深夜5分鐘
 
@@ -1421,7 +1452,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 if grabbed:
                     save_inventory(inventory)
                     last_inventory_save = time.time()
-                    notify_grabbed(grabbed, qleft, day_new, day_grabbed)
+                    notify_grabbed(grabbed, qleft, day_seen, day_grabbed, day_match)
 
             # 這一輪自己剛搶到的id也一起納入，避免clients[0]自己申請過的名單從自己視野消失、
             # 造成 max_id 誤判變小（見 track_top_id 說明）
