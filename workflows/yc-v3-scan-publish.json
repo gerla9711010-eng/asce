@@ -159,19 +159,6 @@
     },
     {
       "parameters": {
-        "maxItems": 1
-      },
-      "id": "v3a-07-limit",
-      "name": "取 1 件",
-      "type": "n8n-nodes-base.limit",
-      "typeVersion": 1,
-      "position": [
-        -740,
-        200
-      ]
-    },
-    {
-      "parameters": {
         "url": "=https://keis.kshouse.com.tw/api/v1/property-management/{{ $json.keisId }}",
         "options": {
           "response": {
@@ -205,7 +192,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 白名單清洗：只留廣告欄位，屋主個資一律 drop\n// 2026-07-23 KEIS 砍欄位後改版：official_url 改從列表帶、格局樓層自己組、屋齡學區交給永慶官網\nconst d = $input.first().json.data || $input.first().json;\nconst list = $('取 1 件').first().json || {};\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst num = v => (v === null || v === undefined || v === '') ? null : Number(v);\nconst r1 = v => (v === null || v === undefined || v === '') ? null : Math.round(Number(v) * 10) / 10;\n\nconst type = s(d.property_type);\nconst isLand = /土地|農|廠|車位/.test(type);\n\n// 格局：只寫有數字的，全 0 或土地類就留白（KEIS 前端也是這樣顯示）\nconst parts = [[Number(d.room_count) || 0, '房'], [Number(d.living_count) || 0, '廳'], [Number(d.bathroom_count) || 0, '衛']];\nconst 格局 = isLand ? '' : parts.filter(p => p[0] > 0).map(p => p[0] + p[1]).join('');\n\n// 樓層：起訖不同寫成範圍、地下室寫 B1、缺任一個就留白\nconst f = n => (n === null || n === undefined || n === '') ? null : (Number(n) < 0 ? 'B' + Math.abs(Number(n)) : String(Number(n)));\nconst a = f(d.floor_start), b = f(d.floor_end), t = f(d.total_floors);\nlet 樓層 = '';\nif (!isLand && a && t) 樓層 = (b && b !== a ? a + '-' + b : a) + '/' + t;\n\nconst 賣點 = [d.feature_1, d.feature_2, d.feature_3, d.feature_4, d.feature_5].map(s).filter(Boolean);\n\nreturn [{ json: {\n  contract_no: s(d.contract_no).toUpperCase(),\n  keisId: d.id,\n  案名: s(d.case_name),\n  總價萬: num(d.case_price),\n  單價: num(d.unit_price),\n  建物類型: type,\n  格局,\n  主建坪: r1(d.main_area),\n  建物坪: r1(d.total_area),\n  樓層,\n  社區: s(d.community_name),\n  地址: [s(d.property_address_city), s(d.property_address_district), s(d.property_address_road)].join(''),\n  車位: [s(d.parking_type), s(d.parking_method)].filter(Boolean).join('/'),\n  路名: s(d.property_address_road),\n  行政區: s(d.property_address_district),\n  專員: s(d.sales_agent_name),\n  門市: s(d.store_name),\n  official_url: s(list.official_url),\n  賣點,\n  機能: { 商圈: s(d.market_info), 捷運: s(d.mrt_station), 公園: s(d.park_info) },\n}}];\n"
+        "jsCode": "// 白名單清洗：只留廣告欄位，屋主個資一律 drop\n// 2026-07-23 KEIS 砍欄位後改版：official_url 改從列表帶、格局樓層自己組、屋齡學區交給永慶官網\nconst d = $input.first().json.data || $input.first().json;\nconst list = $('逐件嘗試').first().json || {};\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst num = v => (v === null || v === undefined || v === '') ? null : Number(v);\nconst r1 = v => (v === null || v === undefined || v === '') ? null : Math.round(Number(v) * 10) / 10;\n\nconst type = s(d.property_type);\nconst isLand = /土地|農|廠|車位/.test(type);\n\n// 格局：只寫有數字的，全 0 或土地類就留白（KEIS 前端也是這樣顯示）\nconst parts = [[Number(d.room_count) || 0, '房'], [Number(d.living_count) || 0, '廳'], [Number(d.bathroom_count) || 0, '衛']];\nconst 格局 = isLand ? '' : parts.filter(p => p[0] > 0).map(p => p[0] + p[1]).join('');\n\n// 樓層：起訖不同寫成範圍、地下室寫 B1、缺任一個就留白\nconst f = n => (n === null || n === undefined || n === '') ? null : (Number(n) < 0 ? 'B' + Math.abs(Number(n)) : String(Number(n)));\nconst a = f(d.floor_start), b = f(d.floor_end), t = f(d.total_floors);\nlet 樓層 = '';\nif (!isLand && a && t) 樓層 = (b && b !== a ? a + '-' + b : a) + '/' + t;\n\nconst 賣點 = [d.feature_1, d.feature_2, d.feature_3, d.feature_4, d.feature_5].map(s).filter(Boolean);\n\nreturn [{ json: {\n  contract_no: s(d.contract_no).toUpperCase(),\n  keisId: d.id,\n  案名: s(d.case_name),\n  總價萬: num(d.case_price),\n  單價: num(d.unit_price),\n  建物類型: type,\n  格局,\n  主建坪: r1(d.main_area),\n  建物坪: r1(d.total_area),\n  樓層,\n  社區: s(d.community_name),\n  地址: [s(d.property_address_city), s(d.property_address_district), s(d.property_address_road)].join(''),\n  車位: [s(d.parking_type), s(d.parking_method)].filter(Boolean).join('/'),\n  路名: s(d.property_address_road),\n  行政區: s(d.property_address_district),\n  專員: s(d.sales_agent_name),\n  門市: s(d.store_name),\n  official_url: s(list.official_url),\n  賣點,\n  機能: { 商圈: s(d.market_info), 捷運: s(d.mrt_station), 公園: s(d.park_info) },\n}}];\n"
       },
       "id": "v3a-09-clean",
       "name": "白名單清洗",
@@ -1034,7 +1021,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1250,
+        1620,
         220
       ],
       "onError": "continueRegularOutput",
@@ -1128,6 +1115,72 @@
         }
       },
       "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "id": "v3a-07-limit",
+      "name": "取候補 3 件",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -740,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -640,
+        200
+      ],
+      "id": "a7f3c1e2-9b4d-4f6a-8c21-5d0e7b3a9f14",
+      "name": "逐件嘗試"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ parent: { database_id: '07ee845168b64f8a9b5682e5069c733b' }, properties: { '案名': { title: [{ text: { content: $json['案名'] || $json.contract_no } }] }, '案件編號': { rich_text: [{ text: { content: $json.contract_no } }] }, '社區名稱': { rich_text: [{ text: { content: String($json['社區']||'') } }] }, '地址': { rich_text: [{ text: { content: String($json['地址']||'') } }] }, '建物類型': $json['建物類型'] ? { select: { name: String($json['建物類型']).replace(/^[A-Z]\\./,'') } } : { select: null }, '格局': { rich_text: [{ text: { content: String($json['格局']||'') } }] }, '樓層': { rich_text: [{ text: { content: String($json['樓層']||'') } }] }, '屋齡': { number: $json['屋齡'] }, '總價': { rich_text: [{ text: { content: ($json['總價萬']!=null? $json['總價萬']+' 萬':'') } }] }, '主建物坪數': { number: $json['主建坪'] }, '建物坪數': { number: $json['建物坪'] }, '粉專文案': { rich_text: [{ text: { content: String($json['粉專文案']||'').slice(0,1900) } }] }, '社團文案': { rich_text: [{ text: { content: String($json['社團文案']||'').slice(0,1900) } }] }, '來源連結': { url: $json['official_url'] || null }, '狀態': { select: { name: '草稿' } }, '專員': { rich_text: [{ text: { content: String($json['專員']||'') } }] }, '所屬門市': { rich_text: [{ text: { content: String($json['門市']||'') } }] }, '廣告貼文紀錄': { rich_text: [{ text: { content: ('⚠ 守門員擋下 ' + new Date().toISOString().slice(0,10) + '：' + [...($json._guardBanned||[]), ...($json._guardBad||[]).map(n=>'查無出處數字 '+n)].join('、') + '｜文案已產好，人工確認後改狀態為「待發」即可').slice(0,1900) } }] }, 'KEIS物件ID': { number: ($json.keisId != null ? Number($json.keisId) : null) } } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1420,
+        220
+      ],
+      "id": "c2e8b5a1-3d7f-4e29-b6c4-8a1f0d5e2b73",
+      "name": "Notion 建擋下列",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -1190,18 +1243,7 @@
       "main": [
         [
           {
-            "node": "取 1 件",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "取 1 件": {
-      "main": [
-        [
-          {
-            "node": "KEIS 物件詳情",
+            "node": "取候補 3 件",
             "type": "main",
             "index": 0
           }
@@ -1519,7 +1561,7 @@
         ],
         [
           {
-            "node": "LINE 守門員告警",
+            "node": "Notion 建擋下列",
             "type": "main",
             "index": 0
           }
@@ -1564,6 +1606,51 @@
         [
           {
             "node": "Notion 建待發列",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取候補 3 件": {
+      "main": [
+        [
+          {
+            "node": "逐件嘗試",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "逐件嘗試": {
+      "main": [
+        [],
+        [
+          {
+            "node": "KEIS 物件詳情",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion 建擋下列": {
+      "main": [
+        [
+          {
+            "node": "LINE 守門員告警",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LINE 守門員告警": {
+      "main": [
+        [
+          {
+            "node": "逐件嘗試",
             "type": "main",
             "index": 0
           }
