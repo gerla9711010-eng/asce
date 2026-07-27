@@ -1210,8 +1210,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2410,
-        560
+        3410,
+        860
       ],
       "id": "v3a-24-unlist",
       "name": "Notion 撤銷待發列",
@@ -1228,13 +1228,13 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst src = $('收集 media id').first().json;\nconst ok = !($input.first().json.error || $input.first().json.code);   // Notion 撤列成不成功\nconst text = [\n  '❌ 廣告沒發出去（Facebook 那邊出錯）',\n  '',\n  `🏷 ${src.contract_no}　💰 ${src['總價萬']} 萬`,\n  `📋 ${src['案名'] || ''}`,\n  `📍 ${src['地址'] || ''}`,\n  '',\n  '已自動重試 3 次仍失敗。',\n  'ℹ️ 已把 Notion 待發列撤掉，下一班會自動重抓這件，不用手動處理。',\n].join('\\n');\nreturn [{ json: { userId: \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\", text } }];\n"
+        "jsCode": "\nconst src = $('收集 media id').first().json;\nconst mode = (() => { try { return $('判斷補救方式').first().json.mode; } catch (e) { return ''; } })();\nconst why = mode === 'retry'\n  ? '已確認沒發出去並自動重發一次，仍然失敗。'\n  : '無法向 FB 確認到底發出去了沒，為了避免重複貼文，這次不重發。';\nconst text = [\n  '❌ 廣告沒發出去（Facebook 那邊出錯）',\n  '',\n  `🏷 ${src.contract_no}　💰 ${src['總價萬']} 萬`,\n  `📋 ${src['案名'] || ''}`,\n  `📍 ${src['地址'] || ''}`,\n  '',\n  why,\n  'ℹ️ 已把 Notion 待發列撤掉，下一班會自動重抓這件，不用手動處理。',\n].join('\\n');\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', text } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2620,
-        560
+        3610,
+        860
       ],
       "id": "v3a-25-failmsg",
       "name": "組發文失敗訊息"
@@ -1262,8 +1262,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2830,
-        560
+        3810,
+        860
       ],
       "id": "v3a-26-failpush",
       "name": "LINE 發文失敗",
@@ -1273,6 +1273,245 @@
           "name": "LINE Channel Access Token"
         }
       }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://graph.facebook.com/v21.0/' + ($('收集 media id').first().json.fbids || [''])[0] }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "page_story_id"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2410,
+        560
+      ],
+      "id": "v3a-30-checkphoto",
+      "name": "查照片是否已成篇",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Y6myWnsH0lkRL3CF",
+          "name": "FB Page Token"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// 只讀不寫，判斷 FB 那篇到底發出去了沒\nconst r = $input.first().json || {};\nconst fbids = ($('收集 media id').first().json.fbids) || [];\nlet mode;\nif (r.page_story_id) mode = 'ok';        // 照片已被組成一篇貼文 → 極可能其實成功了\nelse if (r.error) mode = 'giveup';       // 問不到 FB，不敢賭，寧可等下一班\nelse if (!fbids.length) mode = 'giveup'; // 純文字貼文沒得驗，同樣不賭\nelse mode = 'retry';                     // 確認沒發出去 → 重發不會重複\nreturn [{ json: { mode, page_story_id: r.page_story_id || '' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2610,
+        560
+      ],
+      "id": "v3a-31-decide",
+      "name": "判斷補救方式"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v3a-32-isok",
+              "leftValue": "={{ $json.mode }}",
+              "rightValue": "ok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2810,
+        560
+      ],
+      "id": "v3a-32-isok",
+      "name": "其實有發成功?"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://graph.facebook.com/v21.0/' + $json.page_story_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,is_published"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3010,
+        460
+      ],
+      "id": "v3a-33-verify",
+      "name": "確認貼文存在",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Y6myWnsH0lkRL3CF",
+          "name": "FB Page Token"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v3a-34-ispub",
+              "leftValue": "={{ $json.is_published }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3210,
+        460
+      ],
+      "id": "v3a-34-ispub",
+      "name": "真的已發布?"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// 造一個跟「FB 發貼文」成功時一樣的回應，讓後面的流程照常跑完\n// （Notion 標已發布 → 解析永慶連結 → KEIS 新增廣告 → LINE 發布通知）\nreturn [{ json: { id: $('判斷補救方式').first().json.page_story_id, _recovered: true } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3410,
+        460
+      ],
+      "id": "v3a-35-recover",
+      "name": "補回貼文結果"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v3a-36-canretry",
+              "leftValue": "={{ $json.mode }}",
+              "rightValue": "retry",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3010,
+        700
+      ],
+      "id": "v3a-36-canretry",
+      "name": "可以安全重發?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/1041868522352339/feed",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify((() => { const c = $('收集 media id').first().json; return (c.fbids && c.fbids.length) ? { message: c['粉專文案'], attached_media: c.fbids.map(id => ({ media_fbid: id })) } : { message: c['粉專文案'] }; })()) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3210,
+        700
+      ],
+      "id": "v3a-37-repost",
+      "name": "重發一次",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Y6myWnsH0lkRL3CF",
+          "name": "FB Page Token"
+        }
+      },
+      "onError": "continueErrorOutput"
     }
   ],
   "connections": {
@@ -1503,7 +1742,7 @@
         ],
         [
           {
-            "node": "Notion 撤銷待發列",
+            "node": "查照片是否已成篇",
             "type": "main",
             "index": 0
           }
@@ -1772,6 +2011,122 @@
         [
           {
             "node": "LINE 發文失敗",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查照片是否已成篇": {
+      "main": [
+        [
+          {
+            "node": "判斷補救方式",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "判斷補救方式": {
+      "main": [
+        [
+          {
+            "node": "其實有發成功?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "其實有發成功?": {
+      "main": [
+        [
+          {
+            "node": "確認貼文存在",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "可以安全重發?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "確認貼文存在": {
+      "main": [
+        [
+          {
+            "node": "真的已發布?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "真的已發布?": {
+      "main": [
+        [
+          {
+            "node": "補回貼文結果",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notion 撤銷待發列",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "補回貼文結果": {
+      "main": [
+        [
+          {
+            "node": "取貼文結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "可以安全重發?": {
+      "main": [
+        [
+          {
+            "node": "重發一次",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notion 撤銷待發列",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "重發一次": {
+      "main": [
+        [
+          {
+            "node": "取貼文結果",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notion 撤銷待發列",
             "type": "main",
             "index": 0
           }
