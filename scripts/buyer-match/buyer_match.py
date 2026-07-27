@@ -42,6 +42,14 @@ OUTPUT_DIR = BASE_DIR / "output"
 if load_dotenv:
     load_dotenv(BASE_DIR / ".env")
 
+# Windows 中文版終端機預設用 cp950，物件標題常見的 emoji（🐣🌸 之類）不在這個字集裡，
+# print() 到 console 會直接 UnicodeEncodeError 整支腳本中斷。GUI 模式不受影響
+# （stdout 會被換成 QueueWriter，走的是 Python str、不經過 console 編碼），
+# 這裡只是讓 CLI 模式在同樣情況下印「?」而不是整個炸掉。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
+
 
 # ──────────────────────────────────────────────────────────────
 # 資料結構
@@ -118,26 +126,13 @@ _SET_PAGESIZE_30_JS = r"""
 }
 """
 
-_NEXT_PAGE_JS = r"""
+_NEXT_PAGE_DISABLED_JS = r"""
 () => {
   const btn = document.querySelector('button.mat-paginator-navigation-next');
   if (!btn) return 'no_btn';
   if (btn.disabled || btn.classList.contains('mat-mdc-button-disabled'))
     return 'disabled';
-  btn.click();
-  return 'clicked';
-}
-"""
-
-_CLICK_EXACT_TEXT_JS = r"""
-(label) => {
-  const els = [...document.querySelectorAll('button, a, div, span')];
-  const el = els.find(e => (e.textContent || '').trim() === label
-    && e.children.length === 0);
-  if (!el) return 'not_found';
-  const clickable = el.closest('button, a') || el;
-  clickable.click();
-  return 'clicked';
+  return 'ok';
 }
 """
 
@@ -171,12 +166,14 @@ async def try_auto_login(page: Page) -> bool:
 
     print("[INFO] 偵測到登入態過期，嘗試用 .env 帳密自動登入...")
     try:
+        # i智慧走永慶 SSO（opid.ycut.com.tw），登入頁欄位是 name="userName"（人員編號）
+        # + name="password"，2026-07-27 實測確認。抓不到才退回寬鬆猜測當備援。
         account_input = page.locator(
-            'input[type="text"], input[type="email"], '
-            'input[name*="account" i], input[placeholder*="帳號"], '
+            'input[name="userName"], input[type="text"], input[type="email"], '
+            'input[name*="account" i], input[placeholder*="帳號"], input[placeholder*="編號"], '
             'input[placeholder*="Email" i], input[placeholder*="帳" i]'
         ).first
-        password_input = page.locator('input[type="password"]').first
+        password_input = page.locator('input[name="password"], input[type="password"]').first
         await account_input.wait_for(timeout=10000)
         await account_input.click()
         await account_input.fill(account)
@@ -214,6 +211,11 @@ async def ensure_search_page(page: Page) -> None:
     for attempt in range(3):
         try:
             await page.goto(ISMART_SEARCH_URL, wait_until="domcontentloaded")
+            # session 過期時，i智慧是先把 is.ycut.com.tw 這份文件載進來、
+            # 前端 JS 判斷過期後才用 client-side redirect 轉去 opid.ycut.com.tw 登入頁——
+            # domcontentloaded 那個時間點 URL 可能還沒變，太早看 page.url 會抓不到、
+            # 直接落去等搜尋框 20 秒逾時（2026-07-27 實測踩過）。這裡多等一下再判斷。
+            await page.wait_for_timeout(1500)
             cur = page.url or ""
             if "opid.ycut.com.tw" in cur or "/login" in cur:
                 if not login_attempted:
@@ -254,6 +256,21 @@ async def _range_label(page: Page) -> str:
         return ""
 
 
+async def _click_next_page(page: Page) -> bool:
+    """按分頁「下一頁」。用真的 Playwright click（不是 JS el.click()）——
+    2026-07-27 實測發現「分享」那顆 Angular Material 風格按鈕不理會 JS 觸發的合成
+    click（isTrusted=false），下一頁按鈕（mat-paginator）是同一個元件家族，同樣風險，
+    先一併改掉、不要等真的遇到才修。"""
+    state = await page.evaluate(_NEXT_PAGE_DISABLED_JS)
+    if state != "ok":
+        return False
+    try:
+        await page.locator("button.mat-paginator-navigation-next").click(timeout=3000)
+    except Exception:
+        return False
+    return True
+
+
 async def _collect_all_cards(page: Page, max_pages: int = 15) -> list[dict]:
     try:
         r = await page.evaluate(_SET_PAGESIZE_30_JS)
@@ -268,8 +285,7 @@ async def _collect_all_cards(page: Page, max_pages: int = 15) -> list[dict]:
         all_raw.extend(await page.evaluate(_EXTRACT_CARDS_JS))
 
         label_before = await _range_label(page)
-        nxt = await page.evaluate(_NEXT_PAGE_JS)
-        if nxt != "clicked":
+        if not await _click_next_page(page):
             break
         for _ in range(20):
             await page.wait_for_timeout(300)
@@ -384,8 +400,7 @@ async def iter_pages(page: Page, max_pages: int = 15):
         yield page_no, raw
 
         label_before = await _range_label(page)
-        nxt = await page.evaluate(_NEXT_PAGE_JS)
-        if nxt != "clicked":
+        if not await _click_next_page(page):
             return
         for _ in range(20):
             await page.wait_for_timeout(300)
@@ -478,23 +493,38 @@ async def open_detail_and_fetch(
     list_page: Page, card_index: int, dry_run: bool
 ) -> tuple[Agent, Optional[str]]:
     """點清單第 card_index 張卡（0-based，對應當下渲染頁面上的卡片順序）→
-    開詳情頁抓專員資訊 → 點分享（會跳原生確認視窗，這裡自動按確定）→
+    開詳情頁抓專員資訊 → 點分享（會跳站內「提醒」對話框，這裡自動點確定）→
     抓公開分享頁網址 → 關掉開出來的分頁、回到清單頁。"""
     detail_page = await _open_card_detail(list_page, card_index)
     await detail_page.wait_for_load_state("domcontentloaded")
-    await detail_page.wait_for_timeout(600)
+    try:
+        await detail_page.wait_for_function(
+            "() => (document.body.innerText || '').includes('承辦人聯絡資訊')",
+            timeout=10000,
+        )
+    except Exception:
+        pass  # 等不到也繼續，_parse_agent 找不到區塊就回空的 Agent
 
     body_text = await detail_page.evaluate("() => document.body.innerText")
     agent = _parse_agent(body_text)
 
     share_url = None
     if not dry_run:
-        detail_page.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
         try:
-            async with detail_page.context.expect_page(timeout=8000) as share_info:
-                r = await detail_page.evaluate(_CLICK_EXACT_TEXT_JS, "分享")
-                if r != "clicked":
-                    raise RuntimeError("找不到「分享」按鈕")
+            # 2026-07-27 實測釐清整個流程：
+            # 1) 點「分享」btn 一定要用 Playwright 的 locator.click()（真的滑鼠事件），
+            #    JS el.click() 點得到但頁面沒反應（合成事件被這顆 Angular 按鈕忽略）。
+            # 2) 點下去**不是**原生 JS confirm()，是站內 Angular Material 對話框
+            #    （「提醒」：不動產經紀業管理條例提醒），要點框裡的「確定」才會真的
+            #    開新分頁。截圖驗證過長相，見 PR 說明。
+            share_btn = detail_page.get_by_text("分享", exact=True).first
+            await share_btn.wait_for(state="visible", timeout=8000)
+            await share_btn.click()
+
+            confirm_btn = detail_page.get_by_text("確定", exact=True).first
+            await confirm_btn.wait_for(state="visible", timeout=5000)
+            async with detail_page.context.expect_page(timeout=10000) as share_info:
+                await confirm_btn.click()
             share_page = await share_info.value
             await share_page.wait_for_load_state("domcontentloaded")
             share_url = share_page.url
