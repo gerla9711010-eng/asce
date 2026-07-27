@@ -319,6 +319,7 @@
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "errorWorkflow": "eTHhmrZVmllk1aUZ"
   }
 }
