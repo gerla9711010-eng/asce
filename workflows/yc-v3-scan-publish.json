@@ -574,7 +574,8 @@
           "id": "Y6myWnsH0lkRL3CF",
           "name": "FB Page Token"
         }
-      }
+      },
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -1181,6 +1182,97 @@
         }
       },
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.notion.com/v1/pages/' + $('收集 media id').first().json.notionPageId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ archived: true }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2410,
+        560
+      ],
+      "id": "v3a-24-unlist",
+      "name": "Notion 撤銷待發列",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst src = $('收集 media id').first().json;\nconst ok = !($input.first().json.error || $input.first().json.code);   // Notion 撤列成不成功\nconst text = [\n  '❌ 廣告沒發出去（Facebook 那邊出錯）',\n  '',\n  `🏷 ${src.contract_no}　💰 ${src['總價萬']} 萬`,\n  `📋 ${src['案名'] || ''}`,\n  `📍 ${src['地址'] || ''}`,\n  '',\n  '已自動重試 3 次仍失敗。',\n  'ℹ️ 已把 Notion 待發列撤掉，下一班會自動重抓這件，不用手動處理。',\n].join('\\n');\nreturn [{ json: { userId: \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\", text } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2620,
+        560
+      ],
+      "id": "v3a-25-failmsg",
+      "name": "組發文失敗訊息"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2830,
+        560
+      ],
+      "id": "v3a-26-failpush",
+      "name": "LINE 發文失敗",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     }
   ],
   "connections": {
@@ -1405,6 +1497,13 @@
         [
           {
             "node": "取貼文結果",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notion 撤銷待發列",
             "type": "main",
             "index": 0
           }
@@ -1656,11 +1755,34 @@
           }
         ]
       ]
+    },
+    "Notion 撤銷待發列": {
+      "main": [
+        [
+          {
+            "node": "組發文失敗訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組發文失敗訊息": {
+      "main": [
+        [
+          {
+            "node": "LINE 發文失敗",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "errorWorkflow": "eTHhmrZVmllk1aUZ"
   }
 }

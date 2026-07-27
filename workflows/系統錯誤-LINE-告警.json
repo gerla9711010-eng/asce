@@ -1,0 +1,91 @@
+{
+  "name": "系統錯誤 LINE 告警",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "errwf-01-trigger",
+      "name": "任一流程出錯"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Error Trigger 進來的資料：{ execution:{id,url,error{message},lastNodeExecuted,mode}, workflow:{id,name} }\nconst d = $input.first().json;\nconst wf = d.workflow || {};\nconst ex = d.execution || d.trigger || {};\nconst err = ex.error || {};\n\n// 這些是「外部服務打嗝」型的錯誤，講白話讓人一眼知道不是自己系統壞掉\nconst raw = String(err.message || '未知錯誤');\nlet hint = '';\nif (/50\\d|522|ECONNABORTED|ETIMEDOUT|ECONNRESET|timeout/i.test(raw)) {\n  hint = '\\n💡 看起來是對方服務暫時打嗝，通常下一班會自己好';\n} else if (/401|403|token|credential/i.test(raw)) {\n  hint = '\\n💡 可能是登入權杖過期，要人工處理';\n}\n\nconst text = [\n  '🚨 n8n 執行失敗',\n  `📋 ${wf.name || wf.id || '未知流程'}`,\n  ex.lastNodeExecuted ? `🔻 卡在：${ex.lastNodeExecuted}` : null,\n  `💬 ${raw.slice(0, 300)}`,\n  ex.url ? `🔗 ${ex.url}` : null,\n].filter(Boolean).join('\\n') + hint;\n\nreturn [{ json: { userId: \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\", text } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "errwf-02-msg",
+      "name": "組錯誤訊息"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "errwf-03-push",
+      "name": "LINE Push",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "任一流程出錯": {
+      "main": [
+        [
+          {
+            "node": "組錯誤訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組錯誤訊息": {
+      "main": [
+        [
+          {
+            "node": "LINE Push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
