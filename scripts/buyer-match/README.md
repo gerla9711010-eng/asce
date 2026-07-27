@@ -4,30 +4,35 @@
 承辦專員姓名/電話/店別，並點「分享」拿到 i智慧 公開分享網頁連結（免登入、客戶可直接開），
 整理成一段文字，複製貼上就能傳給客戶。
 
-啟動模式：**CDP attach**（跟桌面「自動比對專約」工具同一套手法）——`open_real_chrome.bat`
-帶 `--remote-debugging-port=9223` 開一個獨立 profile 的 Chrome，第一次手動登入 i智慧一次，
-之後這支腳本用 `connect_over_cdp` 連進去操作、不存帳密、不用處理登入流程。
+啟動模式：**CDP attach**（跟桌面「自動比對專約」工具同一套手法）——開一個獨立 profile 的
+Chrome（帶 `--remote-debugging-port=9223`），第一次手動登入 i智慧一次，之後腳本用
+`connect_over_cdp` 連進去操作、不存帳密、不用處理登入流程。
 
-## 第一次設定（3 步）
+## 日常用法（推薦：GUI，雙擊就能用）
 
-1. **裝套件**（只需一次）：
-   ```powershell
-   cd scripts/buyer-match
-   py -m pip install -r requirements.txt
-   ```
-   不需要 `playwright install chromium`——CDP attach 用的是你電腦上真的 Chrome，
-   不是 Playwright 自帶的瀏覽器。
+雙擊 **啟動工具.vbs**（不會開黑窗，pythonw 背景執行）：
 
-2. **開 Chrome 登入**：雙擊 `open_real_chrome.bat` → 開出來的 Chrome 視窗用你自己的
-   帳號登入 i智慧（is.ycut.com.tw）。登入態存在 `chrome_profile/`（自動產生，不要外流、
-   已 gitignore），之後不用再登，除非 session 過期。
+1. 按「啟動 Chrome」→ 第一次要在跳出的 Chrome 視窗手動登入 i智慧（is.ycut.com.tw），
+   之後登入態會記住，不用再登
+2. 填行政區/總價/房數等條件（只有行政區關鍵字必填）
+3. 想先確認條件抓得對不對，先勾「只看筆數」跑一次（快，不開詳情頁）
+4. 沒問題再取消勾、按「開始查詢」，跑完結果會顯示在畫面上、**自動複製到剪貼簿**，
+   直接 Ctrl+V 貼給客戶
 
-3. **跑腳本**：
-   ```powershell
-   python buyer_match.py --area 苓雅區 --price-min 300 --price-max 500
-   ```
+## 第一次設定（一次性，GUI/CLI 共用）
 
-## 用法
+```powershell
+cd scripts/buyer-match
+py -m pip install -r requirements.txt
+```
+
+不需要 `playwright install chromium`——CDP attach 用的是你電腦上真的 Chrome，
+不是 Playwright 自帶的瀏覽器。`chrome_profile/`（登入態）、`output/`（每次查詢存檔）都會
+在跑的時候自動產生，不要外流／已 gitignore。
+
+## 進階：命令列模式
+
+如果不想開 GUI，先雙擊 `open_real_chrome.bat` 開好 Chrome、登入 i智慧，再直接跑 .py：
 
 ```powershell
 # 苓雅區、300~500萬，最多處理 15 筆（預設）
@@ -75,6 +80,18 @@ i智慧 預設就是總價由低到高排序，`--limit` 會拿排序後前 N �
 **分享連結抓不到某幾筆**
 `open_detail_and_fetch` 抓不到「分享」按鈕或跳出來的分頁逾時，會印 WARN 但不中斷整批，
 那幾筆就只有規格+專員資訊、沒有連結。
+
+## 檔案
+
+| 檔 | 用途 |
+|---|---|
+| `啟動工具.vbs` | **推薦入口**（雙擊開 GUI、無 console 黑窗） |
+| `gui_main.py` | GUI 主程式（Tkinter，黑底風格，內建啟動 Chrome / 查詢 / log / 複製） |
+| `buyer_match.py` | 主邏輯（CLI 也可以直接跑這支，見上面「進階：命令列模式」） |
+| `open_real_chrome.bat` | CLI 模式專用：開 Chrome（帶 CDP port）讓你手動登入。GUI 模式不用點這個，GUI 裡「啟動 Chrome」按鈕做一樣的事 |
+| `chrome_profile/` | 登入態（自動產生、不要外流、已 gitignore） |
+| `output/` | 每次查詢的結果存檔（已 gitignore） |
+| `requirements.txt` | Python 依賴（playwright、pyperclip） |
 
 ## 之後可以怎麼擴
 

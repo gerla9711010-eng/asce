@@ -25,7 +25,8 @@ from typing import Optional
 
 from playwright.async_api import Page, async_playwright
 
-CDP_URL = "http://localhost:9223"
+CDP_PORT = 9223
+CDP_URL = f"http://localhost:{CDP_PORT}"
 ISMART_SEARCH_URL = "https://is.ycut.com.tw/is/case/search/all-case"
 
 BASE_DIR = Path(__file__).resolve().parent
