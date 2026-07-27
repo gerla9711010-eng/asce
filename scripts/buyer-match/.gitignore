@@ -1,3 +1,4 @@
+.env
 chrome_profile/
 logs/
 output/

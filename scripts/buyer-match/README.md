@@ -30,6 +30,23 @@ py -m pip install -r requirements.txt
 不是 Playwright 自帶的瀏覽器。`chrome_profile/`（登入態）、`output/`（每次查詢存檔）都會
 在跑的時候自動產生，不要外流／已 gitignore。
 
+### 選填：讓過期自動重新登入（不用手動打帳密）
+
+獨立 Chrome profile 沒有你平常 Chrome 記住的密碼，第一次登入之後 cookie 一般能撐一陣子，
+但過期時預設要手動切到 Chrome 視窗重新輸入。想要過期也自動處理：
+
+```powershell
+cp .env.example .env
+# 編輯 .env，填 ISMART_ACCOUNT / ISMART_PASSWORD
+```
+
+填了之後，腳本偵測到被導去登入頁會自動嘗試登入。**沒填也完全能用**，只是過期當下要自己手動登入一次。
+
+⚠️ 這段自動登入用的是「找帳號/密碼欄位＋找登入按鈕」的通用選取器，因為目前還沒機會在不登出你
+現有 session 的情況下先看過 i智慧登入頁長什麼樣。**第一次真的觸發、如果自動登入沒成功**，
+腳本會印出清楚的訊息、退回原本「請手動登入」的流程，不會卡死——把那時登入頁的樣子（或截圖）
+告訴我，我就能把選取器鎖精確，之後就不會再失敗。
+
 ## 進階：命令列模式
 
 如果不想開 GUI，先雙擊 `open_real_chrome.bat` 開好 Chrome、登入 i智慧，再直接跑 .py：

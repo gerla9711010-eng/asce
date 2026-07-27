@@ -3,8 +3,9 @@
 
 啟動模式：CDP attach（跟桌面「自動比對專約」工具同一套）——
 先跑 open_real_chrome.bat 開一個帶 --remote-debugging-port=9223 的 Chrome、
-手動登入一次 i智慧，之後這支腳本用 connect_over_cdp 連進去操作，不存帳密、
-不用另外處理登入流程。
+第一次手動登入一次 i智慧。之後 session（cookie）過期時，若 .env 有填
+ISMART_ACCOUNT / ISMART_PASSWORD，腳本會自動重新登入，不用人在旁邊手動打帳密。
+沒填的話才會退回「請手動登入」的提示。
 
 用法：
     python buyer_match.py --area 苓雅區 --price-min 300 --price-max 500
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import re
 import sys
 from dataclasses import dataclass, field
@@ -25,12 +27,20 @@ from typing import Optional
 
 from playwright.async_api import Page, async_playwright
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # dotenv 是選配，沒裝就跳過自動登入功能
+    load_dotenv = None
+
 CDP_PORT = 9223
 CDP_URL = f"http://localhost:{CDP_PORT}"
 ISMART_SEARCH_URL = "https://is.ycut.com.tw/is/case/search/all-case"
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
+
+if load_dotenv:
+    load_dotenv(BASE_DIR / ".env")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -149,14 +159,75 @@ async def _ensure_scope_all(page: Page) -> None:
         print(f"[WARN] 切範圍失敗（不影響搜尋、繼續）：{e}", file=sys.stderr)
 
 
+async def try_auto_login(page: Page) -> bool:
+    """用 .env 的 ISMART_ACCOUNT / ISMART_PASSWORD 嘗試在當下的登入頁自動登入。
+    選取器故意寫得寬鬆（沒特別指定 i智慧登入頁的確切 class），因為目前沒機會
+    在不登出使用者現有 session 的情況下先看到登入頁長怎樣——第一次真的觸發時
+    如果選錯欄位，請把當時登入頁的樣子回報，之後就能鎖定精確選取器。"""
+    account = os.environ.get("ISMART_ACCOUNT")
+    password = os.environ.get("ISMART_PASSWORD")
+    if not account or not password:
+        return False
+
+    print("[INFO] 偵測到登入態過期，嘗試用 .env 帳密自動登入...")
+    try:
+        account_input = page.locator(
+            'input[type="text"], input[type="email"], '
+            'input[name*="account" i], input[placeholder*="帳號"], '
+            'input[placeholder*="Email" i], input[placeholder*="帳" i]'
+        ).first
+        password_input = page.locator('input[type="password"]').first
+        await account_input.wait_for(timeout=10000)
+        await account_input.click()
+        await account_input.fill(account)
+        await password_input.click()
+        await password_input.fill(password)
+
+        clicked = await page.evaluate("""() => {
+            const candidates = [...document.querySelectorAll('button, input[type="submit"], a')];
+            const el = candidates.find(e => {
+                const t = (e.textContent || e.value || '').trim();
+                return /登入|登錄|Login|Sign\\s*in|送出/i.test(t);
+            });
+            if (!el) return false;
+            el.click();
+            return true;
+        }""")
+        if not clicked:
+            await password_input.press("Enter")
+
+        for _ in range(15):
+            await page.wait_for_timeout(1000)
+            cur = page.url or ""
+            if "opid.ycut.com.tw" not in cur and "/login" not in cur:
+                print("[INFO] 自動登入成功")
+                return True
+        print("[WARN] 自動登入後仍停在登入頁，可能帳密錯誤或選取器對不上", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"[WARN] 自動登入失敗：{e}", file=sys.stderr)
+        return False
+
+
 async def ensure_search_page(page: Page) -> None:
+    login_attempted = False
     for attempt in range(3):
         try:
             await page.goto(ISMART_SEARCH_URL, wait_until="domcontentloaded")
             cur = page.url or ""
             if "opid.ycut.com.tw" in cur or "/login" in cur:
+                if not login_attempted:
+                    login_attempted = True
+                    if await try_auto_login(page):
+                        continue
+                has_creds = bool(os.environ.get("ISMART_ACCOUNT"))
+                reason = (
+                    "自動登入失敗（帳密錯誤，或登入頁選取器對不上，請告訴我登入頁長怎樣讓我修）。"
+                    if has_creds
+                    else "沒在 .env 設定 ISMART_ACCOUNT/ISMART_PASSWORD，無法自動登入。"
+                )
                 raise RuntimeError(
-                    f"i智慧登入態過期，被導去 {cur}。"
+                    f"i智慧登入態過期，被導去 {cur}。{reason}"
                     "請切到 open_real_chrome.bat 開的那個 Chrome 視窗手動重新登入，"
                     "登好後重跑這支腳本（不用重開 Chrome）。"
                 )
