@@ -481,6 +481,21 @@ def pick_candidates(body: dict):
     return cands, quota
 
 
+def total_quota(clients: list) -> int | None:
+    """加總各帳號目前的剩餘配額。任何一個帳號查不到就回 None——寧可讓 LINE 顯示「?」，
+    也不要報一個假的數字。
+    2026-07-29 修：補回路徑原本把配額寫死 0，害訊息說「今日剩餘配額 0」，
+    實際上 3 個帳號各 7、共 21 全滿。假的 0 會讓人以為今天不用再等新單了。"""
+    tot = 0
+    for cl in clients:
+        try:
+            _, q = pick_candidates(cl.query())
+        except Exception:
+            return None
+        tot += q
+    return tot
+
+
 def query_any(clients: list, deep: bool = False) -> dict:
     """依序用各帳號查詢，第一個成功的就用。避免主帳號一次逾時/抽風就整輪全盲、
     錯過開盤那幾秒。IP 被擋是全帳號共通(同一台同一 IP)→ 直接往上拋。
@@ -829,10 +844,12 @@ def notify(payload: dict) -> bool:
         return False
 
 
-def notify_grabbed(grabbed: list[dict], quota_left: int,
+def notify_grabbed(grabbed: list[dict], quota_left: int | None,
                    new_today: int | None = None, grabbed_today: int | None = None,
-                   match_today: int | None = None) -> None:
+                   match_today: int | None = None, source: str | None = None) -> None:
     payload = {"event": "grabbed", "grabbed": grabbed, "quota_left": quota_left}
+    if source:            # 'reconcile' = 回查補回的，不是機器人當場搶的（見 reconcile_applications）
+        payload["source"] = source
     if new_today is not None:                # 開盤搶單才帶今日累計；補漏回查不帶（退回本批數）
         payload["new_today"] = new_today
         payload["grabbed_today"] = grabbed_today
@@ -1456,7 +1473,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
         rec = reconcile_applications(clients, dry_run)
         if rec:
             log(f"↩ 啟動回查補回 {len(rec)} 筆漏記名單")
-            notify_grabbed(rec, 0)
+            notify_grabbed(rec, total_quota(clients), source="reconcile")
         n = reconcile_notion()
         if n:
             log(f"↩ 啟動回查補寫 Notion {n} 筆")
@@ -1518,7 +1535,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     rec = reconcile_applications(clients, dry_run)
                     if rec:
                         log(f"↩ 跨日回查補回 {len(rec)} 筆漏記名單")
-                        notify_grabbed(rec, 0)
+                        notify_grabbed(rec, total_quota(clients), source="reconcile")
                     n = reconcile_notion()
                     if n:
                         log(f"↩ 跨日回查補寫 Notion {n} 筆")
