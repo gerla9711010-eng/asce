@@ -348,8 +348,76 @@ def _parse_card(r: dict) -> Card:
     )
 
 
-async def submit_search(page: Page, keyword: str) -> None:
+_PARKING_TYPE_LABELS = [
+    "坡道/平面", "坡道/機械", "昇降/平面", "昇降/機械",
+    "庭院", "平移/機械", "獨立車庫", "塔式車位",
+]
+
+
+async def _select_districts(page: Page, districts: list[str]) -> None:
+    """縣市區域是自訂元件（不是原生 select），流程：點開 → 選地區分類「南部」→
+    選「高雄市」→ 勾最多 3 個區。2026-07-27 截圖實測過長相，見 README。
+    這裡任何一步找不到就印警告、直接跳過（不影響其他篩選條件照跑）。"""
+    if not districts:
+        return
+    try:
+        dd = page.get_by_placeholder("縣市區域").first
+        await dd.click(timeout=5000)
+        await page.wait_for_timeout(400)
+        await page.get_by_text("南部", exact=True).first.click(timeout=5000)
+        await page.wait_for_timeout(300)
+        await page.get_by_text("高雄市", exact=True).first.click(timeout=5000)
+        await page.wait_for_timeout(300)
+        for d in districts[:3]:
+            try:
+                await page.get_by_text(d, exact=True).first.click(timeout=3000)
+                await page.wait_for_timeout(300)
+            except Exception as e:
+                print(f"[WARN] 行政區選項「{d}」點不到，略過：{e}", file=sys.stderr)
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(300)
+    except Exception as e:
+        print(f"[WARN] 行政區下拉操作失敗（不影響其他條件，但這次沒篩到行政區）：{e}",
+              file=sys.stderr)
+
+
+async def _select_parking(page: Page, mode: Optional[str], types: Optional[list[str]]) -> None:
+    """車位篩選在「進階搜尋」展開面板裡：不限/無/有 三選一，選「有」才會出現
+    車位型態下拉（坡道/平面、坡道/機械...多選）。mode 為 None 或 "不限" 時完全不動它
+    （維持網站預設，比較快）。"""
+    if not mode or mode == "不限":
+        return
+    try:
+        await page.get_by_text("進階搜尋", exact=True).first.click(timeout=5000)
+        await page.wait_for_timeout(600)
+        await page.get_by_text(mode, exact=True).first.click(timeout=5000)
+        await page.wait_for_timeout(300)
+        if mode == "有" and types:
+            await page.get_by_text("車位型態不限", exact=True).first.click(timeout=5000)
+            await page.wait_for_timeout(300)
+            for t in types:
+                try:
+                    await page.get_by_text(t, exact=True).first.click(timeout=3000)
+                    await page.wait_for_timeout(200)
+                except Exception as e:
+                    print(f"[WARN] 車位型態選項「{t}」點不到，略過：{e}", file=sys.stderr)
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(300)
+    except Exception as e:
+        print(f"[WARN] 車位篩選操作失敗（不影響其他條件，但這次沒篩到車位）：{e}",
+              file=sys.stderr)
+
+
+async def submit_search(
+    page: Page,
+    keyword: str,
+    districts: Optional[list[str]] = None,
+    parking_mode: Optional[str] = None,
+    parking_types: Optional[list[str]] = None,
+) -> None:
     await ensure_search_page(page)
+    await _select_districts(page, districts or [])
+    await _select_parking(page, parking_mode, parking_types)
     inp = page.locator('input[placeholder*="編號"][placeholder*="案名"]').first
     await inp.click()
     await inp.fill("")
@@ -379,9 +447,15 @@ async def submit_search(page: Page, keyword: str) -> None:
         print(f"[WARN] 設每頁 30 筆失敗（用預設頁大小繼續）：{e}", file=sys.stderr)
 
 
-async def search_cards(page: Page, keyword: str) -> list[Card]:
+async def search_cards(
+    page: Page,
+    keyword: str,
+    districts: Optional[list[str]] = None,
+    parking_mode: Optional[str] = None,
+    parking_types: Optional[list[str]] = None,
+) -> list[Card]:
     """一次掃完所有分頁、回傳全部卡片（不點進詳情頁）。給 --list-only 預覽用。"""
-    await submit_search(page, keyword)
+    await submit_search(page, keyword, districts, parking_mode, parking_types)
     raw = await _collect_all_cards(page)
     return [_parse_card(r) for r in raw]
 
@@ -593,8 +667,15 @@ async def run(args) -> None:
         if page is None:
             page = await ctx.new_page()
 
+        districts = [d.strip() for d in args.district.split(",") if d.strip()] if args.district else []
+        parking_types = (
+            [t.strip() for t in args.parking_type.split(",") if t.strip()]
+            if args.parking_type
+            else []
+        )
+
         if args.list_only:
-            cards = await search_cards(page, args.area)
+            cards = await search_cards(page, args.area, districts, args.parking, parking_types)
             matched = apply_filters(
                 cards,
                 price_min=args.price_min,
@@ -613,7 +694,7 @@ async def run(args) -> None:
         # 避免「先掃完全部分頁、再回頭點某個 index」時 index 早已失效的問題。
         # i智慧預設就是總價由低到高排序，所以逐頁蒐集＝由便宜到貴，跟 --limit
         # 想要「先給便宜的」的直覺一致，不用另外全域排序。
-        await submit_search(page, args.area)
+        await submit_search(page, args.area, districts, args.parking, parking_types)
         blocks: list[str] = []
         total_seen = 0
         async for page_no, raw in iter_pages(page):
@@ -644,7 +725,8 @@ async def run(args) -> None:
         print(output)
 
         OUTPUT_DIR.mkdir(exist_ok=True)
-        out_path = OUTPUT_DIR / f"{datetime.now():%Y%m%d_%H%M%S}_{args.area}.txt"
+        label = args.area or (districts[0] if districts else "search")
+        out_path = OUTPUT_DIR / f"{datetime.now():%Y%m%d_%H%M%S}_{label}.txt"
         out_path.write_text(output, encoding="utf-8")
         print(f"\n[INFO] 已存檔：{out_path}")
 
@@ -659,15 +741,31 @@ async def run(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="買方配案：依條件掃 i智慧流通物件")
-    ap.add_argument("--area", required=True, help="行政區/社區/路名關鍵字，例：苓雅區、三多商圈")
+    ap.add_argument("--area", default="", help="社區/路名關鍵字（可留空，跟 --district 擇一或併用），例：三多商圈")
+    ap.add_argument(
+        "--district", default=None,
+        help="行政區，逗號分隔最多 3 個（走網站真的行政區下拉，非文字比對），例：苓雅區,三民區"
+    )
     ap.add_argument("--price-min", type=int, default=None, help="總價下限（萬）")
     ap.add_argument("--price-max", type=int, default=None, help="總價上限（萬）")
     ap.add_argument("--rooms-min", type=int, default=None, help="至少幾房")
     ap.add_argument("--usage", default=None, help="用途關鍵字，例：住宅（排除店面/透天等）")
+    ap.add_argument(
+        "--parking", default=None, choices=["無", "有"],
+        help="車位篩選，不給就不篩（維持網站預設「不限」）"
+    )
+    ap.add_argument(
+        "--parking-type", default=None,
+        help=f"--parking 有 時才有作用，逗號分隔多選，可選：{'、'.join(_PARKING_TYPE_LABELS)}"
+    )
     ap.add_argument("--limit", type=int, default=15, help="最多處理幾筆詳情頁（預設 15）")
     ap.add_argument("--list-only", action="store_true", help="只列出篩選後清單，不開詳情頁/不抓專員與分享連結（快速預覽用）")
     ap.add_argument("--dry-run", action="store_true", help="開詳情頁抓專員資訊，但不點分享（除錯用）")
     args = ap.parse_args()
+
+    if not args.area and not args.district:
+        print("[WARN] 沒給 --area 也沒給 --district，會掃整個高雄市，量很大、建議先加 --list-only 看筆數",
+              file=sys.stderr)
 
     asyncio.run(run(args))
 

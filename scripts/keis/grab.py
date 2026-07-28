@@ -34,7 +34,7 @@ import random
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -175,6 +175,9 @@ ERROR_RETRY_MIN = 3          # 時段內遇暫時性錯誤(逾時等)後，最�
 ERROR_RETRY_MAX = 8          # ...最長幾秒（隨機取，別死等 30s 錯過開盤）
 ERROR_ESCALATE_AFTER = 10    # 連續失敗這麼多次(約30~80秒)還沒好，判斷是真的斷網而非開盤塞車
 ERROR_LONG_RETRY_SEC = 300   # 判斷斷網後改用這個間隔重試，別整夜每幾秒瘋狂重試灌爆log
+QUOTA_QUERY_RETRIES = 3      # 分工搶單時查各帳號配額的重試次數（含第一次）
+QUOTA_QUERY_RETRY_SEC = 1    # ...每次之間隔幾秒。開盤在拚秒，別設太長
+AUDIT_DAYS = 7               # 每天跨日對帳往回查幾天的 grabbed.csv（每筆=1個Notion請求，別設太大）
 # 註：抓到多筆時是「一次全搶」(秒搶)，中間不留間隔——刻意保留最高搶單成功率
 # ==============================
 
@@ -991,6 +994,75 @@ def reconcile_notion() -> int:
     return len(synced)
 
 
+# ---------- Notion 保險：搶到了但名單沒進 Notion 就要被抓出來 ----------
+# 2026-07-28 加。動機：行政區欄位型別寫錯，07-22 起所有帶行政區的名單都被 Notion 退件，
+# 但失敗只寫在 log 裡，沒人看 log → 靜靜掉了一個多禮拜才被發現（對帳查出 18 筆缺漏）。
+# 教訓：**不能只依賴「已知的失敗路徑」通知**。push_notion 回 False 只涵蓋我們想得到的錯法；
+# 這裡改用對帳——直接比對 grabbed.csv（唯一真相）和 Notion 實際有什麼，不管什麼原因造成的
+# 缺漏都抓得到。
+
+def _grabbed_rows_since(days: int) -> list[dict]:
+    """撈 grabbed.csv 裡最近 days 天搶到的資料列；days<=0 = 全部。
+    搶到時間格式是 'YYYY-MM-DD HH:MM:SS'，早期有幾筆是 '2026/7/7 0' 這種怪格式，
+    解析不了的一律納入（寧可多查一筆，也不要漏掉）。"""
+    rows: list[dict] = []
+    if not GRABBED_CSV.exists():
+        return rows
+    cutoff = None
+    if days > 0:
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with GRABBED_CSV.open(encoding="utf-8-sig", newline="") as f:
+            for row in csv.reader(f):
+                if not row or row[0].startswith("搶到時間") or len(row) < 9:
+                    continue
+                if not str(row[2]).strip().isdigit():
+                    continue
+                if cutoff and len(row[0]) == 19 and row[0] < cutoff:
+                    continue
+                rows.append({"grabbed_at": row[0], "account": row[1], "summary_id": row[2],
+                             "name": row[3], "phone": row[4], "city": row[5],
+                             "category": row[6], "budget": row[7], "start_time": row[8],
+                             "district": row[9] if len(row) >= 10 else "",
+                             "remarks": ""})
+    except Exception as e:
+        log(f"⚠ 讀 grabbed.csv 對帳失敗：{type(e).__name__}")
+    return rows
+
+
+def audit_notion(days: int = AUDIT_DAYS, alert: bool = True) -> tuple[int, int, int]:
+    """對帳：grabbed.csv 有、Notion 沒有的，就地補寫；補不回來的發 LINE 告警。
+    回傳 (檢查筆數, 缺漏筆數, 補回筆數)。
+
+    只查最近 days 天（預設 7）——每筆是一個 Notion API 請求，全表 140+ 筆每天跑太貴。
+    要全掃用 `--audit-notion --audit-days 0`。
+    notion_exists() 回 None 是「查不出來」不是「沒有」，這種一律跳過不補，
+    免得斷網時把已存在的名單重複建一次（沿用 reconcile_notion 的既有規矩）。"""
+    if not (NOTION_TOKEN and NOTION_DB_ID):
+        return (0, 0, 0)
+    rows = _grabbed_rows_since(days)
+    missing: list[dict] = []
+    for rec in rows:
+        if notion_exists(rec["summary_id"]) is False:
+            missing.append(rec)
+    fixed_ids: set = set()
+    for rec in missing:
+        if push_notion(rec):
+            fixed_ids.add(rec["summary_id"])
+            log(f"   ↩ [Notion 對帳補寫] {rec['summary_id']} {rec['name']}/{rec['phone']}")
+    _clear_notion_pending(fixed_ids)   # 補回來的就不必再掛在待補清單上
+    fixed = len(fixed_ids)
+    stuck = len(missing) - fixed
+    log(f"🧾 Notion 對帳：查 {len(rows)} 筆／缺 {len(missing)} 筆／補回 {fixed} 筆"
+        + (f"／仍缺 {stuck} 筆" if stuck else ""))
+    if alert and stuck > 0:
+        # 補不回來才吵人。補回來了是系統自癒，不用半夜叫醒使用者。
+        notify({"event": "alert",
+                "text": f"⚠ KEIS 名單保險：有 {stuck} 筆搶到了但寫不進 Notion（已補回 {fixed} 筆）。"
+                        f"資料都在 grabbed.csv 不會不見，但 Notion 名單是缺的，要人工看一下。"})
+    return (len(rows), len(missing), fixed)
+
+
 def push_notion(g: dict) -> bool:
     """把搶到的一筆寫進 Notion 資料庫（沒設 token 就跳過；失敗只記 log + 記進 notion_pending.txt
     等下次回查補寫，絕不影響搶單本身）。回傳有沒有真的寫進去。"""
@@ -1011,7 +1083,12 @@ def push_notion(g: dict) -> bool:
     if g.get("account"):
         props["帳號"] = {"select": {"name": g["account"]}}
     if g.get("district"):
-        props["行政區"] = {"rich_text": [{"text": {"content": g["district"]}}]}
+        # 行政區在 Notion 是 multi_select（2026-07-28 從 select 改的）。
+        # 舊版送 rich_text，型別不符 → Notion 整筆退件，07-22 加這欄後所有帶行政區的都寫不進去。
+        # fmt_district() 多區是用「、」串的，這裡拆回陣列，多區才不會變成一個怪選項。
+        districts = [d.strip() for d in g["district"].split("、") if d.strip()]
+        if districts:
+            props["行政區"] = {"multi_select": [{"name": d} for d in districts]}
     if g.get("remarks"):
         props["備註"] = {"rich_text": [{"text": {"content": g["remarks"][:2000]}}]}
     try:
@@ -1147,10 +1224,24 @@ def grab_across_accounts(clients: list, fresh: list, dry_run: bool,
         if idx >= len(fresh):
             quota_left += 7  # 這帳號還沒被叫到、配額大概還在（僅供 LINE 顯示概估）
             continue
-        try:
-            _, q = pick_candidates(cl.query())   # 讀該帳號自己的剩餘配額
-        except Exception as e:
-            log(f"   ⚠ [{cl.label}] 查配額失敗，本輪跳過：{type(e).__name__}")
+        # 查配額要重試：2026-07-28 踩過——門市每晚斷網到 07:2X，網路剛恢復還不穩，
+        # 08:01 開盤那輪查薛力瑜配額逾時，該帳號整輪出局、7 個配額沒用到。
+        # 那天只有 6 筆貨沒吃虧，但貨多時就是當場少搶一批、補不回來。多花 2 秒很划算。
+        q = None
+        for attempt in range(QUOTA_QUERY_RETRIES):
+            try:
+                _, q = pick_candidates(cl.query())   # 讀該帳號自己的剩餘配額
+                break
+            except Exception as e:
+                if attempt < QUOTA_QUERY_RETRIES - 1:
+                    log(f"   ⚠ [{cl.label}] 查配額失敗，{QUOTA_QUERY_RETRY_SEC}s 後重試：{type(e).__name__}")
+                    time.sleep(QUOTA_QUERY_RETRY_SEC)
+                else:
+                    log(f"   ⚠ [{cl.label}] 查配額連續失敗 {QUOTA_QUERY_RETRIES} 次，本輪跳過：{type(e).__name__}")
+        if q is None:
+            # 查不到不等於沒配額。用估計值計入顯示，跟「還沒被叫到」的帳號一致，
+            # 否則 LINE 的剩餘配額會憑空少一個帳號的份（07-28 顯示 8、實際 15）。
+            quota_left += 7
             continue
         if q <= 0:
             done.add(cl.label)
@@ -1321,6 +1412,9 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     n = reconcile_notion()
                     if n:
                         log(f"↩ 跨日回查補寫 Notion {n} 筆")
+                    # 保險：不只補「已知失敗」的，直接拿 grabbed.csv 跟 Notion 對帳，
+                    # 任何原因造成的缺漏都抓得到（見 audit_notion 說明）
+                    audit_notion()
                     write_daily_summary(seen_day.isoformat(), day_seen, day_match,
                                         day_grabbed + len(rec), recovered=len(rec))  # 結算的是「昨天」
                 except Exception as e:
@@ -1505,7 +1599,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="KEIS 公買搶單（無瀏覽器版）")
     parser.add_argument("--apply", action="store_true", help="實際送出申請（不加只 dry-run）")
     parser.add_argument("--watch", action="store_true", help="常駐監控模式（早上時段高頻掃）")
+    parser.add_argument("--audit-notion", action="store_true",
+                        help="只跑 Notion 對帳：grabbed.csv 有、Notion 沒有的就補寫（不搶單）")
+    parser.add_argument("--audit-days", type=int, default=AUDIT_DAYS,
+                        help=f"對帳往回查幾天，0=全部（預設 {AUDIT_DAYS}）")
     args = parser.parse_args()
+
+    if args.audit_notion:
+        # 純對帳，不用登入 KEIS（只讀本機 grabbed.csv + 打 Notion）
+        checked, missing, fixed = audit_notion(args.audit_days, alert=False)
+        print(f"🧾 對帳完成：查 {checked} 筆／缺 {missing} 筆／補回 {fixed} 筆")
+        return 0
 
     accts = load_accounts()
     if not accts:
