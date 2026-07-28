@@ -161,7 +161,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const j = $json;\nconst m = (j.fbPostUrl || '').match(/facebook\\.com\\/(\\d+_\\d+)/);\nreturn [{ json: { ...j, fbPostId: m ? m[1] : '', hasFbPost: !!(m && m[1]) } }];"
+        "jsCode": "\n// 從 Notion 存的粉專貼文連結還原出 Graph API 能刪的 {粉專ID}_{貼文ID}\n// 三種格式都吃：\n//   facebook.com/1041868522352339_122111458407336834      （舊發文線）\n//   facebook.com/1041868522352339/posts/122112046461336834（v3 發文線，主要格式）\n//   permalink.php?story_fbid=122...&id=1041868522352339   （手貼的舊連結）\n// pfbid 開頭的 story_fbid 是不透明字串，還原不出貼文 ID，只能人工刪。\nconst j = $json;\nconst url = j.fbPostUrl || '';\nlet id = '';\nlet m;\nif ((m = url.match(/facebook\\.com\\/(\\d+_\\d+)/))) id = m[1];\nelse if ((m = url.match(/facebook\\.com\\/(\\d+)\\/posts\\/(\\d+)/))) id = m[1] + '_' + m[2];\nelse if ((m = url.match(/story_fbid=(\\d+)/)) && url.match(/[?&]id=(\\d+)/))\n  id = url.match(/[?&]id=(\\d+)/)[1] + '_' + m[1];\nreturn [{ json: { ...j, fbPostId: id, hasFbPost: !!id, hasFbUrl: !!url } }];\n"
       },
       "id": "v3b-07-prep",
       "name": "備妥刪文",
@@ -207,7 +207,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const prep = $('備妥刪文').item.json;\nconst resp = $json || {};\nconst rb = resp.body ?? resp;\nlet ok, failed, errMsg = '';\nif (!prep.hasFbPost) { ok = true; failed = false; }\nelse {\n  const success = rb === true || rb?.success === true || (typeof rb === 'string' && rb.includes('success'));\n  errMsg = rb?.error?.message || '';\n  const alreadyGone = /does not exist|Unsupported (get|delete) request|cannot be loaded|Object with ID/i.test(errMsg);\n  ok = success || alreadyGone;\n  failed = !ok;\n}\nreturn [{ json: { ...prep, fbDeleted: prep.hasFbPost && ok, fbDeleteFailed: failed, fbDeleteError: failed ? (errMsg || 'unknown') : '', markRemoved: ok } }];"
+        "jsCode": "\nconst prep = $('備妥刪文').item.json;\nconst resp = $json || {};\nconst rb = resp.body ?? resp;\nlet ok, failed, errMsg = '';\nif (!prep.hasFbPost) {\n  if (prep.hasFbUrl) {\n    // 有貼文連結卻解析不出貼文 ID（pfbid 舊連結、或根本不是本粉專的貼文）。\n    // 物件確實下架了 → Notion 照標下架（否則每天重試都會失敗、天天洗 LINE），\n    // 但這是「刪失敗」，一定要通知人去手動刪，不能像以前一樣當成功吞掉。\n    ok = true;\n    failed = true;\n    errMsg = '無法從連結解析出貼文 ID（舊格式連結或不在本粉專），需要手動刪除';\n  } else {\n    // Notion 根本沒存貼文連結 → 沒東西要刪\n    ok = true;\n    failed = false;\n  }\n} else {\n  const success = rb === true || rb?.success === true || (typeof rb === 'string' && rb.includes('success'));\n  errMsg = rb?.error?.message || '';\n  const alreadyGone = /does not exist|Unsupported (get|delete) request|cannot be loaded|Object with ID/i.test(errMsg);\n  ok = success || alreadyGone;\n  failed = !ok;\n}\nreturn [{ json: { ...prep, fbDeleted: prep.hasFbPost && ok, fbDeleteFailed: failed, fbDeleteError: failed ? (errMsg || 'unknown') : '', markRemoved: ok } }];\n"
       },
       "id": "v3b-09-delresult",
       "name": "判定刪除結果",
@@ -531,7 +531,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// 只有「粉專貼文自動刪除失敗」才會走到這。把連結附上讓使用者點進去直接刪。\nconst rows = $input.all().map(i => i.json);\nconst lines = rows.map(r =>\n  `・${r.caseName}（${r.contract_no}）\\n　${r.fbPostUrl || '(Notion 沒存連結，請到粉專找)'}\\n　錯誤：${r.fbDeleteError || '未知'}`\n).join('\\n\\n');\nconst text = `⚠️ 粉專貼文自動刪除失敗（${rows.length} 筆）\\n\\n`\n  + `物件已下架但貼文還掛在粉專上，點連結進去手動刪：\\n\\n${lines}\\n\\n`\n  + `這幾筆的 Notion 狀態還是「已發布」，明天 08:00 會自動再試一次。\\n`\n  + `如果連續幾天都收到這則，代表 FB 權杖有問題，要重新產。`;\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text } }];"
+        "jsCode": "\n// 只有「粉專貼文自動刪除失敗」才會走到這。把連結附上讓使用者點進去直接刪。\nconst rows = $input.all().map(i => i.json);\nconst lines = rows.map(r => {\n  const tail = r.markRemoved\n    ? '　→ Notion 已標下架，系統不會再試，請自己刪這篇'\n    : '　→ Notion 還是「已發布」，下一班會自動再試一次';\n  return `・${r.caseName}（${r.contract_no}）\\n　${r.fbPostUrl || '(Notion 沒存連結，請到粉專找)'}\\n　錯誤：${r.fbDeleteError || '未知'}\\n${tail}`;\n}).join('\\n\\n');\nconst text = `⚠️ 粉專貼文自動刪除失敗（${rows.length} 筆）\\n\\n`\n  + `物件已下架但貼文還掛在粉專上，點連結進去手動刪：\\n\\n${lines}\\n\\n`\n  + `如果連續幾天都收到同一筆「下一班會再試」，代表 FB 權杖有問題，要重新產。`;\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text } }];\n"
       },
       "name": "組刪文失敗通知",
       "type": "n8n-nodes-base.code",
