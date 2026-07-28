@@ -2,7 +2,7 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-27（新增「系統錯誤 LINE 告警」全域告警並掛上全部 15 支啟用中 workflow；廣告線 FB 發文失敗改成自動撤 Notion 待發列讓下一班重抓）
+最後更新：2026-07-28（LINE 加「情資」關鍵字查 KEIS 內部成交週報，取代原本每週例行推播）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
@@ -43,6 +43,7 @@
 | `客戶 <自由描述>` | Gemini 抽姓名/電話/公司/需求 → 寫進 Notion 客戶名單 DB | `line-customer-create` |
 | （純圖片，無前綴） | Gemini Vision 自動分類 → 轉發到行事曆或客戶 | `line-image-dispatcher` |
 | `戰果` / `今日戰果` | 查 Notion 搶單名單 DB 今天的紀錄 → 回筆數＋名單（reply 不吃 push 額度） | `keis-battle-report`（🟢 已上線） |
+| `情資` | 回本週 KEIS 內部成交週報（快取，reply 不吃 push 額度）。桌面 `bdinfo.py` 每週二 09:55 排程跑完寫入快取，不再主動推播 | `market-report-notify.json`「KEIS 情資週報」（🟢 已上線，2026-07-28） |
 | `天氣` | 目前 router 認得但沒接下游（佔位） | — |
 
 > **2026-07-23 退役**：`建檔 <網址>`、`發 YCxxx`、`生成文案 YCxxx` 三個舊指令已從 router 拔掉（下游 `YC 建檔器 v2` / `YC 發文線` / `文案重產器` 三支 workflow 一併停用）。建檔＋發文改由「廣告v3 掃描發文線」全自動處理，文案改用桌面 `/yc-ad` skill。打這三個指令現在會收到「無效指令」提示。要復原：n8n 把三支 workflow 開回 active，router 的 `解析 LINE 指令` 節點加回 create/publish/rewrite 三行對應（Switch 分支與轉發節點都還在，沒刪）。原始 router JSON 備份在 `backup/n8n-router-v3-before-2026-07-23.json`

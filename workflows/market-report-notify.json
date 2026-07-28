@@ -1,5 +1,5 @@
 {
-  "name": "市場週報 LINE 通知",
+  "name": "KEIS 情資週報",
   "nodes": [
     {
       "parameters": {
@@ -8,7 +8,7 @@
         "options": {}
       },
       "id": "b19a49ed-d31d-4857-b270-be0de374ba40",
-      "name": "Webhook 收市場週報",
+      "name": "Webhook 收週報事件",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
@@ -19,14 +19,47 @@
     },
     {
       "parameters": {
-        "jsCode": "// 收 bdinfo.py 的 {event:'market_report', text:'...'}，組成 LINE 訊息\nconst body = $input.first().json.body || $input.first().json;\nconst USER_ID = \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\"; // 薛力瑜\nconst text = body.text || '📊 市場週報（無內容）';\nreturn [{ json: { userId: USER_ID, text } }];\n"
+        "jsCode": "// 收 bdinfo.py 的 {event, text}。\n// market_alert         → 異常告警，要立刻推播\n// market_report_cache  → 例行週報，只快取進 staticData，等使用者 LINE 打「情資」才回\nconst body = $input.first().json.body || $input.first().json;\nconst event = body.event || '';\nconst text = body.text || '';\n\nif (event === 'market_report_cache') {\n  const sd = $getWorkflowStaticData('global');\n  sd.intelReport = { text, cachedAt: new Date().toISOString() };\n  return [{ json: { action: 'cached' } }];\n}\n\nconst USER_ID = \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\"; // 薛力瑜\nreturn [{ json: { action: 'push', userId: USER_ID, text: text || '⚠️ 市場情資告警（無內容）' } }];\n"
       },
       "id": "936ec144-47b2-48d7-b796-d5fe5022cf4b",
-      "name": "組 LINE 訊息",
+      "name": "分流：快取或告警",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "push",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3f2a6d0e-4a2a-4b6b-9d3e-1a2b3c4d5e6f",
+      "name": "要推播嗎？",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
         0
       ]
     },
@@ -51,12 +84,12 @@
         "options": {}
       },
       "id": "46254c96-a3ef-45fe-919a-0d170fda4568",
-      "name": "LINE Push",
+      "name": "LINE Push（異常告警）",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        448,
-        0
+        672,
+        -80
       ],
       "credentials": {
         "httpHeaderAuth": {
@@ -67,25 +100,123 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "keis-intel-report",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-4789-a0b1-c2d3e4f5a6b7",
+      "name": "Webhook 收情資查詢",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        224
+      ],
+      "webhookId": "keis-intel-report-fixed-id"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 從 router 轉發過來的 LINE 原始 body 取 replyToken，讀 staticData 裡快取的週報文字\nconst body = $input.first().json.body || $input.first().json || {};\nconst events = body.events || [];\nconst replyToken = events.length ? (events[0].replyToken || null) : null;\n\nconst sd = $getWorkflowStaticData('global');\nconst cached = sd.intelReport;\nlet text;\nif (cached && cached.text) {\n  text = cached.text;\n} else {\n  text = '📊 情資週報\\n目前還沒有快取資料，最快週二 09:55 系統跑完會自動更新，屆時再打一次「情資」看看。';\n}\nreturn [{ json: { replyToken, text } }];"
+      },
+      "id": "b2c3d4e5-f6a7-4890-b1c2-d3e4f5a6b7c8",
+      "name": "讀快取組回覆",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {}
+      },
+      "id": "c3d4e5f6-a7b8-4901-c2d3-e4f5a6b7c8d9",
+      "name": "LINE Reply（情資查詢）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        224
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
     }
   ],
   "connections": {
-    "Webhook 收市場週報": {
+    "Webhook 收週報事件": {
       "main": [
         [
           {
-            "node": "組 LINE 訊息",
+            "node": "分流：快取或告警",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "組 LINE 訊息": {
+    "分流：快取或告警": {
       "main": [
         [
           {
-            "node": "LINE Push",
+            "node": "要推播嗎？",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "要推播嗎？": {
+      "main": [
+        [
+          {
+            "node": "LINE Push（異常告警）",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Webhook 收情資查詢": {
+      "main": [
+        [
+          {
+            "node": "讀快取組回覆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "讀快取組回覆": {
+      "main": [
+        [
+          {
+            "node": "LINE Reply（情資查詢）",
             "type": "main",
             "index": 0
           }
