@@ -342,7 +342,10 @@
           "id": "OmFzUGgZ1xIpAAP5",
           "name": "LINE Channel Access Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -480,7 +483,10 @@
           "id": "OmFzUGgZ1xIpAAP5",
           "name": "LINE Channel Access Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -666,7 +672,10 @@
           "id": "OmFzUGgZ1xIpAAP5",
           "name": "LINE Channel Access Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -726,7 +735,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 取 KEIS 新增回來的 adcase_id（失敗不擋流程，只記下原因給 LINE 顯示）\nconst ctx = $('解析永慶連結').first().json;\nconst r = $input.first().json || {};\nconst body = r.body ?? r;\nconst status = Number(r.statusCode ?? 0);\nconst adcaseId = body && body.adcase_id ? Number(body.adcase_id) : null;\nconst msg = (body && body.message) ? String(body.message) : '';\nlet note;\nif (adcaseId) {\n  note = ctx.ycResolveNote === 'ok' ? '已同步' : `已同步（連結用備援：${ctx.ycResolveNote}）`;\n} else if (/已經新增過此官網連結/.test(msg)) {\n  // KEIS 擋同一個官網連結重複建檔，回 500 但其實是 400。這代表 KEIS 上早就有這筆了。\n  note = 'KEIS 上已有同連結的廣告，未重複建立';\n} else {\n  note = `建立失敗（HTTP ${status}）${msg ? ' ' + msg.slice(0, 150) : ''}`;\n}\nreturn [{ json: { ...ctx, keisAdcaseId: adcaseId, keisNote: note } }];",
+        "jsCode": "// 取 KEIS 新增回來的 adcase_id（失敗不擋流程，只記下原因給 LINE 顯示）\nconst ctx = $('解析永慶連結').first().json;\nconst r = $input.first().json || {};\nconst body = r.body ?? r;\nconst status = Number(r.statusCode ?? 0);\nconst adcaseId = body && body.adcase_id ? Number(body.adcase_id) : null;\nconst msg = (body && body.message) ? String(body.message) : '';\nlet note;\nif (adcaseId) {\n  note = ctx.ycNote === 'ok' ? '已同步' : `已同步（連結用備援：${ctx.ycNote}）`;\n} else if (/已經新增過此官網連結/.test(msg)) {\n  // KEIS 擋同一個官網連結重複建檔，回 500 但其實是 400。這代表 KEIS 上早就有這筆了。\n  note = 'KEIS 上已有同連結的廣告，未重複建立';\n} else {\n  note = `建立失敗（HTTP ${status}）${msg ? ' ' + msg.slice(0, 150) : ''}`;\n}\nreturn [{ json: { ...ctx, keisAdcaseId: adcaseId, keisNote: note } }];",
         "mode": "runOnceForAllItems"
       },
       "name": "取 KEIS 廣告ID",
@@ -921,7 +930,10 @@
           "id": "OmFzUGgZ1xIpAAP5",
           "name": "LINE Channel Access Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1031,7 +1043,10 @@
           "id": "OmFzUGgZ1xIpAAP5",
           "name": "LINE Channel Access Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1272,7 +1287,10 @@
           "id": "OmFzUGgZ1xIpAAP5",
           "name": "LINE Channel Access Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {

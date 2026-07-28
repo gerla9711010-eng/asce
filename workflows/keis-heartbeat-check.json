@@ -96,7 +96,10 @@
           "id": "OmFzUGgZ1xIpAAP5",
           "name": "LINE Channel Access Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
