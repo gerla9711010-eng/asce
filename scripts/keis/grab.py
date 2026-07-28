@@ -1064,6 +1064,101 @@ def audit_notion(days: int = AUDIT_DAYS, alert: bool = True) -> tuple[int, int, 
     return (len(rows), len(missing), fixed)
 
 
+def _notion_headers() -> dict:
+    return {"Authorization": f"Bearer {NOTION_TOKEN}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json"}
+
+
+def _phone_digits(p: str) -> str:
+    """只留數字再比對——KEIS 回來的電話偶爾夾空白或 '-'，字串直接比會漏掉重複。"""
+    return "".join(ch for ch in (p or "") if ch.isdigit())
+
+
+def notion_same_phone(phone: str) -> list[dict]:
+    """查 Notion 裡同一支電話的既有名單，由舊到新排。查不到或查詢失敗一律回 []
+    （防重複是加分功能，絕不能因為查不到就擋住搶單寫入）。
+
+    Notion 的 phone_number 只能做字串完全比對，所以先用原字串查一次；沒中再撈回來
+    用「只留數字」比一次，避免 '0912-345678' 這種寫法被當成新客戶。"""
+    if not (NOTION_TOKEN and NOTION_DB_ID and phone):
+        return []
+    want = _phone_digits(phone)
+    try:
+        r = httpx.post(
+            f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query",
+            headers=_notion_headers(),
+            json={"filter": {"property": "電話", "phone_number": {"equals": phone}},
+                  "page_size": 20},
+            timeout=15,
+        )
+        if r.status_code >= 300:
+            log(f"   ⚠ Notion 查同電話失敗 HTTP {r.status_code}: {r.text[:150]}")
+            return []
+        hits = r.json().get("results", [])
+    except Exception as e:
+        log(f"   ⚠ Notion 查同電話例外（略過防重複）：{type(e).__name__}")
+        return []
+
+    def txt(p, name):
+        v = (p.get("properties") or {}).get(name) or {}
+        t = v.get("type")
+        if t == "title":
+            return v["title"][0]["plain_text"] if v["title"] else ""
+        if t == "rich_text":
+            return "".join(x["plain_text"] for x in v["rich_text"])
+        if t == "select":
+            return (v.get("select") or {}).get("name") or ""
+        if t == "date":
+            return (v.get("date") or {}).get("start") or ""
+        if t == "phone_number":
+            return v.get("phone_number") or ""
+        return ""
+
+    out = []
+    for p in hits:
+        if _phone_digits(txt(p, "電話")) != want:
+            continue
+        out.append({"id": p["id"], "url": p.get("url", ""),
+                    "name": txt(p, "姓名") or "(未提供)",
+                    "status": txt(p, "聯絡狀態") or "-",
+                    "grabbed": txt(p, "搶到時間")[:10],
+                    "remarks": txt(p, "備註").strip()})
+    out.sort(key=lambda x: x["grabbed"])
+    return out
+
+
+def _dup_props(prev: list[dict], phone: str, remarks: str) -> dict:
+    """把「同電話前面那幾筆」做成 Notion 欄位：打勾 + 關聯 + 備註摘要（可點回前一筆）。"""
+    rt = [{"text": {"content": f"🔁 同電話第 {len(prev)+1} 筆（{phone}）｜前面還有 {len(prev)} 筆："}}]
+    for p in prev:
+        rt.append({"text": {"content": "\n・"}})
+        label = f"{p['grabbed']} {p['name']}・{p['status']}"
+        if p["url"]:
+            rt.append({"text": {"content": label, "link": {"url": p["url"]}}})
+        else:
+            rt.append({"text": {"content": label}})
+        if p["remarks"]:
+            rt.append({"text": {"content": f"「{p['remarks'][:300]}」"}})
+    if remarks:
+        rt.append({"text": {"content": "\n" + remarks[:1000]}})
+    return {
+        "重複電話": {"checkbox": True},
+        "同電話前一筆": {"relation": [{"id": p["id"]} for p in prev]},
+        "備註": {"rich_text": rt},
+    }
+
+
+def _mark_dup(page_id: str) -> None:
+    """把舊的那幾筆也打勾，這樣兩邊都看得出是同一個人（失敗就算了，不吵人）。"""
+    try:
+        httpx.patch(f"https://api.notion.com/v1/pages/{page_id}",
+                    headers=_notion_headers(),
+                    json={"properties": {"重複電話": {"checkbox": True}}}, timeout=15)
+    except Exception:
+        pass
+
+
 def push_notion(g: dict) -> bool:
     """把搶到的一筆寫進 Notion 資料庫（沒設 token 就跳過；失敗只記 log + 記進 notion_pending.txt
     等下次回查補寫，絕不影響搶單本身）。回傳有沒有真的寫進去。"""
@@ -1092,6 +1187,16 @@ def push_notion(g: dict) -> bool:
             props["行政區"] = {"multi_select": [{"name": d} for d in districts]}
     if g.get("remarks"):
         props["備註"] = {"rich_text": [{"text": {"content": g["remarks"][:2000]}}]}
+    # 防重複：同一支電話之前來過就在備註寫清楚、關聯回前一筆，兩邊都打勾。
+    # 整段包在 try 裡——這是加分功能，出任何狀況都不能擋住名單寫進 Notion。
+    prev: list[dict] = []
+    try:
+        prev = notion_same_phone(g.get("phone", ""))
+        if prev:
+            props.update(_dup_props(prev, g["phone"], g.get("remarks", "")))
+    except Exception as e:
+        log(f"   ⚠ 防重複標記略過：{type(e).__name__}")
+        prev = []
     try:
         r = httpx.post(
             "https://api.notion.com/v1/pages",
@@ -1105,6 +1210,10 @@ def push_notion(g: dict) -> bool:
             log(f"   ⚠ Notion 寫入失敗 HTTP {r.status_code}: {r.text[:150]}")
             _mark_notion_pending(g["summary_id"])
             return False
+        if prev:
+            for p in prev:
+                _mark_dup(p["id"])
+            log(f"   🔁 {g['phone']} 之前來過 {len(prev)} 次，已標重複並連回前一筆")
         return True
     except Exception as e:
         # 逾時等例外不代表沒寫進去——伺服器可能已經處理成功、只是客戶端沒等到回應
