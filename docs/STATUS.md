@@ -42,7 +42,7 @@
 | `行事曆 <自由描述>` | Gemini 解析時間/地點/說明 → 建到 Google primary 行事曆 | `line-calendar-create` |
 | `客戶 <自由描述>` | Gemini 抽姓名/電話/公司/需求 → 寫進 Notion 客戶名單 DB | `line-customer-create` |
 | （純圖片，無前綴） | Gemini Vision 自動分類 → 轉發到行事曆或客戶 | `line-image-dispatcher` |
-| `戰果` / `今日戰果` | 查 Notion 搶單名單 DB 今天的紀錄 → 回筆數＋名單（reply 不吃 push 額度） | `keis-battle-report`（🟡 待匯入） |
+| `戰果` / `今日戰果` | 查 Notion 搶單名單 DB 今天的紀錄 → 回筆數＋名單（reply 不吃 push 額度） | `keis-battle-report`（🟢 已上線） |
 | `天氣` | 目前 router 認得但沒接下游（佔位） | — |
 
 > **2026-07-23 退役**：`建檔 <網址>`、`發 YCxxx`、`生成文案 YCxxx` 三個舊指令已從 router 拔掉（下游 `YC 建檔器 v2` / `YC 發文線` / `文案重產器` 三支 workflow 一併停用）。建檔＋發文改由「廣告v3 掃描發文線」全自動處理，文案改用桌面 `/yc-ad` skill。打這三個指令現在會收到「無效指令」提示。要復原：n8n 把三支 workflow 開回 active，router 的 `解析 LINE 指令` 節點加回 create/publish/rewrite 三行對應（Switch 分支與轉發節點都還在，沒刪）。原始 router JSON 備份在 `backup/n8n-router-v3-before-2026-07-23.json`
