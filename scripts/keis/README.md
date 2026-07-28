@@ -76,6 +76,7 @@ python grab.py                  # 單次 dry-run：列出「這次會搶誰」�
 python grab.py --apply          # 單次實搶
 python grab.py --watch          # 常駐監控(dry-run)：全天分層掃，只印不搶
 python grab.py --watch --apply  # 常駐監控 + 實搶（正式用這個）
+python grab.py --audit-notion   # 只跟 Notion 對帳補漏，不搶單（加 --audit-days 0 全掃）
 ```
 
 帳密放 `.env`（`KEIS_USERNAME` / `KEIS_PASSWORD`），腳本用 API 登入拿 JWT、過期自動重登。
@@ -215,7 +216,13 @@ LINE 對工作助理打 `戰果`（或 `今日戰果`）→ router 轉發 `keis-
 所以換機器 / 刪掉這個檔會重新建基準，當天等於不搶——不要隨便刪。
 
 搶單會自動受**今日配額**（API 回傳的 `new_case_quota_remaining`）夾住，配額用完就停手。
-搶到的名單會 append 到 `grabbed.csv`（已 gitignore，含真實個資不會進版控），現在最後多一欄「行政區」（需求區域，來自 API `target_areas`）；同步寫 Notion 也會帶這欄（Notion 側要手動加「行政區」文字型別欄位）。詳細規格見 `docs/keis-grab-hardening-and-filters.md`。
+搶到的名單會 append 到 `grabbed.csv`（已 gitignore，含真實個資不會進版控），現在最後多一欄「行政區」（需求區域，來自 API `target_areas`）；同步寫 Notion 也會帶這欄。
+
+⚠️ Notion 的「行政區」是 **`multi_select`（多選）**，不是文字也不是單選。程式會把多區的「、」拆成陣列送。
+**別改成 rich_text**——型別不符時 Notion 是**整筆退件**（不是只忽略那欄），2026-07-22～07-28 就是這樣讓
+所有帶行政區的名單靜靜寫不進去，掉了 18 筆才被對帳抓到。選項不用人工預先加，Notion API 會自動建。
+
+詳細規格見 `docs/keis-grab-hardening-and-filters.md`。
 
 ## 背後 API（從 HAR 逆出來的）
 
@@ -280,6 +287,11 @@ n8n 端最小設定：**Webhook 節點**（path `keis-grab`）→ 依 `event` �
 
 - **新名單幾分鐘內就被同事秒搶**，所以才用 watch 在早上時段每 ~5 秒掃、釋出當下就搶。
 - 搶到的名單除了 `grabbed.csv` + LINE，也會寫進 Notion「KEIS 搶單名單」DB（`4f28b91531594c618725afc3ecc36e2f`）；市話號碼自動補 `07` 區碼。Notion 寫入失敗不影響搶單（只記 log）。
+- **Notion 對帳保險 `audit_notion()`**：直接拿 `grabbed.csv` 跟 Notion 比對，缺的補寫，**補不回來才發 LINE 告警**（自癒成功不吵人）。跨日結算自動跑最近 7 天（`AUDIT_DAYS`；每筆 1 個 API 請求，全表太貴）。
+  手動全掃：`python grab.py --audit-notion --audit-days 0`（純對帳，不登入 KEIS、不搶單）。
+  > 為什麼不只靠 `reconcile_notion()`：那個只補「push_notion 自己知道失敗」的那些。2026-07-28 的
+  > 行政區型別 bug 正好證明不夠——失敗有記進 `notion_pending.txt`，但補寫走同一段壞掉的程式碼，
+  > 永遠補不回來、只會越積越多。對帳是拿真相（CSV）跟結果（Notion）比，任何原因的缺漏都抓得到。
 - 配額一天 7 筆（六個月內案源），盲搶最新會把配額花在不想要的名單上 → 善用 `CITIES`/`PROPERTY_TYPES`/預算篩選。
 - **不能放雲端**：公買功能鎖門市 IP，雲端 / 家裡 / 手機都被擋，只能跑在門市網路的電腦上。
 - 帳密只進本機 `.env`（已 gitignore，不進 git）。目前 KEIS 密碼偏弱，可考慮換強一點。

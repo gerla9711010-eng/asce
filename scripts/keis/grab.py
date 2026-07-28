@@ -18,6 +18,7 @@ KEIS 公買搶單自動化（輕量無瀏覽器版）
     python grab.py --apply         # 單次實搶
     python grab.py --watch         # 常駐監控(dry-run)：全天分層掃，只印不搶
     python grab.py --watch --apply # 常駐監控 + 實搶（正式；開機自動跑就是這個）
+    python grab.py --audit-notion  # 只跟 Notion 對帳補漏，不搶單（加 --audit-days 0 全掃）
 
 環境變數（.env）:
     KEIS_USERNAME         KEIS 主帳號（必填）
