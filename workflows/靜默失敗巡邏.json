@@ -1,0 +1,247 @@
+{
+  "name": "靜默失敗巡邏",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "sw-01",
+      "name": "每 30 分鐘巡一次"
+    },
+    {
+      "parameters": {
+        "url": "https://primary-production-68428.up.railway.app/api/v1/executions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "40"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "sw-02",
+      "name": "撈最近的執行",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "QDZ3D29HOQJOOKzA",
+          "name": "n8n Public API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// 只掃「上次掃過之後」的新執行，掃過的記在 workflow static data 裡，不會重複推播。\nconst s = $getWorkflowStaticData('global');\nconst all = ($input.first().json.data || []).filter(e => e.stoppedAt);\nconst maxId = all.reduce((m, e) => Math.max(m, Number(e.id || 0)), 0);\n// 第一次跑：只把基準線設在「現在」，不回頭翻歷史（歷史問題已經人工處理過了）\nif (s.lastExecId === undefined) { s.lastExecId = maxId; return []; }\nconst last = Number(s.lastExecId || 0);\nconst rows = all\n  .filter(e => Number(e.id) > last)\n  .sort((a, b) => Number(a.id) - Number(b.id))\n  .slice(0, 15);              // 一次最多 15 筆，避免打爆自己\nreturn rows.length ? rows.map(e => ({ json: { id: e.id } })) : [];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "sw-03",
+      "name": "挑出還沒掃過的"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://primary-production-68428.up.railway.app/api/v1/executions/' + $json.id + '?includeData=true' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "sw-04",
+      "name": "抓執行明細",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "QDZ3D29HOQJOOKzA",
+          "name": "n8n Public API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// 走訪每一筆執行的所有節點輸出，找出「有錯但被容錯吞掉」的那些。\n// 判準：節點輸出的 json 帶著 error 物件。離線對 60 筆執行試掃過，零誤報。\nconst IGNORE = [];   // 未來若有節點天生就會回 error（且屬預期），把節點名加進來\nconst found = [];\nlet maxId = 0;\nfor (const item of $input.all()) {\n  const d = item.json || {};\n  maxId = Math.max(maxId, Number(d.id || 0));\n  const wfName = (d.workflowData && d.workflowData.name) || d.workflowId || '未知流程';\n  const runData = ((d.data || {}).resultData || {}).runData || {};\n  for (const [node, runs] of Object.entries(runData)) {\n    if (IGNORE.includes(node)) continue;\n    for (const run of runs) {\n      for (const branch of ((run.data || {}).main || [])) {\n        for (const it of (branch || [])) {\n          const j = (it || {}).json;\n          if (j && typeof j === 'object' && j.error && typeof j.error === 'object') {\n            const msg = String(j.error.message || JSON.stringify(j.error)).slice(0, 160);\n            found.push({ execId: d.id, wfName, node, msg });\n          }\n        }\n      }\n    }\n  }\n}\nconst s = $getWorkflowStaticData('global');\nif (maxId) s.lastExecId = maxId;\n// 同一個節點同一種錯只報一次\nconst seen = new Set();\nconst uniq = found.filter(f => {\n  const k = f.wfName + '|' + f.node + '|' + f.msg.slice(0, 60);\n  if (seen.has(k)) return false;\n  seen.add(k); return true;\n});\nreturn uniq.length ? [{ json: { count: uniq.length, items: uniq } }] : [];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "id": "sw-05",
+      "name": "找出被吞掉的錯誤"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst d = $input.first().json;\nconst lines = d.items.map(f =>\n  `・${f.wfName} → ${f.node}\\n　執行 #${f.execId}\\n　${f.msg}`).join('\\n\\n');\nconst text = `🔕 有動作失敗了但流程沒報錯（${d.count} 筆）\\n\\n`\n  + `這些節點設了容錯，失敗會被吞掉、執行狀態還是「成功」，所以不會觸發一般的錯誤告警。\\n\\n`\n  + lines + `\\n\\n`\n  + `⚠️ 廣告線出現這種，先確認貼文／Notion／KEIS 三邊有沒有對上。`;\nreturn [{ json: { text } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "id": "sw-06",
+      "name": "組訊息"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/push",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "id": "sw-07",
+      "name": "LINE Push",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "每 30 分鐘巡一次": {
+      "main": [
+        [
+          {
+            "node": "撈最近的執行",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "撈最近的執行": {
+      "main": [
+        [
+          {
+            "node": "挑出還沒掃過的",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "挑出還沒掃過的": {
+      "main": [
+        [
+          {
+            "node": "抓執行明細",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "抓執行明細": {
+      "main": [
+        [
+          {
+            "node": "找出被吞掉的錯誤",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "找出被吞掉的錯誤": {
+      "main": [
+        [
+          {
+            "node": "組訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組訊息": {
+      "main": [
+        [
+          {
+            "node": "LINE Push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Taipei",
+    "errorWorkflow": "eTHhmrZVmllk1aUZ"
+  }
+}
