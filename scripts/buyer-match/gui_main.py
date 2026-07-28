@@ -114,7 +114,7 @@ class App:
         self.root = root
         self.root.title("買方配案")
         self.root.configure(bg=BG)
-        self.root.geometry("720x640")
+        self.root.geometry("720x760")
 
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.running = False
@@ -155,12 +155,30 @@ class App:
 
         form.grid_columnconfigure(1, weight=1)
 
-        self.area_entry = add_row(0, "行政區／社區／路名關鍵字*", width=30)
-        self.price_min_entry = add_row(1, "總價下限（萬，可留空）")
-        self.price_max_entry = add_row(2, "總價上限（萬，可留空）")
-        self.rooms_entry = add_row(3, "至少幾房（可留空）")
-        self.usage_entry = add_row(4, "用途關鍵字（可留空，例：住宅）")
-        self.limit_entry = add_row(5, "最多處理幾筆（預設 15）")
+        self.district_entry = add_row(0, "行政區（逗號分隔最多3個，例：苓雅區,三民區）", width=30)
+        self.area_entry = add_row(1, "社區／路名關鍵字（可跟行政區併用，可留空）", width=30)
+        self.price_min_entry = add_row(2, "總價下限（萬，可留空）")
+        self.price_max_entry = add_row(3, "總價上限（萬，可留空）")
+        self.rooms_entry = add_row(4, "至少幾房（可留空）")
+        self.usage_entry = add_row(5, "用途關鍵字（可留空，例：住宅）")
+
+        tk.Label(form, text="車位", bg=BG, fg=FG, font=("Microsoft JhengHei", 10)).grid(
+            row=6, column=0, sticky="w", pady=4
+        )
+        self.parking_var = tk.StringVar(value="不限")
+        parking_frame = tk.Frame(form, bg=BG)
+        parking_frame.grid(row=6, column=1, sticky="w", padx=8, pady=4)
+        for val in ("不限", "無", "有"):
+            tk.Radiobutton(
+                parking_frame, text=val, value=val, variable=self.parking_var,
+                bg=BG, fg=FG, selectcolor=BG, activebackground=BG, activeforeground=FG,
+            ).pack(side="left")
+
+        self.parking_type_entry = add_row(
+            7, "車位型態（車位=有才有作用，逗號分隔，例：坡道/平面,昇降/平面）", width=30
+        )
+
+        self.limit_entry = add_row(8, "最多處理幾筆（預設 15）")
         self.limit_entry.insert(0, "15")
 
         self.list_only_var = tk.BooleanVar(value=False)
@@ -168,7 +186,7 @@ class App:
             form, text="只看筆數，不開詳情頁/不抓專員與分享連結（快速預覽）",
             variable=self.list_only_var, bg=BG, fg=FG, selectcolor=BG,
             activebackground=BG, activeforeground=FG,
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         btn_row = tk.Frame(self.root, bg=BG)
         btn_row.pack(fill="x", **pad)
@@ -248,8 +266,9 @@ class App:
             return
 
         area = self.area_entry.get().strip()
-        if not area:
-            messagebox.showwarning("缺條件", "行政區／社區／路名關鍵字是必填")
+        district = self.district_entry.get().strip()
+        if not area and not district:
+            messagebox.showwarning("缺條件", "行政區、社區／路名關鍵字至少要填一個")
             return
 
         def to_int(entry):
@@ -259,10 +278,13 @@ class App:
         try:
             args = Namespace(
                 area=area,
+                district=(district or None),
                 price_min=to_int(self.price_min_entry),
                 price_max=to_int(self.price_max_entry),
                 rooms_min=to_int(self.rooms_entry),
                 usage=(self.usage_entry.get().strip() or None),
+                parking=(self.parking_var.get() if self.parking_var.get() != "不限" else None),
+                parking_type=(self.parking_type_entry.get().strip() or None),
                 limit=to_int(self.limit_entry) or 15,
                 list_only=self.list_only_var.get(),
                 dry_run=False,
