@@ -24,6 +24,7 @@ from tkinter import messagebox, ttk
 import buyer_match
 import foundi_need
 import run_customer_match
+import run_group_match
 from gui_main import (  # 沿用同一套配色與 Chrome 啟動/狀態邏輯，不重複寫
     ACCENT,
     BG,
@@ -86,29 +87,37 @@ class App:
 
         form.grid_columnconfigure(1, weight=1)
 
-        self.customer_entry = add_row(0, "客戶名字（房地「客需條件」裡的名字，例：采儒）")
-        self.need_entry = add_row(1, "子條件名稱（可留空，不填就用第一個，例：文化中心周圍）")
-        self.price_min_entry = add_row(2, "總價下限（萬，可留空＝用房地讀到的）")
-        self.price_max_entry = add_row(3, "總價上限（萬，可留空＝用房地讀到的）")
-        self.rooms_entry = add_row(4, "至少幾房（可留空＝用房地讀到的）")
-        self.usage_entry = add_row(5, "用途關鍵字（可留空＝用房地讀到的，例：住宅）")
-        self.limit_entry = add_row(6, "i智慧最多處理幾筆（預設 15）")
+        self.group_entry = add_row(0, "群組（A買／B買／C買／其他）")
+        self.group_entry.insert(0, "A買")
+        self.customer_entry = add_row(1, "客戶名字（★留空＝這個群組全部客戶都跑，例：采儒）")
+        self.need_entry = add_row(2, "子條件名稱（可留空，不填就用第一個，例：文化中心周圍）")
+        self.price_min_entry = add_row(3, "總價下限（萬，可留空＝用房地讀到的）")
+        self.price_max_entry = add_row(4, "總價上限（萬，可留空＝用房地讀到的）")
+        self.rooms_entry = add_row(5, "至少幾房（可留空＝用房地讀到的）")
+        self.usage_entry = add_row(6, "用途關鍵字（可留空＝用房地讀到的，例：住宅）")
+        self.limit_entry = add_row(7, "i智慧最多處理幾筆（預設 15）")
         self.limit_entry.insert(0, "15")
-        self.limit_areas_entry = add_row(7, "只用前 N 個關鍵字（可留空＝全部，先試跑用）")
+        self.limit_areas_entry = add_row(8, "只用前 N 個關鍵字（可留空＝全部，先試跑用）")
+
+        tk.Label(
+            form,
+            text="※ 客戶留空＝整組跑（每個客戶的每個客需各自存檔，會花幾十分鐘）",
+            bg=BG, fg=DIM, font=("Microsoft JhengHei", 9),
+        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
         self.dry_run_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
             form, text="只抓專員資訊，不點分享連結（除錯用，先確認條件抓得對不對）",
             variable=self.dry_run_var, bg=BG, fg=FG, selectcolor=BG,
             activebackground=BG, activeforeground=FG,
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=10, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         self.newest_var = tk.BooleanVar(value=True)
         tk.Checkbutton(
             form, text="優先看新案（i智慧排序改「上架：新>舊」，新案會標 🆕）",
             variable=self.newest_var, bg=BG, fg=FG, selectcolor=BG,
             activebackground=BG, activeforeground=FG,
-        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=11, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         btn_row = tk.Frame(self.root, bg=BG)
         btn_row.pack(fill="x", **pad)
@@ -188,9 +197,13 @@ class App:
         if self.running:
             return
 
+        group = self.group_entry.get().strip()
         customer = self.customer_entry.get().strip()
-        if not customer:
-            messagebox.showwarning("缺條件", "客戶名字要填（房地「客需條件」裡的名字）")
+        # 客戶留空＝整組跑（走 run_group_match），填了＝只跑那一位（走 run_customer_match）
+        group_mode = not customer
+
+        if group_mode and not group:
+            messagebox.showwarning("缺條件", "群組跟客戶至少要填一個\n（只填群組＝整組跑，填客戶＝只跑那一位）")
             return
 
         def to_int(entry):
@@ -198,34 +211,56 @@ class App:
             return int(v) if v else None
 
         try:
-            args = Namespace(
-                customer=customer,
-                need=(self.need_entry.get().strip() or None),
-                price_min=to_int(self.price_min_entry),
-                price_max=to_int(self.price_max_entry),
-                rooms_min=to_int(self.rooms_entry),
-                usage=(self.usage_entry.get().strip() or None),
-                limit=to_int(self.limit_entry) or 15,
-                limit_areas=to_int(self.limit_areas_entry),
-                dry_run=self.dry_run_var.get(),
-                newest=self.newest_var.get(),
-            )
+            if group_mode:
+                args = Namespace(
+                    group=group,
+                    customer=None,
+                    limit=to_int(self.limit_entry) or 15,
+                    dry_run=self.dry_run_var.get(),
+                    newest=self.newest_var.get(),
+                )
+            else:
+                args = Namespace(
+                    customer=customer,
+                    need=(self.need_entry.get().strip() or None),
+                    price_min=to_int(self.price_min_entry),
+                    price_max=to_int(self.price_max_entry),
+                    rooms_min=to_int(self.rooms_entry),
+                    usage=(self.usage_entry.get().strip() or None),
+                    limit=to_int(self.limit_entry) or 15,
+                    limit_areas=to_int(self.limit_areas_entry),
+                    dry_run=self.dry_run_var.get(),
+                    newest=self.newest_var.get(),
+                )
         except ValueError:
             messagebox.showwarning("輸入錯誤", "總價/房數/筆數請填數字")
+            return
+
+        if group_mode and not messagebox.askokcancel(
+            "整組跑",
+            f"客戶欄位留空 → 會跑「{group}」底下**全部客戶的全部客需**。\n"
+            "每個客需各自存一個檔，跑完印總表。\n\n"
+            "⚠️ 這可能要幾十分鐘（實測 A買 7 位客戶 14 個客需約 16 分鐘）。\n"
+            "期間請不要動那個 Chrome 視窗。要開始嗎？",
+        ):
             return
 
         self.log_text.delete("1.0", "end")
         self.running = True
         self.run_btn.config(state="disabled", text="查詢中...")
         self.status_lbl.config(
-            text="查詢中，請稍候（先讀房地客需，再逐關鍵字查 i智慧，會花一點時間）...",
+            text=(
+                f"整組查詢中（{group}），請稍候，這會花幾十分鐘..."
+                if group_mode
+                else "查詢中，請稍候（先讀房地客需，再逐關鍵字查 i智慧，會花一點時間）..."
+            ),
             fg=WARN_COLOR,
         )
 
-        thread = threading.Thread(target=self._worker, args=(args,), daemon=True)
+        thread = threading.Thread(target=self._worker, args=(args, group_mode), daemon=True)
         thread.start()
 
-    def _worker(self, args: Namespace):
+    def _worker(self, args: Namespace, group_mode: bool = False):
         writer = QueueWriter(self.log_queue)
         old_stdout, old_stderr = sys.stdout, sys.stderr
         sys.stdout = writer
@@ -233,7 +268,10 @@ class App:
         ok = True
         err_msg = ""
         try:
-            asyncio.run(run_customer_match.run(args))
+            if group_mode:
+                asyncio.run(run_group_match.run(args))
+            else:
+                asyncio.run(run_customer_match.run(args))
         except SystemExit:
             ok = False
             err_msg = "連不到 Chrome。請先按上面「啟動 Chrome」按鈕，並登入 i智慧＋房地。"
