@@ -1326,11 +1326,21 @@ def reconcile_applications(clients: list, dry_run: bool) -> list:
         return []
     recorded = load_recorded_sids()
     recovered: list[dict] = []
+    schema_alerted = False           # 欄位體檢的告警一輪只推一次，別三個帳號各吵一則
     for cl in clients:
         try:
             apps = cl.my_applications()
         except Exception as e:
             log(f"   ⚠ [{cl.label}] 回查申請失敗，略過：{type(e).__name__}")
+            continue
+        # 欄位體檢：KEIS 砍過欄位（2026-07-23 那次害廣告線靜靜空轉）。要是 status 整批不見，
+        # is_our_application() 會全部回 False → 補回功能安靜失效、沒人發現。寧可吵一次。
+        if apps and not any("status" in a for a in apps):
+            log(f"   ⚠ [{cl.label}] 回查結果整批沒有 status 欄位，KEIS 可能改版了")
+            if not schema_alerted:
+                notify({"event": "alert",
+                        "text": "⚠ KEIS 搶單：回查名單少了 status 欄位，補回功能可能失效，請找人看一下"})
+                schema_alerted = True
             continue
         skipped = 0
         for app in apps:
