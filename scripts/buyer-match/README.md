@@ -251,6 +251,48 @@ python run_group_match.py A買 --dry-run --limit 5        # 先小規模試跑�
 可能是幾十分鐘起跳，**第一次一定要先 `--dry-run --limit 5` 試跑**估時間，不要一次
 全開。
 
+## 每天 08:10 自動跑（`daily_run.py` + Windows 工作排程）
+
+2026-07-29 加：每天早上自動跑 **A買** 整組，跑完把「哪位客戶幾筆」的總表推到 LINE。
+
+**安裝（門市電腦跑一次就好）**
+
+```powershell
+cd scripts\buyer-match
+powershell -ExecutionPolicy Bypass -File .\install-daily-task.ps1
+```
+
+**先確認兩件事**（順序照做，各 10 秒）
+
+```powershell
+python daily_run.py --notify-test   # 手機收得到 LINE 就代表通知那段通了
+python daily_run.py --dry-run       # 完整跑一次但不點分享連結
+```
+
+**它會自己做的事**
+
+1. CDP Chrome（port 9223）沒開就自己開起來，等到連得上為止（最多 90 秒）
+2. **先驗登入態**：房地、i智慧各檢查一次。任何一邊沒登入就**推 LINE 叫人去登、當場中止**
+   ——絕不會靜靜撈到 0 筆然後回報「今天沒新案」
+3. 跑 A買 整組（正式模式，有分享連結），每個「客戶／子條件」各自存檔在 `output/`
+4. 推 LINE 總表；失敗、沒登入、跑到一半炸掉也都會推。log 在 `daily_run.log`
+
+**⚠️ 房地沒有自動重登**（i智慧 有 `.env` 帳密可以自動登入，房地沒有）。房地登入態
+大概每隔一陣子就會過期，過期那天早上手機會收到「🔑 房地要重新登入」，這時候要到
+門市電腦那個配案專用的 Chrome 視窗手動登一次，然後雙擊桌面「房地i智慧配案」補跑。
+
+**移除排程**
+
+```powershell
+Unregister-ScheduledTask -TaskName 'buyer-match-daily' -Confirm:$false
+```
+
+| 想改什麼 | 怎麼改 |
+|---|---|
+| 換群組（B買/C買） | `install-daily-task.ps1` 的 `-Argument` 加 `--group B買`，重跑安裝 |
+| 換時間 | 同一支 ps1 的 `-At 8:10am`，重跑安裝 |
+| 通知去哪 | 預設讀 `scripts/keis/.env` 的 `KEIS_NOTIFY_WEBHOOK`（n8n `keis-grab`，走 `event=alert` 分支）；要分開就在這邊的 `.env` 設 `BUYER_MATCH_NOTIFY_WEBHOOK` |
+
 ## 之後可以怎麼擴
 
 - 總價/房數/屋齡目前都是 Python 端過濾，沒有走網站的下拉/自訂範圍輸入框（那幾個要嘛是
@@ -264,8 +306,7 @@ python run_group_match.py A買 --dry-run --limit 5        # 先小規模試跑�
   （`run_group_match.py`）都做完了，下一步可以做的：
   ①去重保底：存一份「上次看過的 i智慧案件指紋」，重跑只回報新出現的案源（不要每次都吐
   一樣的清單洗版，做法可以參考 `scripts/keis/grab.py` 的防重複邏輯）
-  ②排程 1~2 次/天自動跑（要 CDP Chrome 視窗保持開著、兩邊登入態沒過期，比照
-  `scripts/clockin/` 排程的做法；房地目前沒有 `.env` 自動重登，過期要手動登，排程前
-  這段要先解決）
+  ~~②排程 1~2 次/天自動跑~~ **2026-07-29 做完**，見上面「每天 08:10 自動跑」。
+  房地自動重登還是沒解（房地沒有可用的帳密自動登入路徑），改成偵測到沒登入就推 LINE 喊人。
   ③`run_group_match.py` 目前沒有整組批次的 GUI，只有 CLI，常用的話可以比照
   `gui_customer_match.py` 再做一個。

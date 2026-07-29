@@ -264,6 +264,21 @@ async def try_auto_login(page: Page) -> bool:
         return False
 
 
+SEARCH_BOX_SELECTOR = 'input[placeholder*="編號"][placeholder*="案名"]'
+
+
+async def _looks_like_login(page: Page) -> bool:
+    cur = page.url or ""
+    if "opid.ycut.com.tw" in cur or "/login" in cur.lower():
+        return True
+    try:
+        return await page.evaluate(
+            "() => !!document.querySelector('input[type=\"password\"]')"
+        )
+    except Exception:
+        return False
+
+
 async def ensure_search_page(page: Page) -> None:
     login_attempted = False
     for attempt in range(3):
@@ -271,11 +286,28 @@ async def ensure_search_page(page: Page) -> None:
             await page.goto(ISMART_SEARCH_URL, wait_until="domcontentloaded")
             # session 過期時，i智慧是先把 is.ycut.com.tw 這份文件載進來、
             # 前端 JS 判斷過期後才用 client-side redirect 轉去 opid.ycut.com.tw 登入頁——
-            # domcontentloaded 那個時間點 URL 可能還沒變，太早看 page.url 會抓不到、
-            # 直接落去等搜尋框 20 秒逾時（2026-07-27 實測踩過）。這裡多等一下再判斷。
-            await page.wait_for_timeout(1500)
+            # domcontentloaded 那個時間點 URL 還沒變。
+            # ⚠️ 2026-07-29 實測：轉址有時要 5 秒以上，舊版只在 1.5 秒後看一次 URL，
+            # 慢一點就漏判，然後落去等搜尋框逾時 → 明明 .env 有帳密卻不會觸發自動登入，
+            # 只回報「搜尋頁載入失敗」。改成輪詢 20 秒，登入頁跟搜尋框哪個先出現就走哪條。
+            outcome = ""
+            for _ in range(20):
+                if await _looks_like_login(page):
+                    outcome = "login"
+                    break
+                if await page.evaluate(
+                    # 要看「看得到」而不只是「在 DOM 上」——搜尋框會先掛上去、隔一下才顯示，
+                    # 只認 querySelector 的話下面 wait_for_selector（等 visible）還是會白等 20 秒
+                    "(sel) => { const e = document.querySelector(sel);"
+                    " return !!e && !!(e.offsetParent || e.getClientRects().length); }",
+                    SEARCH_BOX_SELECTOR,
+                ):
+                    outcome = "search"
+                    break
+                await page.wait_for_timeout(1000)
+
             cur = page.url or ""
-            if "opid.ycut.com.tw" in cur or "/login" in cur:
+            if outcome == "login":
                 if not login_attempted:
                     login_attempted = True
                     if await try_auto_login(page):
@@ -291,9 +323,7 @@ async def ensure_search_page(page: Page) -> None:
                     "請切到 open_real_chrome.bat 開的那個 Chrome 視窗手動重新登入，"
                     "登好後重跑這支腳本（不用重開 Chrome）。"
                 )
-            await page.wait_for_selector(
-                'input[placeholder*="編號"][placeholder*="案名"]', timeout=20000
-            )
+            await page.wait_for_selector(SEARCH_BOX_SELECTOR, timeout=20000)
             await _ensure_scope_all(page)
             return
         except RuntimeError:

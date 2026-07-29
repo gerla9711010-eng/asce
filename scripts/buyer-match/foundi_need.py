@@ -84,6 +84,40 @@ async def get_or_open_foundi_page(ctx) -> Page:
     return page
 
 
+class FoundiNotLoggedIn(RuntimeError):
+    """房地登入態沒了（被導去登入頁）。單獨一個型別，讓排程那邊能推 LINE 叫人去登。"""
+
+
+async def ensure_logged_in(page: Page) -> None:
+    """確認房地是登入狀態，不是就丟 FoundiNotLoggedIn。
+
+    ⚠️ 房地沒有 .env 帳密可以自動重登（i智慧 有），所以這裡只能「偵測 + 明講」。
+    非做不可的原因：登入態掉了的時候，客需清單會是空的，整支腳本會一路跑完然後
+    回報「0 筆」——看起來像今天沒新案，其實是根本沒登入。這個 repo 一再踩到
+    「流程回報成功≠事情做到了」，寧可整批中止也不要靜靜撈到 0 筆。"""
+    await page.goto(FOUNDI_BASE_URL, wait_until="domcontentloaded")
+    # 房地也是前端 JS 判斷過期後才 client-side redirect，domcontentloaded 當下 URL 可能還沒變
+    await page.wait_for_timeout(2000)
+    cur = page.url or ""
+    if "accounts/login" in cur or "/login" in cur or "/signin" in cur:
+        raise FoundiNotLoggedIn(f"房地登入態過期，被導去 {cur}")
+
+    # URL 沒變也可能是登入頁蓋在同一路徑上（或畫面還沒渲染完），再確認客需樹在不在。
+    for _ in range(10):
+        if await page.evaluate(
+            "() => !!document.querySelector('mat-nested-tree-node.folder')"
+            " || !!document.querySelector('div.nav-rail-item')"
+        ):
+            return
+        await page.wait_for_timeout(1000)
+    has_password_box = await page.evaluate(
+        "() => !!document.querySelector('input[type=\"password\"]')"
+    )
+    if has_password_box:
+        raise FoundiNotLoggedIn(f"房地停在登入頁（{cur}）")
+    raise FoundiNotLoggedIn(f"房地頁面載入 10 秒後仍看不到客需側欄（目前網址 {cur}）")
+
+
 async def _open_customer_need_sidebar(page: Page) -> None:
     """點開左側「客需條件」面板。
 

@@ -4,3 +4,4 @@ logs/
 output/
 __pycache__/
 *.pyc
+daily_run.log
