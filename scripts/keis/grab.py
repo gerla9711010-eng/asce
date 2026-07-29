@@ -1304,10 +1304,24 @@ def record_from_application(app: dict, label: str) -> dict:
     }
 
 
+def is_our_application(app: dict) -> bool:
+    """這筆名單是不是「我們自己申請搶到」的。
+
+    2026-07-29 踩到的坑：`only_my_applications=true` 回的**不是**「我申請過的」，
+    而是「掛在這個帳號名下的全部名單」——裡面混著 KEIS 值班分派給專員的現場來客
+    （`status=DutyAssigned`、`app_time=null`、常常是市話）。舊版沒看 status，
+    把值班分派的客人當成「漏記的搶單」補進 grabbed.csv／Notion／還推 LINE，
+    害戰果數字虛報，半夜還冒出一則看起來像機器人抓錯號碼的通知。
+    當天實測：46 筆 Applied 全部有 app_time 且全部是手機，DutyAssigned 那筆兩者都不是。
+    兩個條件一起看（status 對 + 真的有申請時間），日後 KEIS 加新 status 也不會誤放行。"""
+    return str(app.get("status") or "") == "Applied" and bool(app.get("app_time"))
+
+
 def reconcile_applications(clients: list, dry_run: bool) -> list:
     """回查各帳號『我的申請』，補回有申請成功卻沒落地的漏記名單（如開盤回應逾時的幽靈搶單）。
     只增不減、以 summary_id 去重；回傳這次補回的清單。全程 best-effort，出錯只記 log 不影響搶單。
-    在『不搶單的閒時』跑（啟動時、每個時段收盤時），所以不會拖慢搶單。"""
+    在『不搶單的閒時』跑（啟動時、每個時段收盤時），所以不會拖慢搶單。
+    只認 is_our_application() 為真的，值班分派來的客人不是搶單、不進戰果。"""
     if dry_run:
         return []
     recorded = load_recorded_sids()
@@ -1318,10 +1332,14 @@ def reconcile_applications(clients: list, dry_run: bool) -> list:
         except Exception as e:
             log(f"   ⚠ [{cl.label}] 回查申請失敗，略過：{type(e).__name__}")
             continue
+        skipped = 0
         for app in apps:
             sid = app.get("summary_id")
             if sid is None or str(sid) in recorded:
                 continue                       # 已落地過 → 跳過（不會重複補）
+            if not is_our_application(app):
+                skipped += 1                   # 值班分派等「不是我們搶來的」，不進戰果
+                continue
             rec = record_from_application(app, cl.label)
             try:
                 append_csv([rec])
@@ -1332,6 +1350,8 @@ def reconcile_applications(clients: list, dry_run: bool) -> list:
             recorded.add(str(sid))
             recovered.append(rec)
             log(f"   ↩ [{cl.label}] 補回漏記名單 {rec['name']} / {rec['phone']}｜{sid} {rec['city']} {rec['category']}")
+        if skipped:
+            log(f"   ℹ [{cl.label}] 略過 {skipped} 筆非搶單名單（值班分派等，不列入戰果）")
     return recovered
 
 
