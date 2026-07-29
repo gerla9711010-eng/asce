@@ -23,11 +23,111 @@ import argparse
 import asyncio
 import sys
 from datetime import datetime
+from typing import Optional
 
 from playwright.async_api import async_playwright
 
 import buyer_match
 import foundi_need
+
+
+async def run_group(
+    ctx,
+    group: str,
+    customer: Optional[str] = None,
+    limit: int = 15,
+    dry_run: bool = False,
+    newest: bool = False,
+) -> list[tuple[str, str, str]]:
+    """跑完一個群組（可限定單一客戶），回傳 [(客戶, 子條件, 結果文字)] 總表。
+
+    ctx 是已經連上的 CDP context——CLI（下面的 run）跟排程（daily_run.py）各自
+    處理連線/登入檢查，這裡只負責迴圈本身，兩邊行為保證一致。
+    """
+    foundi_page = await foundi_need.get_or_open_foundi_page(ctx)
+    customers = await foundi_need.list_group(foundi_page, group)
+    if customer:
+        customers = [(name, needs) for name, needs in customers if name == customer]
+        if not customers:
+            raise RuntimeError(f"群組「{group}」裡找不到客戶「{customer}」")
+
+    total_jobs = sum(len(needs) for _, needs in customers)
+    print(f"[INFO] 群組「{group}」共 {len(customers)} 位客戶、{total_jobs} 個客需子條件要跑")
+
+    i智慧_page = buyer_match.get_or_open_page(ctx, "is.ycut.com.tw")
+    if i智慧_page is None:
+        i智慧_page = await ctx.new_page()
+
+    summary: list[tuple[str, str, str]] = []  # (customer, need, result_text)
+    job_no = 0
+    for cust, needs in customers:
+        for need in needs:
+            job_no += 1
+            print(f"\n[INFO] ({job_no}/{total_jobs}) 客戶「{cust}」／子條件「{need}」")
+            try:
+                fneed = await foundi_need.load_customer_need(ctx, cust, need)
+            except RuntimeError as e:
+                print(f"[WARN] 讀房地客需失敗，跳過：{e}", file=sys.stderr)
+                summary.append((cust, need, f"錯誤：{e}"))
+                continue
+
+            if not fneed.areas:
+                print("[INFO] 這個子條件沒有任何候選物件，跳過")
+                summary.append((cust, need, "0 筆候選"))
+                continue
+
+            try:
+                entries = await buyer_match.match_areas(
+                    i智慧_page,
+                    fneed.areas,
+                    districts=fneed.districts or None,
+                    parking_mode="有" if fneed.require_parking else None,
+                    price_min=fneed.price_min,
+                    price_max=fneed.price_max,
+                    rooms_min=fneed.rooms_min,
+                    usage_any=fneed.usage_words or None,
+                    age_min=fneed.age_min,
+                    age_max=fneed.age_max,
+                    main_area_ping_min=fneed.main_area_ping_min,
+                    main_area_ping_max=fneed.main_area_ping_max,
+                    land_ping_min=fneed.land_ping_min,
+                    land_ping_max=fneed.land_ping_max,
+                    baths_min=fneed.baths_min,
+                    floor_min=fneed.floor_min,
+                    floor_max=fneed.floor_max,
+                    unit_price_min=fneed.unit_price_min,
+                    unit_price_max=fneed.unit_price_max,
+                    exclude_top_floor=fneed.exclude_top_floor,
+                    newest_first=newest,
+                    limit=limit,
+                    dry_run=dry_run,
+                )
+            except Exception as e:
+                print(f"[WARN] 查 i智慧 失敗，跳過：{e}", file=sys.stderr)
+                summary.append((cust, need, f"錯誤：{e}"))
+                continue
+
+            blocks = [
+                buyer_match.format_block(card, agent, share_url)
+                for card, agent, share_url in entries
+            ]
+            summary.append((cust, need, f"{len(blocks)} 筆"))
+
+            if blocks:
+                label = f"{cust}_{need}".replace(",", "_").replace("，", "_")[:60]
+                buyer_match.OUTPUT_DIR.mkdir(exist_ok=True)
+                out_path = (
+                    buyer_match.OUTPUT_DIR
+                    / f"{datetime.now():%Y%m%d_%H%M%S}_{label}.txt"
+                )
+                out_path.write_text("\n\n".join(blocks), encoding="utf-8")
+                print(f"[INFO] 已存檔：{out_path}")
+
+    return summary
+
+
+def format_summary(group: str, summary: list[tuple[str, str, str]]) -> str:
+    return "\n".join(f"客戶：{c}／{n} → {r}" for c, n, r in summary)
 
 
 async def run(args) -> None:
@@ -45,90 +145,22 @@ async def run(args) -> None:
 
         ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
 
-        foundi_page = await foundi_need.get_or_open_foundi_page(ctx)
-        customers = await foundi_need.list_group(foundi_page, args.group)
-        if args.customer:
-            customers = [(name, needs) for name, needs in customers if name == args.customer]
-            if not customers:
-                print(f"[ERROR] 群組「{args.group}」裡找不到客戶「{args.customer}」", file=sys.stderr)
-                sys.exit(1)
-
-        total_jobs = sum(len(needs) for _, needs in customers)
-        print(f"[INFO] 群組「{args.group}」共 {len(customers)} 位客戶、{total_jobs} 個客需子條件要跑")
-
-        i智慧_page = buyer_match.get_or_open_page(ctx, "is.ycut.com.tw")
-        if i智慧_page is None:
-            i智慧_page = await ctx.new_page()
-
-        summary: list[tuple[str, str, str]] = []  # (customer, need, result_text)
-        job_no = 0
-        for customer, needs in customers:
-            for need in needs:
-                job_no += 1
-                print(f"\n[INFO] ({job_no}/{total_jobs}) 客戶「{customer}」／子條件「{need}」")
-                try:
-                    fneed = await foundi_need.load_customer_need(ctx, customer, need)
-                except RuntimeError as e:
-                    print(f"[WARN] 讀房地客需失敗，跳過：{e}", file=sys.stderr)
-                    summary.append((customer, need, f"錯誤：{e}"))
-                    continue
-
-                if not fneed.areas:
-                    print("[INFO] 這個子條件沒有任何候選物件，跳過")
-                    summary.append((customer, need, "0 筆候選"))
-                    continue
-
-                try:
-                    entries = await buyer_match.match_areas(
-                        i智慧_page,
-                        fneed.areas,
-                        districts=fneed.districts or None,
-                        parking_mode="有" if fneed.require_parking else None,
-                        price_min=fneed.price_min,
-                        price_max=fneed.price_max,
-                        rooms_min=fneed.rooms_min,
-                        usage_any=fneed.usage_words or None,
-                        age_min=fneed.age_min,
-                        age_max=fneed.age_max,
-                        main_area_ping_min=fneed.main_area_ping_min,
-                        main_area_ping_max=fneed.main_area_ping_max,
-                        land_ping_min=fneed.land_ping_min,
-                        land_ping_max=fneed.land_ping_max,
-                        baths_min=fneed.baths_min,
-                        floor_min=fneed.floor_min,
-                        floor_max=fneed.floor_max,
-                        unit_price_min=fneed.unit_price_min,
-                        unit_price_max=fneed.unit_price_max,
-                        exclude_top_floor=fneed.exclude_top_floor,
-                        newest_first=args.newest,
-                        limit=args.limit,
-                        dry_run=args.dry_run,
-                    )
-                except Exception as e:
-                    print(f"[WARN] 查 i智慧 失敗，跳過：{e}", file=sys.stderr)
-                    summary.append((customer, need, f"錯誤：{e}"))
-                    continue
-
-                blocks = [
-                    buyer_match.format_block(card, agent, share_url)
-                    for card, agent, share_url in entries
-                ]
-                summary.append((customer, need, f"{len(blocks)} 筆"))
-
-                if blocks:
-                    label = f"{customer}_{need}".replace(",", "_").replace("，", "_")[:60]
-                    buyer_match.OUTPUT_DIR.mkdir(exist_ok=True)
-                    out_path = (
-                        buyer_match.OUTPUT_DIR
-                        / f"{datetime.now():%Y%m%d_%H%M%S}_{label}.txt"
-                    )
-                    out_path.write_text("\n\n".join(blocks), encoding="utf-8")
-                    print(f"[INFO] 已存檔：{out_path}")
+        try:
+            summary = await run_group(
+                ctx,
+                args.group,
+                customer=args.customer,
+                limit=args.limit,
+                dry_run=args.dry_run,
+                newest=args.newest,
+            )
+        except RuntimeError as e:
+            print(f"[ERROR] {e}", file=sys.stderr)
+            sys.exit(1)
 
         print("\n" + "=" * 40)
-        print(f"群組「{args.group}」跑完，共 {total_jobs} 個客需子條件：\n")
-        report_lines = [f"客戶：{c}／{n} → {r}" for c, n, r in summary]
-        report = "\n".join(report_lines)
+        print(f"群組「{args.group}」跑完，共 {len(summary)} 個客需子條件：\n")
+        report = format_summary(args.group, summary)
         print(report)
 
         try:

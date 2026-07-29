@@ -11,30 +11,29 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import queue
-import subprocess
 import sys
 import threading
 import traceback
-import urllib.error
-import urllib.request
 from argparse import Namespace
-from pathlib import Path
 
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 import buyer_match
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-CDP_URL = f"http://localhost:{buyer_match.CDP_PORT}/json/version"
-CDP_TIMEOUT_SEC = 1.5
-
-CHROME_EXE_CANDIDATES = [
-    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-]
+# Chrome 啟動/偵測搬到 chrome_cdp.py（排程用的 daily_run.py 也要用，那邊不能 import tkinter）。
+# 這裡照原本的名字 re-export，gui_customer_match.py 的 `from gui_main import cdp_alive, launch_chrome`
+# 不受影響。
+from chrome_cdp import (  # noqa: F401
+    CDP_TIMEOUT_SEC,
+    CDP_URL,
+    CHROME_EXE_CANDIDATES,
+    SCRIPT_DIR,
+    cdp_alive,
+    find_chrome_exe,
+    launch_chrome,
+)
 
 # 黑底主題（跟自動比對專約同款配色）
 BG = "#1e1e1e"
@@ -47,52 +46,6 @@ DIM = "#888888"
 OK_COLOR = "#7BC97B"
 WARN_COLOR = "#FFB347"
 ERR_COLOR = "#FF7B7B"
-
-
-def find_chrome_exe():
-    import os
-
-    paths = list(CHROME_EXE_CANDIDATES)
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        paths.append(str(Path(local) / "Google" / "Chrome" / "Application" / "chrome.exe"))
-    for p in paths:
-        if Path(p).is_file():
-            return p
-    return None
-
-
-def _no_window_flags():
-    return 0x08000000 if sys.platform.startswith("win") else 0  # CREATE_NO_WINDOW
-
-
-def cdp_alive() -> bool:
-    try:
-        req = urllib.request.Request(CDP_URL, headers={"User-Agent": "buyer-match-gui"})
-        with urllib.request.urlopen(req, timeout=CDP_TIMEOUT_SEC) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return bool(data.get("Browser"))
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
-        return False
-
-
-def launch_chrome() -> tuple[bool, str]:
-    exe = find_chrome_exe()
-    if not exe:
-        return False, "找不到 chrome.exe，請確認 Chrome 有裝在預設路徑"
-    profile_dir = SCRIPT_DIR / "chrome_profile"
-    args = [
-        exe,
-        f"--remote-debugging-port={buyer_match.CDP_PORT}",
-        "--remote-allow-origins=*",
-        f"--user-data-dir={profile_dir}",
-        buyer_match.ISMART_SEARCH_URL,
-    ]
-    try:
-        subprocess.Popen(args, creationflags=_no_window_flags())
-        return True, "Chrome 啟動中..."
-    except Exception as e:
-        return False, f"啟動失敗：{e}"
 
 
 class QueueWriter:
