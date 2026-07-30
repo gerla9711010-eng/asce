@@ -1,9 +1,15 @@
 """
 房地/i智慧配案（房地客需 → i智慧即時案源）— Tkinter GUI
 
-雙擊 房地i智慧配案.vbs 開沒有黑窗，填客戶名字（+可選子條件名）按一顆鈕就查，
+雙擊 房地i智慧配案.vbs 開沒有黑窗，群組／客戶／客需三個下拉點一點按鈕就查，
 結果直接複製到剪貼簿。跟 gui_main.py（單獨查 i智慧）同一套黑底風格，差別是這支
 先讀房地那邊存好的客需條件，再回頭去 i智慧 現查。
+
+三個下拉的清單是開工具時直接從房地讀回來的（2026-07-30 改；之前要手打客戶名字，
+名字很長又會打錯）。三種範圍：
+  客戶＝「全部客戶」            → 整組跑
+  客戶＝某人、客需＝「全部客需」  → 只跑這位客戶所有條件
+  客戶＝某人、客需＝某個條件      → 單查一條
 
 啟動：
   雙擊 房地i智慧配案.vbs（pythonw、無 console 黑窗）
@@ -20,6 +26,8 @@ from argparse import Namespace
 
 import tkinter as tk
 from tkinter import messagebox, ttk
+
+from playwright.async_api import async_playwright
 
 import buyer_match
 import foundi_need
@@ -40,6 +48,19 @@ from gui_main import (  # 沿用同一套配色與 Chrome 啟動/狀態邏輯，
     launch_chrome,
 )
 
+ALL_CUSTOMERS = "（整組跑：全部客戶）"
+ALL_NEEDS = "（這位客戶的全部客需）"
+
+
+async def fetch_foundi_tree() -> dict[str, list[tuple[str, list[str]]]]:
+    """連上 CDP Chrome，把房地「客需條件」整棵樹讀回來給下拉用。"""
+    async with async_playwright() as p:
+        browser = await p.chromium.connect_over_cdp(buyer_match.CDP_URL)
+        ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+        page = await foundi_need.get_or_open_foundi_page(ctx)
+        await foundi_need.ensure_logged_in(page)
+        return await foundi_need.read_all_groups(page)
+
 
 class App:
     def __init__(self, root: tk.Tk):
@@ -50,10 +71,14 @@ class App:
 
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.running = False
+        self.loading_tree = False
+        self.tree: dict[str, list[tuple[str, list[str]]]] = {}
 
         self._build_ui()
         self._poll_log_queue()
         self._refresh_chrome_status()
+        # Chrome 已經開著就直接把客戶清單讀進來，不用使用者多按一顆鈕
+        self.root.after(800, self._auto_load_tree)
 
     # ── UI ──────────────────────────────────────────────
 
@@ -85,12 +110,31 @@ class App:
             e.grid(row=r, column=1, sticky="w", padx=8, pady=4)
             return e
 
+        def add_combo(r, label, var, width=38):
+            tk.Label(form, text=label, bg=BG, fg=FG, font=("Microsoft JhengHei", 10)).grid(
+                row=r, column=0, sticky="w", pady=4
+            )
+            cb = ttk.Combobox(
+                form, textvariable=var, state="readonly", width=width,
+                font=("Microsoft JhengHei", 10),
+            )
+            cb.grid(row=r, column=1, sticky="w", padx=8, pady=4)
+            return cb
+
         form.grid_columnconfigure(1, weight=1)
 
-        self.group_entry = add_row(0, "群組（A買／B買／C買／其他）")
-        self.group_entry.insert(0, "A買")
-        self.customer_entry = add_row(1, "客戶名字（★留空＝這個群組全部客戶都跑，例：采儒）")
-        self.need_entry = add_row(2, "子條件名稱（可留空，不填就用第一個，例：文化中心周圍）")
+        # 群組／客戶／客需三層下拉：清單直接從房地讀出來點選，不用手打
+        # （客戶名字很長又常打錯，2026-07-29 使用者明講手打「不人性化」）
+        self.group_var = tk.StringVar()
+        self.customer_var = tk.StringVar()
+        self.need_var = tk.StringVar()
+
+        self.group_cb = add_combo(0, "群組", self.group_var)
+        self.customer_cb = add_combo(1, "客戶", self.customer_var)
+        self.need_cb = add_combo(2, "客需（子條件）", self.need_var)
+        self.group_cb.bind("<<ComboboxSelected>>", self._on_group_selected)
+        self.customer_cb.bind("<<ComboboxSelected>>", self._on_customer_selected)
+
         self.price_min_entry = add_row(3, "總價下限（萬，可留空＝用房地讀到的）")
         self.price_max_entry = add_row(4, "總價上限（萬，可留空＝用房地讀到的）")
         self.rooms_entry = add_row(5, "至少幾房（可留空＝用房地讀到的）")
@@ -99,11 +143,19 @@ class App:
         self.limit_entry.insert(0, "15")
         self.limit_areas_entry = add_row(8, "只用前 N 個關鍵字（可留空＝全部，先試跑用）")
 
-        tk.Label(
-            form,
-            text="※ 客戶留空＝整組跑（每個客戶的每個客需各自存檔，會花幾十分鐘）",
-            bg=BG, fg=DIM, font=("Microsoft JhengHei", 9),
-        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        tree_row = tk.Frame(form, bg=BG)
+        tree_row.grid(row=9, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+        self.reload_btn = tk.Button(
+            tree_row, text="從房地重新讀客戶清單", command=self._on_load_tree,
+            bg=BTN_BG, fg=FG, activebackground=BTN_HOVER, relief="flat", padx=10, pady=3,
+        )
+        self.reload_btn.pack(side="left")
+
+        self.tree_status_lbl = tk.Label(
+            tree_row, text="尚未讀取客戶清單", bg=BG, fg=DIM, font=("Microsoft JhengHei", 9)
+        )
+        self.tree_status_lbl.pack(side="left", padx=8)
 
         self.dry_run_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
@@ -167,6 +219,8 @@ class App:
     def _on_launch_chrome(self):
         ok, msg = launch_chrome()
         if ok:
+            # Chrome 起來要幾秒，之後自己把客戶清單讀進來（沒登入會在狀態列講）
+            self.root.after(10000, self._auto_load_tree)
             messagebox.showinfo(
                 "Chrome 啟動中",
                 "Chrome 開好後，請在跳出的視窗登入 i智慧（is.ycut.com.tw）跟房地\n"
@@ -175,6 +229,80 @@ class App:
             )
         else:
             messagebox.showerror("啟動失敗", msg)
+
+    # ── 三層下拉（群組／客戶／客需）────────────────────────
+
+    def _auto_load_tree(self):
+        if cdp_alive() and not self.tree:
+            self._on_load_tree()
+
+    def _on_load_tree(self):
+        if self.loading_tree:
+            return
+        if not cdp_alive():
+            messagebox.showwarning(
+                "Chrome 還沒開",
+                "要先按右上角「啟動 Chrome」把配案用的視窗開起來（並登入房地），\n"
+                "才能把客戶清單讀出來。",
+            )
+            return
+        self.loading_tree = True
+        self.reload_btn.config(state="disabled", text="讀取中...")
+        self.tree_status_lbl.config(text="正在從房地讀客戶清單...", fg=WARN_COLOR)
+        threading.Thread(target=self._load_tree_worker, daemon=True).start()
+
+    def _load_tree_worker(self):
+        tree, err = None, ""
+        try:
+            tree = asyncio.run(fetch_foundi_tree())
+        except foundi_need.FoundiNotLoggedIn as e:
+            err = f"房地要重新登入：{e}"
+        except Exception as e:
+            err = str(e)
+        self.root.after(0, self._on_tree_loaded, tree, err)
+
+    def _on_tree_loaded(self, tree, err: str):
+        self.loading_tree = False
+        self.reload_btn.config(state="normal", text="從房地重新讀客戶清單")
+        if not tree:
+            self.tree_status_lbl.config(text=f"讀不到清單：{err}", fg=ERR_COLOR)
+            # 讀不到就把三個下拉解鎖成可打字，不要讓人卡在這裡什麼都做不了
+            for cb in (self.group_cb, self.customer_cb, self.need_cb):
+                cb.config(state="normal")
+            return
+
+        self.tree = tree
+        groups = list(tree.keys())
+        self.group_cb.config(state="readonly", values=groups)
+        total_customers = sum(len(v) for v in tree.values())
+        self.tree_status_lbl.config(
+            text=f"已讀到 {len(groups)} 個群組、{total_customers} 位客戶", fg=OK_COLOR
+        )
+        # 預設停在 A買（每天 08:10 排程跑的那組），沒有就用第一個
+        self.group_var.set("A買" if "A買" in groups else (groups[0] if groups else ""))
+        self._on_group_selected()
+
+    def _on_group_selected(self, _event=None):
+        customers = [name for name, _ in self.tree.get(self.group_var.get(), [])]
+        values = [ALL_CUSTOMERS] + customers
+        self.customer_cb.config(state="readonly", values=values)
+        self.customer_var.set(ALL_CUSTOMERS)
+        self._on_customer_selected()
+
+    def _on_customer_selected(self, _event=None):
+        customer = self.customer_var.get()
+        if customer == ALL_CUSTOMERS:
+            # 整組跑：每位客戶的每個客需都會跑，這個下拉沒有意義
+            self.need_cb.config(values=[], state="disabled")
+            self.need_var.set("")
+            return
+        needs = next(
+            (nl for name, nl in self.tree.get(self.group_var.get(), []) if name == customer), []
+        )
+        values = [ALL_NEEDS] + needs
+        self.need_cb.config(state="readonly", values=values)
+        # 預設點第一個實際客需（單查一個條件是最常見用法），要全部跑再自己選上面那項
+        self.need_var.set(needs[0] if needs else ALL_NEEDS)
 
     # ── log ─────────────────────────────────────────────
 
@@ -197,14 +325,22 @@ class App:
         if self.running:
             return
 
-        group = self.group_entry.get().strip()
-        customer = self.customer_entry.get().strip()
-        # 客戶留空＝整組跑（走 run_group_match），填了＝只跑那一位（走 run_customer_match）
-        group_mode = not customer
+        group = self.group_var.get().strip()
+        customer = self.customer_var.get().strip()
+        need = self.need_var.get().strip()
 
-        if group_mode and not group:
-            messagebox.showwarning("缺條件", "群組跟客戶至少要填一個\n（只填群組＝整組跑，填客戶＝只跑那一位）")
+        if not group:
+            messagebox.showwarning(
+                "還沒選群組", "先按「從房地重新讀客戶清單」把清單讀進來，再選群組／客戶。"
+            )
             return
+
+        # 三種模式：
+        #   客戶＝全部            → 整組跑（每位客戶的每個客需）
+        #   客戶＝某人、客需＝全部  → 只跑這位客戶的全部客需（也是走 run_group_match）
+        #   客戶＝某人、客需＝某條件 → 單一查詢（run_customer_match）
+        all_customers = customer in ("", ALL_CUSTOMERS)
+        group_mode = all_customers or need in ("", ALL_NEEDS)
 
         def to_int(entry):
             v = entry.get().strip()
@@ -214,7 +350,7 @@ class App:
             if group_mode:
                 args = Namespace(
                     group=group,
-                    customer=None,
+                    customer=None if all_customers else customer,
                     limit=to_int(self.limit_entry) or 15,
                     dry_run=self.dry_run_var.get(),
                     newest=self.newest_var.get(),
@@ -222,7 +358,7 @@ class App:
             else:
                 args = Namespace(
                     customer=customer,
-                    need=(self.need_entry.get().strip() or None),
+                    need=need,
                     price_min=to_int(self.price_min_entry),
                     price_max=to_int(self.price_max_entry),
                     rooms_min=to_int(self.rooms_entry),
@@ -236,14 +372,22 @@ class App:
             messagebox.showwarning("輸入錯誤", "總價/房數/筆數請填數字")
             return
 
-        if group_mode and not messagebox.askokcancel(
-            "整組跑",
-            f"客戶欄位留空 → 會跑「{group}」底下**全部客戶的全部客需**。\n"
-            "每個客需各自存一個檔，跑完印總表。\n\n"
-            "⚠️ 這可能要幾十分鐘（實測 A買 7 位客戶 14 個客需約 16 分鐘）。\n"
-            "期間請不要動那個 Chrome 視窗。要開始嗎？",
-        ):
-            return
+        if group_mode:
+            scope = (
+                f"「{group}」底下全部客戶的全部客需" if all_customers
+                else f"客戶「{customer}」的全部客需"
+            )
+            est = (
+                "⚠️ 整組可能要幾十分鐘（2026-07-30 實測 A買 7 位客戶 14 個客需約 46 分鐘）。\n"
+                if all_customers
+                else "⚠️ 一位客戶的全部客需通常幾分鐘。\n"
+            )
+            if not messagebox.askokcancel(
+                "確認範圍",
+                f"會跑 {scope}。\n每個客需各自存一個檔，跑完印總表。\n\n"
+                f"{est}期間請不要動那個 Chrome 視窗。要開始嗎？",
+            ):
+                return
 
         self.log_text.delete("1.0", "end")
         self.running = True
@@ -251,8 +395,8 @@ class App:
         self.status_lbl.config(
             text=(
                 f"整組查詢中（{group}），請稍候，這會花幾十分鐘..."
-                if group_mode
-                else "查詢中，請稍候（先讀房地客需，再逐關鍵字查 i智慧，會花一點時間）..."
+                if group_mode and all_customers
+                else f"查詢中（{customer}），請稍候（先讀房地客需，再逐關鍵字查 i智慧）..."
             ),
             fg=WARN_COLOR,
         )
