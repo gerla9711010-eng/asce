@@ -132,7 +132,16 @@ async def _open_customer_need_sidebar(page: Page) -> None:
         if already_open:
             return
         await page.get_by_text("客需條件", exact=True).first.click(timeout=5000)
-        await page.wait_for_timeout(500)
+        # ⚠️ 2026-07-30 踩到：舊版點完只等 500ms 就往下走，樹還沒渲染出來的時候
+        # 呼叫端會拿到空清單（GUI 的三層下拉整個是空的，看起來像房地沒資料）。
+        # 改成等到樹真的出現，最多 8 秒。
+        for _ in range(16):
+            await page.wait_for_timeout(500)
+            if await page.evaluate(
+                "() => !!document.querySelector('mat-nested-tree-node.folder')"
+            ):
+                return
+        print("[WARN] 點開「客需條件」後 8 秒內看不到客戶樹", file=sys.stderr)
     except Exception as e:
         print(f"[WARN] 點「客需條件」失敗（可能面板已經開著，繼續往下走）：{e}", file=sys.stderr)
 
@@ -247,6 +256,40 @@ async def list_group(page: Page, group_name: str) -> list[tuple[str, list[str]]]
     if result.get("error") == "group_not_found":
         raise RuntimeError(f"房地客需條件裡找不到群組「{group_name}」（應該是 A買/B買/C買/其他）")
     return [(c["name"], c["needs"]) for c in result["customers"] if c["name"]]
+
+
+async def list_groups(page: Page) -> list[str]:
+    """列出「客需條件」最上層的群組名稱（A買／B買／C買／其他…）。
+    給 GUI 的群組下拉用——不寫死清單，房地那邊多開一組就自己會出現。"""
+    await _open_customer_need_sidebar(page)
+    return await page.evaluate(
+        """() => {
+            const ownText = (el) => [...el.childNodes]
+                .filter(n => n.nodeType === 3)
+                .map(n => n.textContent.trim())
+                .join('').trim();
+            const all = [...document.querySelectorAll('mat-nested-tree-node.folder')];
+            return all
+                .filter(f => !f.parentElement.closest('mat-nested-tree-node.folder'))
+                .map(f => {
+                    const label = f.querySelector(':scope > div.folder-title span.folder-title-text');
+                    return label ? ownText(label) : '';
+                })
+                .filter(Boolean);
+        }"""
+    )
+
+
+async def read_all_groups(page: Page) -> dict[str, list[tuple[str, list[str]]]]:
+    """一次把整棵樹讀出來：{群組: [(客戶, [客需, ...]), ...]}。
+    GUI 的三層下拉就是吃這個——讀一次就能離線切換群組/客戶，不用每次點都回去問房地。"""
+    tree: dict[str, list[tuple[str, list[str]]]] = {}
+    for group in await list_groups(page):
+        try:
+            tree[group] = await list_group(page, group)
+        except RuntimeError as e:
+            print(f"[WARN] 讀群組「{group}」失敗，跳過：{e}", file=sys.stderr)
+    return tree
 
 
 async def _switch_to_list_view(page: Page) -> None:
