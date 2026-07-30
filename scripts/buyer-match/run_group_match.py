@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -29,6 +30,34 @@ from playwright.async_api import async_playwright
 
 import buyer_match
 import foundi_need
+import seen_store
+
+
+@dataclass
+class JobResult:
+    """一個「客戶／客需」跑完的結果。用 dataclass 而不是一串文字，是為了讓
+    daily_run.py 組 LINE 訊息時直接讀數字，不用回頭用 regex 解析自己印的字。"""
+
+    customer: str
+    need: str
+    hits: int = 0            # 這次實際輸出（存檔）幾筆
+    new: Optional[int] = None       # 以下三個只有 only_new 模式才有值
+    repriced: Optional[int] = None
+    skipped: Optional[int] = None
+    error: str = ""
+
+    @property
+    def text(self) -> str:
+        if self.error:
+            return f"錯誤：{self.error}"
+        if self.new is None:
+            return f"{self.hits} 筆"
+        parts = [f"新 {self.new} 筆"]
+        if self.repriced:
+            parts.append(f"改價 {self.repriced} 筆")
+        if self.skipped:
+            parts.append(f"同前 {self.skipped} 筆略過")
+        return "／".join(parts)
 
 
 async def run_group(
@@ -38,11 +67,15 @@ async def run_group(
     limit: int = 15,
     dry_run: bool = False,
     newest: bool = False,
-) -> list[tuple[str, str, str]]:
-    """跑完一個群組（可限定單一客戶），回傳 [(客戶, 子條件, 結果文字)] 總表。
+    only_new: bool = False,
+) -> list[JobResult]:
+    """跑完一個群組（可限定單一客戶），回傳每個「客戶／客需」的 JobResult。
 
     ctx 是已經連上的 CDP context——CLI（下面的 run）跟排程（daily_run.py）各自
     處理連線/登入檢查，這裡只負責迴圈本身，兩邊行為保證一致。
+
+    `only_new=True`（每天 08:10 那班用）：跟 `seen_store.py` 記的比對，只輸出上次
+    沒出現過的＋總價變了的，昨天看過的同一批不再寫檔。
     """
     foundi_page = await foundi_need.get_or_open_foundi_page(ctx)
     customers = await foundi_need.list_group(foundi_page, group)
@@ -58,7 +91,8 @@ async def run_group(
     if i智慧_page is None:
         i智慧_page = await ctx.new_page()
 
-    summary: list[tuple[str, str, str]] = []  # (customer, need, result_text)
+    summary: list[JobResult] = []
+    seen_data = seen_store.load() if only_new else {}
     job_no = 0
     for cust, needs in customers:
         for need in needs:
@@ -68,12 +102,17 @@ async def run_group(
                 fneed = await foundi_need.load_customer_need(ctx, cust, need)
             except RuntimeError as e:
                 print(f"[WARN] 讀房地客需失敗，跳過：{e}", file=sys.stderr)
-                summary.append((cust, need, f"錯誤：{e}"))
+                summary.append(JobResult(cust, need, error=str(e)))
                 continue
 
             if not fneed.areas:
                 print("[INFO] 這個子條件沒有任何候選物件，跳過")
-                summary.append((cust, need, "0 筆候選"))
+                summary.append(
+                    JobResult(cust, need, hits=0,
+                              new=0 if only_new else None,
+                              repriced=0 if only_new else None,
+                              skipped=0 if only_new else None)
+                )
                 continue
 
             try:
@@ -104,14 +143,36 @@ async def run_group(
                 )
             except Exception as e:
                 print(f"[WARN] 查 i智慧 失敗，跳過：{e}", file=sys.stderr)
-                summary.append((cust, need, f"錯誤：{e}"))
+                summary.append(JobResult(cust, need, error=str(e)))
                 continue
 
-            blocks = [
-                buyer_match.format_block(card, agent, share_url)
-                for card, agent, share_url in entries
-            ]
-            summary.append((cust, need, f"{len(blocks)} 筆"))
+            if only_new:
+                scope = seen_store.scope_key(cust, need)
+                fresh, repriced, skipped = seen_store.classify(seen_data, scope, entries)
+                blocks = [
+                    buyer_match.format_block(card, agent, share_url)
+                    for card, agent, share_url in fresh
+                ]
+                for (card, agent, share_url), old_price in repriced:
+                    note = seen_store.price_change_note(old_price, card.price_wan)
+                    body = buyer_match.format_block(card, agent, share_url)
+                    blocks.append(f"{note}\n{body}" if note else body)
+                print(
+                    f"[INFO] 撈到 {len(entries)} 筆 → 新 {len(fresh)} 筆／"
+                    f"改價 {len(repriced)} 筆／同前 {skipped} 筆略過"
+                )
+                summary.append(
+                    JobResult(cust, need, hits=len(blocks), new=len(fresh),
+                              repriced=len(repriced), skipped=skipped)
+                )
+                # 每跑完一個客需就存一次，中途掛掉不會把前面 40 分鐘的記憶全丟掉
+                seen_store.save(seen_data)
+            else:
+                blocks = [
+                    buyer_match.format_block(card, agent, share_url)
+                    for card, agent, share_url in entries
+                ]
+                summary.append(JobResult(cust, need, hits=len(blocks)))
 
             if blocks:
                 label = f"{cust}_{need}".replace(",", "_").replace("，", "_")[:60]
@@ -126,8 +187,8 @@ async def run_group(
     return summary
 
 
-def format_summary(group: str, summary: list[tuple[str, str, str]]) -> str:
-    return "\n".join(f"客戶：{c}／{n} → {r}" for c, n, r in summary)
+def format_summary(group: str, summary: list[JobResult]) -> str:
+    return "\n".join(f"客戶：{r.customer}／{r.need} → {r.text}" for r in summary)
 
 
 async def run(args) -> None:
@@ -153,6 +214,7 @@ async def run(args) -> None:
                 limit=args.limit,
                 dry_run=args.dry_run,
                 newest=args.newest,
+                only_new=getattr(args, "only_new", False),
             )
         except RuntimeError as e:
             print(f"[ERROR] {e}", file=sys.stderr)
@@ -181,6 +243,11 @@ def main() -> None:
     ap.add_argument(
         "--newest", action="store_true",
         help="i智慧改用「上架：新>舊」排序（預設是總價低到高）。想優先看新案、讓 🆕 標記浮上來就加這個",
+    )
+    ap.add_argument(
+        "--only-new", action="store_true",
+        help="只輸出上次沒出現過的＋總價變了的（記憶存 state/seen.json）。"
+             "每天 08:10 排程預設就是這個模式；手動想看完整清單就不要加",
     )
     args = ap.parse_args()
 

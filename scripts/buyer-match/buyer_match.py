@@ -86,6 +86,21 @@ class Card:
         loc = (self.community or self.address or "").strip()
         return (loc, (self.floor_raw or "").strip(), self.area_ping, self.price_wan)
 
+    def unit_key(self) -> str:
+        """跨天辨識「這是不是上次那一戶」用的 key（給 seen_store.py 記憶已回報過的案子）。
+
+        跟上面的 `fingerprint()` 差一件事：**刻意不含總價**。總價另外存起來比對，
+        變了要當「降價/調價」重新回報一次，不是當成一筆新物件。
+
+        ⚠️ 不用 i智慧案號當主鍵：同一戶被永慶多店簽委託會有好幾個案號，用案號的話
+        「同一戶換一家店重掛」會被誤判成新案。案號只在欄位缺到組不出指紋時當備援。"""
+        loc = (self.community or self.address or "").strip()
+        floor = (self.floor_raw or "").strip()
+        ping = f"{self.area_ping:.1f}" if self.area_ping is not None else ""
+        if loc and (floor or ping):
+            return f"{loc}|{floor}|{ping}"
+        return f"case:{self.case_id or self.case_name}"
+
 
 @dataclass
 class Agent:
