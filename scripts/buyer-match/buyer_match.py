@@ -294,38 +294,57 @@ async def _looks_like_login(page: Page) -> bool:
         return False
 
 
-async def ensure_search_page(page: Page) -> None:
-    login_attempted = False
-    for attempt in range(3):
-        try:
-            await page.goto(ISMART_SEARCH_URL, wait_until="domcontentloaded")
-            # session 過期時，i智慧是先把 is.ycut.com.tw 這份文件載進來、
-            # 前端 JS 判斷過期後才用 client-side redirect 轉去 opid.ycut.com.tw 登入頁——
-            # domcontentloaded 那個時間點 URL 還沒變。
-            # ⚠️ 2026-07-29 實測：轉址有時要 5 秒以上，舊版只在 1.5 秒後看一次 URL，
-            # 慢一點就漏判，然後落去等搜尋框逾時 → 明明 .env 有帳密卻不會觸發自動登入，
-            # 只回報「搜尋頁載入失敗」。改成輪詢 20 秒，登入頁跟搜尋框哪個先出現就走哪條。
-            outcome = ""
-            for _ in range(20):
-                if await _looks_like_login(page):
-                    outcome = "login"
-                    break
-                if await page.evaluate(
-                    # 要看「看得到」而不只是「在 DOM 上」——搜尋框會先掛上去、隔一下才顯示，
-                    # 只認 querySelector 的話下面 wait_for_selector（等 visible）還是會白等 20 秒
-                    "(sel) => { const e = document.querySelector(sel);"
-                    " return !!e && !!(e.offsetParent || e.getClientRects().length); }",
-                    SEARCH_BOX_SELECTOR,
-                ):
-                    outcome = "search"
-                    break
-                await page.wait_for_timeout(1000)
+async def _wait_for_login_or_search(page: Page, seconds: int = 20) -> str:
+    """輪詢等「登入頁」或「搜尋框」哪個先出現，回傳 'login' / 'search' / ''。
 
+    ⚠️ 2026-07-29 實測：SSO 轉址有時要 5 秒以上，舊版只在 goto 後 1.5 秒看一次 URL，
+    慢一點就漏判 → 明明 .env 有帳密卻不會觸發自動登入，只回報「搜尋頁載入失敗」。"""
+    for _ in range(seconds):
+        if await _looks_like_login(page):
+            return "login"
+        if await page.evaluate(
+            # 要看「看得到」而不只是「在 DOM 上」——搜尋框會先掛上去、隔一下才顯示，
+            # 只認 querySelector 的話後面 wait_for_selector（等 visible）還是會白等 20 秒
+            "(sel) => { const e = document.querySelector(sel);"
+            " return !!e && !!(e.offsetParent || e.getClientRects().length); }",
+            SEARCH_BOX_SELECTOR,
+        ):
+            return "search"
+        await page.wait_for_timeout(1000)
+    return ""
+
+
+async def ensure_search_page(page: Page) -> None:
+    # 三段式救援，一段比一段暴力（2026-07-30 用真的卡死的分頁一項一項試出來的）：
+    #   goto   → 正常情況
+    #   reload → 硬重載，會吃到 302 轉去 SSO 登入頁（session 中途失效時要靠這個被偵測到）
+    #   blank  → 先跳 about:blank 再回搜尋頁，**唯一救得回卡死分頁的招**
+    # ⚠️ 這是整組跑到一半「13 個客需連續全掛在搜尋頁載入失敗」的真兇：session 中途
+    # 失效後那個分頁會變成「網址還在、畫面整片空白、連登入表單都沒有」（Angular 早就
+    # 載好了只是抓不到資料）。goto 同一個網址被當成同文件導航、reload 也救不回來，
+    # 只有先離開這個 origin（about:blank）再回來才會重新啟動整個 app。
+    # 自動登入成功後也要用 blank：登入後分頁會停在 /is/home，直接切深層路由同樣不渲染。
+    login_attempted = False
+    navigate = "goto"
+    for attempt in range(4):
+        try:
+            if navigate == "reload":
+                await page.reload(wait_until="domcontentloaded")
+            else:
+                if navigate == "blank":
+                    await page.goto("about:blank")
+                await page.goto(ISMART_SEARCH_URL, wait_until="domcontentloaded")
+            navigate = {"goto": "reload"}.get(navigate, "blank")  # 下一輪再暴力一點
+
+            outcome = await _wait_for_login_or_search(page)
             cur = page.url or ""
+
             if outcome == "login":
                 if not login_attempted:
                     login_attempted = True
                     if await try_auto_login(page):
+                        # 登入後分頁會停在 /is/home，要用 blank 繞一圈才會渲染深層路由
+                        navigate = "blank"
                         continue
                 has_creds = bool(os.environ.get("ISMART_ACCOUNT"))
                 reason = (
@@ -338,15 +357,21 @@ async def ensure_search_page(page: Page) -> None:
                     "請切到 open_real_chrome.bat 開的那個 Chrome 視窗手動重新登入，"
                     "登好後重跑這支腳本（不用重開 Chrome）。"
                 )
+            if outcome != "search":
+                raise TimeoutError(
+                    "畫面空白、既沒有搜尋框也沒有登入表單（多半是 session 中途失效／"
+                    f"分頁卡死），下一輪改用「{navigate}」再試"
+                )
+
             await page.wait_for_selector(SEARCH_BOX_SELECTOR, timeout=20000)
             await _ensure_scope_all(page)
             return
         except RuntimeError:
             raise
         except Exception as e:
-            print(f"[WARN] 搜尋頁第 {attempt + 1}/3 次嘗試失敗：{e}", file=sys.stderr)
+            print(f"[WARN] 搜尋頁第 {attempt + 1}/4 次嘗試失敗：{e}", file=sys.stderr)
             await page.wait_for_timeout(2000)
-    raise RuntimeError("i智慧搜尋頁載入失敗")
+    raise RuntimeError("i智慧搜尋頁載入失敗（goto 與硬 reload 都試過了）")
 
 
 async def _range_label(page: Page) -> str:
