@@ -14,8 +14,9 @@
   i智慧 session 救援、profile 搬家、n8n 現況更新）；GitHub 上 **PR #161 開著未合**。
   帳號恢復後：`git push` → 合 PR #161 → 把後續 commit 一起併進 main。
 - **離線備份**：`桌面\asce-備份-20260730.bundle`（完整歷史，`git clone` 那個檔就能還原）
-- **申訴**：使用者要回公司電腦處理（https://support.github.com，類別 Account suspension）。
-  申訴信草稿在 2026-07-30 的對話裡。
+- **申訴**：2026-07-30 21:31 已送出工單（support.github.com，Sign-in issues → Something else），
+  帳號 gerla9711010-eng、信箱 gerla9711010@gmail.com，附了停權截圖。**等 GitHub 客服回信**，
+  沒消息前不用再重複申訴。
 - ⚠️ **可能的觸發原因**（自我檢討）：那天兩小時內開了 5 個 PR、每個開完幾秒就自己合併＋刪分支，
   加上 commit 都帶 `Co-Authored-By: Claude`、分支都叫 `claude/...`，很像 bot 在刷。
   **之後改成：一批工作一個 PR、不要開完立刻合、不必每次刪分支。**
