@@ -33,6 +33,14 @@ import foundi_need
 import seen_store
 
 
+def _unit_block(group: "seen_store.UnitGroup") -> str:
+    """一戶輸出一段：用開價最低那筆當代表，同一戶其他店的開價附註在後面。"""
+    card, agent, share_url = group.entry
+    body = buyer_match.format_block(card, agent, share_url)
+    note = group.note()
+    return f"{body}\n{note}" if note else body
+
+
 @dataclass
 class JobResult:
     """一個「客戶／客需」跑完的結果。用 dataclass 而不是一串文字，是為了讓
@@ -40,10 +48,11 @@ class JobResult:
 
     customer: str
     need: str
-    hits: int = 0            # 這次實際輸出（存檔）幾筆
-    new: Optional[int] = None       # 以下三個只有 only_new 模式才有值
-    repriced: Optional[int] = None
-    skipped: Optional[int] = None
+    hits: int = 0            # 這次實際輸出（存檔）幾段
+    new: Optional[int] = None       # 以下四個只有 only_new 模式才有值（單位是「戶」）
+    repriced: Optional[int] = None  # 降價的戶數
+    skipped: Optional[int] = None   # 跟上次一樣、略過的戶數
+    raised: Optional[int] = None    # 最低開價變高（多半是便宜的委託下架）→ 不回報
     error: str = ""
 
     @property
@@ -52,11 +61,13 @@ class JobResult:
             return f"錯誤：{self.error}"
         if self.new is None:
             return f"{self.hits} 筆"
-        parts = [f"新 {self.new} 筆"]
+        parts = [f"新 {self.new} 戶"]
         if self.repriced:
-            parts.append(f"改價 {self.repriced} 筆")
+            parts.append(f"降價 {self.repriced} 戶")
         if self.skipped:
-            parts.append(f"同前 {self.skipped} 筆略過")
+            parts.append(f"同前 {self.skipped} 戶略過")
+        if self.raised:
+            parts.append(f"漲價 {self.raised} 戶略過")
         return "／".join(parts)
 
 
@@ -125,7 +136,8 @@ async def run_group(
                     JobResult(cust, need, hits=0,
                               new=0 if only_new else None,
                               repriced=0 if only_new else None,
-                              skipped=0 if only_new else None)
+                              skipped=0 if only_new else None,
+                              raised=0 if only_new else None)
                 )
                 continue
 
@@ -162,22 +174,22 @@ async def run_group(
 
             if only_new:
                 scope = seen_store.scope_key(cust, need)
-                fresh, repriced, skipped = seen_store.classify(seen_data, scope, entries)
-                blocks = [
-                    buyer_match.format_block(card, agent, share_url)
-                    for card, agent, share_url in fresh
-                ]
-                for (card, agent, share_url), old_price in repriced:
-                    note = seen_store.price_change_note(old_price, card.price_wan)
-                    body = buyer_match.format_block(card, agent, share_url)
+                fresh, dropped, skipped, raised = seen_store.classify(
+                    seen_data, scope, entries
+                )
+                blocks = [_unit_block(g) for g in fresh]
+                for group, old_price in dropped:
+                    note = seen_store.price_change_note(old_price, group.min_price)
+                    body = _unit_block(group)
                     blocks.append(f"{note}\n{body}" if note else body)
                 print(
-                    f"[INFO] 撈到 {len(entries)} 筆 → 新 {len(fresh)} 筆／"
-                    f"改價 {len(repriced)} 筆／同前 {skipped} 筆略過"
+                    f"[INFO] 撈到 {len(entries)} 筆委託 → 新 {len(fresh)} 戶／"
+                    f"降價 {len(dropped)} 戶／同前 {skipped} 戶略過"
+                    + (f"／漲價 {raised} 戶略過" if raised else "")
                 )
                 record(
                     JobResult(cust, need, hits=len(blocks), new=len(fresh),
-                              repriced=len(repriced), skipped=skipped)
+                              repriced=len(dropped), skipped=skipped, raised=raised)
                 )
                 # 每跑完一個客需就存一次，中途掛掉不會把前面 40 分鐘的記憶全丟掉
                 seen_store.save(seen_data)

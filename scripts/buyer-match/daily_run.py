@@ -117,12 +117,12 @@ def build_report(group: str, summary: list, dry_run: bool, only_new: bool) -> st
     if only_new:
         new_total = sum(r.new or 0 for r in summary if not r.error)
         repriced_total = sum(r.repriced or 0 for r in summary if not r.error)
-        skipped_total = sum(r.skipped or 0 for r in summary if not r.error)
+        skipped_total = sum((r.skipped or 0) + (r.raised or 0) for r in summary if not r.error)
         head += (
             f"{len(customers)} 位客戶／{len(summary)} 個客需\n"
-            f"🆕 新案 {new_total} 筆"
-            + (f"｜🔻 改價 {repriced_total} 筆" if repriced_total else "")
-            + f"｜看過的略過 {skipped_total} 筆"
+            f"🆕 新案 {new_total} 戶"
+            + (f"｜🔻 降價 {repriced_total} 戶" if repriced_total else "")
+            + f"｜看過的略過 {skipped_total} 戶"
         )
     else:
         head += f"{len(customers)} 位客戶／{len(summary)} 個客需，命中 {total} 筆"
