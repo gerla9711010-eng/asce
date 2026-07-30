@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import re
 import sys
 import traceback
 from datetime import datetime
@@ -36,6 +35,7 @@ import buyer_match
 import chrome_cdp
 import foundi_need
 import run_group_match
+import seen_store
 
 BASE_DIR = Path(__file__).resolve().parent
 LOG_PATH = BASE_DIR / "daily_run.log"
@@ -106,35 +106,39 @@ def notify(text: str) -> bool:
         return False
 
 
-def _parse_count(result_text: str) -> int:
-    """run_group 的結果文字有三種：「N 筆」（命中）、「0 筆候選」（房地那邊就沒東西）、
-    「錯誤：…」。只有第一種算命中數。"""
-    m = re.fullmatch(r"(\d+)\s*筆", result_text.strip())
-    return int(m.group(1)) if m else 0
-
-
-def build_report(group: str, summary: list[tuple[str, str, str]], dry_run: bool) -> str:
+def build_report(group: str, summary: list, dry_run: bool, only_new: bool) -> str:
     """把總表壓成一則 LINE 訊息：先講總數，再逐筆列，失敗的獨立標出來。"""
-    hits = [(c, n, r) for c, n, r in summary if _parse_count(r) > 0]
-    errors = [(c, n, r) for c, n, r in summary if "錯誤" in r]
-    total = sum(_parse_count(r) for _, _, r in summary)
-    customers = {c for c, _, _ in summary}
+    errors = [r for r in summary if r.error]
+    hits = [r for r in summary if not r.error and r.hits > 0]
+    total = sum(r.hits for r in summary if not r.error)
+    customers = {r.customer for r in summary}
 
-    head = (
-        f"🏠 房地/i智慧配案（{group}）{datetime.now():%m/%d %H:%M}\n"
-        f"{len(customers)} 位客戶／{len(summary)} 個客需，命中 {total} 筆"
-    )
+    head = f"🏠 房地/i智慧配案（{group}）{datetime.now():%m/%d %H:%M}\n"
+    if only_new:
+        new_total = sum(r.new or 0 for r in summary if not r.error)
+        repriced_total = sum(r.repriced or 0 for r in summary if not r.error)
+        skipped_total = sum(r.skipped or 0 for r in summary if not r.error)
+        head += (
+            f"{len(customers)} 位客戶／{len(summary)} 個客需\n"
+            f"🆕 新案 {new_total} 筆"
+            + (f"｜🔻 改價 {repriced_total} 筆" if repriced_total else "")
+            + f"｜看過的略過 {skipped_total} 筆"
+        )
+    else:
+        head += f"{len(customers)} 位客戶／{len(summary)} 個客需，命中 {total} 筆"
     if dry_run:
         head += "（試跑，沒有分享連結）"
 
-    lines = [f"・{c}／{n} → {r}" for c, n, r in hits[:30]]
+    lines = [f"・{r.customer}／{r.need} → {r.text}" for r in hits[:30]]
     if len(hits) > 30:
-        lines.append(f"…另有 {len(hits) - 30} 筆命中，詳見電腦上的 output 資料夾")
-    body = "\n".join(lines) if lines else "（今天沒有任何客需命中新案源）"
+        lines.append(f"…另有 {len(hits) - 30} 個客需有結果，詳見電腦上的 output 資料夾")
+    body = "\n".join(lines) if lines else (
+        "（今天沒有新案源，都是看過的）" if only_new else "（今天沒有任何客需命中新案源）"
+    )
 
-    tail = "\n📂 結果在門市電腦 scripts/buyer-match/output"
+    tail = "\n📂 結果在門市電腦 桌面\\工具\\買方配案\\output"
     if errors:
-        err_lines = "\n".join(f"・{c}／{n}：{r}" for c, n, r in errors[:5])
+        err_lines = "\n".join(f"・{r.customer}／{r.need}：{r.error}" for r in errors[:5])
         tail = f"\n⚠ {len(errors)} 個客需失敗：\n{err_lines}" + tail
     return f"{head}\n\n{body}{tail}"
 
@@ -192,7 +196,10 @@ async def run(args) -> int:
             )
             return 3
 
-        log(f"開始跑群組「{args.group}」（limit={args.limit}, dry_run={args.dry_run}）")
+        log(
+            f"開始跑群組「{args.group}」（limit={args.limit}, dry_run={args.dry_run}, "
+            f"only_new={args.only_new}）"
+        )
         try:
             summary = await run_group_match.run_group(
                 ctx,
@@ -200,6 +207,7 @@ async def run(args) -> int:
                 limit=args.limit,
                 dry_run=args.dry_run,
                 newest=args.newest,
+                only_new=args.only_new,
             )
         except Exception as e:
             log(f"整批失敗：{type(e).__name__}: {e}")
@@ -207,7 +215,15 @@ async def run(args) -> int:
             notify(f"❌ 房地/i智慧配案跑到一半失敗\n原因：{type(e).__name__}: {e}\n👉 請到門市電腦手動跑一次看看")
             return 4
 
-        report = build_report(args.group, summary, args.dry_run)
+        if args.only_new:
+            # 30 天沒再出現的紀錄清掉（案子早就下架了），檔案不會無限長大
+            data = seen_store.load()
+            removed = seen_store.prune(data)
+            if removed:
+                seen_store.save(data)
+                log(f"清掉 {removed} 筆 30 天沒再出現的記憶")
+
+        report = build_report(args.group, summary, args.dry_run, args.only_new)
         log("跑完：\n" + run_group_match.format_summary(args.group, summary))
         notify(report)
         return 0
@@ -218,6 +234,11 @@ def main() -> None:
     ap.add_argument("--group", default="A買", help="要跑的群組，預設 A買")
     ap.add_argument("--limit", type=int, default=15, help="每個客需在 i智慧 最多處理幾筆（預設 15）")
     ap.add_argument("--dry-run", action="store_true", help="不點分享連結（試跑用）")
+    ap.add_argument(
+        "--all", dest="only_new", action="store_false",
+        help="輸出完整清單（預設只輸出上次沒出現過的＋總價變了的，記憶存 state/seen.json）",
+    )
+    ap.set_defaults(only_new=True)
     ap.add_argument(
         "--no-newest", dest="newest", action="store_false",
         help="改用總價低到高排序（預設是「上架新>舊」，每天跑要的是新案）",
