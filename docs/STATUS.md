@@ -392,7 +392,18 @@ KEIS `PG0092558` → 官網 `YC0092558`、`EG0501408` → `TC0501408`（YC=永�
    - 已實測：CDP Chrome 自動啟動 ✅、房地登入偵測 ✅（真的抓到過期）、i智慧自動重登 ✅
      （順手修好一個 bug：SSO 轉址慢時舊版會漏判成「載入失敗」，明明有帳密卻不自動登入）、
      pythonw + LINE 推播 ✅。**目前兩邊登入態都是好的。**
-   - ⚠️ **房地沒有自動重登**（沒有可用的帳密路徑），過期只能偵測+推 LINE 喊人：
+   - **登入態放 `%LOCALAPPDATA%\buyer-match-chrome`**（2026-07-30 從 OneDrive 底下搬出來）。
+     原因：profile 放在 `桌面\工具\買方配案\chrome_profile` 時被 OneDrive 同步（5943 檔／4.75 GB），
+     連 Cookies 檔都變成雲端佔位檔 → Chrome 關著時被改成「線上檔案」＝隔天被登出。
+     換位置用環境變數 `BUYER_MATCH_PROFILE_DIR`。**舊的 `chrome_profile/` 還留在 OneDrive 裡沒刪**
+     （4.75 GB，確認新的沒問題後可以刪掉停止同步）。
+     ⚠️ 不要硬殺那個 Chrome（cookie 是關閉時才寫回磁碟，硬殺＝自己製造登出）
+   - **登入態壽命實測（2026-07-30）**：房地 `sessionid` 是持久 cookie、約 29 天（到 8/28），
+     關瀏覽器不會掉；i智慧 的登入 cookie 全是 session cookie（Chrome 一關就沒）、
+     `token` 只活 12 分鐘 → 所以 i智慧 每次都要重登（有帳密會自動處理），
+     這不是工具的問題，是永慶 SSO 的設計
+   - ⚠️ **房地只能手機掃 QR Code 登入，沒有帳號密碼**（2026-07-30 使用者確認），
+     所以自動重登這條路天生不存在，永遠只能偵測+推 LINE 喊人：
      手機收到「🔑 房地要重新登入」時，去門市電腦那個配案專用 Chrome 視窗登
      `agent.foundi.info`，再雙擊桌面\工具\買方配案\`房地i智慧配案.vbs` 補跑。
    - 改群組/改時間：改 `install-daily-task.ps1` 再跑一次（見 `scripts/buyer-match/README.md`）。

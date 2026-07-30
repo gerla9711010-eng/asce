@@ -27,8 +27,18 @@ py -m pip install -r requirements.txt
 ```
 
 不需要 `playwright install chromium`——CDP attach 用的是你電腦上真的 Chrome，
-不是 Playwright 自帶的瀏覽器。`chrome_profile/`（登入態）、`output/`（每次查詢存檔）都會
-在跑的時候自動產生，不要外流／已 gitignore。
+不是 Playwright 自帶的瀏覽器。`output/`（每次查詢存檔）會在跑的時候自動產生，
+不要外流／已 gitignore。
+
+**登入態（Chrome profile）放在 `%LOCALAPPDATA%\buyer-match-chrome`，不在工具資料夾裡。**
+2026-07-30 搬過去的，原因：桌面那份工具在 OneDrive 底下，OneDrive 會同步整個 Chrome
+profile（實測 5943 個檔、4.75 GB），連 `Default\Network\Cookies` 都被變成雲端佔位檔
+（ReparsePoint）。Chrome 關著時 OneDrive 把它變成「線上檔案」，下次開就等於被登出——
+同一個坑在 KEIS 的 CSV 上踩過一次。要換位置設環境變數 `BUYER_MATCH_PROFILE_DIR`
+（`chrome_cdp.py` 的 `profile_dir()` 跟 `open_real_chrome.bat` 都吃這個）。
+
+⚠️ **不要用工作管理員硬殺那個 Chrome**（也不要 `Stop-Process`）：cookie 是關閉時才寫回
+磁碟的，硬殺等於自己製造登出。要關就正常按 X，或送 CDP `Browser.close`。
 
 ### 選填：讓過期自動重新登入（不用手動打帳密）
 
@@ -119,7 +129,7 @@ i智慧 預設就是總價由低到高排序，`--limit` 會拿排序後前 N �
 | `gui_main.py` | GUI 主程式（Tkinter，黑底風格，內建啟動 Chrome / 查詢 / log / 複製） |
 | `buyer_match.py` | 主邏輯（CLI 也可以直接跑這支，見上面「進階：命令列模式」） |
 | `open_real_chrome.bat` | CLI 模式專用：開 Chrome（帶 CDP port）讓你手動登入。GUI 模式不用點這個，GUI 裡「啟動 Chrome」按鈕做一樣的事 |
-| `chrome_profile/` | 登入態（自動產生、不要外流、已 gitignore） |
+| ~~`chrome_profile/`~~ | 2026-07-30 起**不在這裡**，搬到 `%LOCALAPPDATA%\buyer-match-chrome`（原因見最上面「登入態」那段）|
 | `output/` | 每次查詢的結果存檔（已 gitignore） |
 | `requirements.txt` | Python 依賴（playwright、pyperclip） |
 
@@ -132,6 +142,16 @@ i智慧 預設就是總價由低到高排序，`--limit` 會拿排序後前 N �
 **第一次設定**：跟 i智慧一樣，同一個 CDP Chrome（`open_real_chrome.bat` 開的那個）
 也要手動登入一次房地（agent.foundi.info）。`open_real_chrome.bat` 已經改成會同時開
 兩個分頁，兩邊都登過一次、之後都不用再登。
+
+**⚠️ 房地只能手機掃 QR Code 登入**（沒有帳號密碼可以放 `.env`），所以自動重登這條路
+天生不存在，只能「偵測到沒登入 → 推 LINE 喊人」。好消息是房地的 `sessionid` 是
+**持久 cookie、有效期約 29 天**（2026-07-30 實測），關掉瀏覽器也不會掉，所以很少需要重掃。
+
+**i智慧 為什麼老是要重登？**（2026-07-30 查清楚）它的登入 cookie
+（`.AspNetCore.Identity.Application`、`idsrv.session`、`oidc*`）**全部是 session cookie，
+Chrome 一關就沒了**，而 `token` 的壽命只有 12 分鐘、靠持續使用才會自動續。所以使用者
+自己的瀏覽器（整天開著又一直在用）永遠不用重登，而工具這個開開關關的 Chrome 每次都要。
+這不是工具少了記憶功能，是永慶 SSO 的設計——已經用 `.env` 帳密自動重登解掉了。
 
 **日常用法（推薦：GUI，雙擊就能用）**：雙擊 **房地i智慧配案.vbs**（視窗標題是
 「房地/i智慧配案」；檔名不能有斜線，Windows 檔名不允許 `/`。跟單獨查 i智慧的

@@ -15,7 +15,15 @@ echo.
 set "CHROME_A=C:\Program Files\Google\Chrome\Application\chrome.exe"
 set "CHROME_B=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
 set "CHROME_C=%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
-set "DEBUG_ARGS=--remote-debugging-port=9223 --remote-allow-origins=* --user-data-dir=%~dp0chrome_profile"
+rem profile 放在 %LOCALAPPDATA%（不是工具資料夾）：桌面那份在 OneDrive 底下，
+rem OneDrive 會同步整個 Chrome profile 並把 Cookies 檔變成雲端佔位檔，等於隔天被登出。
+rem 詳細原因見 chrome_cdp.py 的 profile_dir()。要改位置設 BUYER_MATCH_PROFILE_DIR。
+if defined BUYER_MATCH_PROFILE_DIR (
+    set "PROFILE_DIR=%BUYER_MATCH_PROFILE_DIR%"
+) else (
+    set "PROFILE_DIR=%LOCALAPPDATA%\buyer-match-chrome"
+)
+set "DEBUG_ARGS=--remote-debugging-port=9223 --remote-allow-origins=* --user-data-dir=%PROFILE_DIR%"
 set "URLS=https://is.ycut.com.tw/is/case/search/all-case https://agent.foundi.info/tool/property/map"
 
 set "CHROME="
