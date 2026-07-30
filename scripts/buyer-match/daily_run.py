@@ -208,6 +208,7 @@ async def run(args) -> int:
                 dry_run=args.dry_run,
                 newest=args.newest,
                 only_new=args.only_new,
+                on_result=lambda r: log(f"  ({r.customer}／{r.need}) → {r.text}"),
             )
         except Exception as e:
             log(f"整批失敗：{type(e).__name__}: {e}")

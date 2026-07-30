@@ -68,6 +68,7 @@ async def run_group(
     dry_run: bool = False,
     newest: bool = False,
     only_new: bool = False,
+    on_result=None,
 ) -> list[JobResult]:
     """跑完一個群組（可限定單一客戶），回傳每個「客戶／客需」的 JobResult。
 
@@ -76,6 +77,10 @@ async def run_group(
 
     `only_new=True`（每天 08:10 那班用）：跟 `seen_store.py` 記的比對，只輸出上次
     沒出現過的＋總價變了的，昨天看過的同一批不再寫檔。
+
+    `on_result(JobResult)`：每跑完一個客需就叫一次。排程那邊拿它把進度寫進
+    `daily_run.log`——整組要跑 40 分鐘以上，只在最後才記一筆的話，中途卡住／被關機
+    打斷時完全看不出停在哪一位客戶（這 repo 一再吃到的「事後查不到」）。
     """
     foundi_page = await foundi_need.get_or_open_foundi_page(ctx)
     customers = await foundi_need.list_group(foundi_page, group)
@@ -93,6 +98,15 @@ async def run_group(
 
     summary: list[JobResult] = []
     seen_data = seen_store.load() if only_new else {}
+
+    def record(result: JobResult) -> None:
+        summary.append(result)
+        if on_result:
+            try:
+                on_result(result)
+            except Exception as e:  # 進度回報壞掉不該害整批停下來
+                print(f"[WARN] on_result 回呼失敗（忽略）：{e}", file=sys.stderr)
+
     job_no = 0
     for cust, needs in customers:
         for need in needs:
@@ -102,12 +116,12 @@ async def run_group(
                 fneed = await foundi_need.load_customer_need(ctx, cust, need)
             except RuntimeError as e:
                 print(f"[WARN] 讀房地客需失敗，跳過：{e}", file=sys.stderr)
-                summary.append(JobResult(cust, need, error=str(e)))
+                record(JobResult(cust, need, error=str(e)))
                 continue
 
             if not fneed.areas:
                 print("[INFO] 這個子條件沒有任何候選物件，跳過")
-                summary.append(
+                record(
                     JobResult(cust, need, hits=0,
                               new=0 if only_new else None,
                               repriced=0 if only_new else None,
@@ -143,7 +157,7 @@ async def run_group(
                 )
             except Exception as e:
                 print(f"[WARN] 查 i智慧 失敗，跳過：{e}", file=sys.stderr)
-                summary.append(JobResult(cust, need, error=str(e)))
+                record(JobResult(cust, need, error=str(e)))
                 continue
 
             if only_new:
@@ -161,7 +175,7 @@ async def run_group(
                     f"[INFO] 撈到 {len(entries)} 筆 → 新 {len(fresh)} 筆／"
                     f"改價 {len(repriced)} 筆／同前 {skipped} 筆略過"
                 )
-                summary.append(
+                record(
                     JobResult(cust, need, hits=len(blocks), new=len(fresh),
                               repriced=len(repriced), skipped=skipped)
                 )
@@ -172,7 +186,7 @@ async def run_group(
                     buyer_match.format_block(card, agent, share_url)
                     for card, agent, share_url in entries
                 ]
-                summary.append(JobResult(cust, need, hits=len(blocks)))
+                record(JobResult(cust, need, hits=len(blocks)))
 
             if blocks:
                 label = f"{cust}_{need}".replace(",", "_").replace("，", "_")[:60]
