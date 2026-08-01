@@ -166,6 +166,7 @@ async def run_group(
                     newest_first=newest,
                     limit=limit,
                     dry_run=dry_run,
+                    fallback_hints=fneed.fallback_hints or None,
                 )
             except Exception as e:
                 print(f"[WARN] 查 i智慧 失敗，跳過：{e}", file=sys.stderr)

@@ -106,6 +106,7 @@ async def run(args) -> None:
             newest_first=args.newest,
             limit=args.limit,
             dry_run=args.dry_run,
+            fallback_hints=need.fallback_hints or None,
         )
         blocks = [
             buyer_match.format_block(card, agent, share_url) for card, agent, share_url in entries

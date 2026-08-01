@@ -691,6 +691,29 @@ def _is_top_floor(floor_raw: str) -> bool:
     return hi >= total
 
 
+def _spec_matches(
+    c: Card, floor: Optional[int], main_ping: Optional[float], ping_tol: float = 1.0
+) -> bool:
+    """大樓保險機制用：路名搜到的這張卡片是不是房地那筆候選講的那一戶。
+
+    路名比社區名籠統很多（同條路上很多棟），所以要求樓層／主建坪數兩項只要有抓到
+    就都要對得上（坪數容許 ±1 坪，登記坪數常有小數點誤差）。**兩項都抓不到就不算數**
+    ——跟這個 repo 其他欄位「抓不到就不擋」的原則刻意不同：這裡目的是確認身分，
+    沒有任何可比對的依據時不該放行，不然路名保險等於沒有保險。"""
+    matched_any = False
+    if floor is not None:
+        lo, hi, _total = _parse_floors(c.floor_raw)
+        if lo is not None:
+            matched_any = True
+            if not (lo <= floor <= hi):
+                return False
+    if main_ping is not None and c.main_area_ping is not None:
+        matched_any = True
+        if abs(c.main_area_ping - main_ping) > ping_tol:
+            return False
+    return matched_any
+
+
 def passes_filters(
     c: Card,
     price_min: Optional[int],
@@ -949,6 +972,7 @@ async def match_areas(
     newest_first: bool = False,
     limit: int = 15,
     dry_run: bool = False,
+    fallback_hints: Optional[dict[str, list[tuple[str, Optional[int], Optional[float]]]]] = None,
 ) -> list[tuple[Card, Optional[Agent], Optional[str]]]:
     """逐個關鍵字搜 i智慧，命中的開詳情頁抓專員/分享連結，全部關鍵字跑完後
     用 Card.fingerprint() 去重（同一戶被多店委託、或被多個關鍵字重複搜到都只留一筆）。
@@ -956,23 +980,34 @@ async def match_areas(
 
     `districts`／`parking_mode` 是網站端真篩選（跟 `--district`/`--parking` 一樣）；
     其餘（price/rooms/usage/age/area_ping/exclude_top_floor）都是 Python 端讀卡片文字
-    後自己過濾，見 `passes_filters()`。"""
+    後自己過濾，見 `passes_filters()`。
+
+    `fallback_hints`：{社區關鍵字: [(路名, 這戶自己的樓層, 這戶自己的主建坪數), ...]}
+    （見 `foundi_need.FoundiNeed.fallback_hints`）。社區名搜 0 筆時改搜路名，但額外要求
+    樓層／主建坪數對得上（`_spec_matches`），避免路名太籠統掃到同條路上不相干的物件
+    （2026-08-01 大樓保險機制）。"""
     all_entries: list[tuple[Card, Optional[Agent], Optional[str]]] = []
-    for area in areas or [""]:
+
+    async def _scan_keyword(
+        keyword: str, spec: Optional[tuple[Optional[int], Optional[float]]] = None
+    ) -> int:
+        """搜一個關鍵字、逐頁掃、命中的開詳情頁抓資料存進 all_entries，回傳命中幾筆。
+        `spec`＝(樓層, 主建坪數) 不是 None 時，額外要求 `_spec_matches` 通過
+        （大樓保險機制的路名重試才會帶這個）。"""
         if len(all_entries) >= limit:
-            break
+            return 0
         remaining = limit - len(all_entries)
-        await submit_search(page, area, districts, parking_mode, parking_types)
+        await submit_search(page, keyword, districts, parking_mode, parking_types)
         if newest_first:
             await sort_by_newest(page)
-        hit_this_area = 0
+        hits = 0
         async for page_no, raw in iter_pages(page):
             for idx, r in enumerate(raw):
-                if hit_this_area >= remaining:
+                if hits >= remaining:
                     break
                 card = _parse_card(r)
                 if not passes_filters(
-                    card, price_min, price_max, rooms_min, usage, area,
+                    card, price_min, price_max, rooms_min, usage, keyword,
                     usage_any=usage_any, age_min=age_min, age_max=age_max,
                     area_ping_min=area_ping_min, area_ping_max=area_ping_max,
                     main_area_ping_min=main_area_ping_min,
@@ -984,16 +1019,40 @@ async def match_areas(
                     exclude_top_floor=exclude_top_floor,
                 ):
                     continue
+                if spec is not None and not _spec_matches(card, spec[0], spec[1]):
+                    continue
                 print(
-                    f"[INFO] 關鍵字「{area or '(不限)'}」第 {page_no} 頁第 {idx + 1} 張命中："
+                    f"[INFO] 關鍵字「{keyword or '(不限)'}」第 {page_no} 頁第 {idx + 1} 張命中："
                     f"{card.case_name}"
                 )
                 agent, share_url = await open_detail_and_fetch(page, idx, dry_run=dry_run)
                 all_entries.append((card, agent, share_url))
-                hit_this_area += 1
+                hits += 1
                 await page.wait_for_timeout(400)
-            if hit_this_area >= remaining:
+            if hits >= remaining:
                 break
+        return hits
+
+    for area in areas or [""]:
+        if len(all_entries) >= limit:
+            break
+        hit_this_area = await _scan_keyword(area)
+
+        if hit_this_area == 0 and fallback_hints and area in fallback_hints:
+            tried_roads: set[str] = set()
+            for road, floor, main_ping in fallback_hints[area]:
+                if len(all_entries) >= limit:
+                    break
+                if not road or road in tried_roads:
+                    continue
+                tried_roads.add(road)
+                print(
+                    f"[INFO] 「{area}」搜不到，改用路名「{road}」+ 樓層/坪數比對重試"
+                    "（大樓保險機制）"
+                )
+                got = await _scan_keyword(road, spec=(floor, main_ping))
+                if got:
+                    print(f"[INFO] 保險比對命中 {got} 筆")
 
     deduped = dedup_by_fingerprint(all_entries)
     dropped = len(all_entries) - len(deduped)
