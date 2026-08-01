@@ -26,6 +26,10 @@ KEIS 公買搶單自動化（輕量無瀏覽器版）
     KEIS_USERNAME2/3…     副帳號（可選）；每多一個帳號 = 多 7 筆配額，會自動分工不撞單
     KEIS_PASSWORD2/3…     對應副帳號密碼
     KEIS_NOTIFY_WEBHOOK   n8n webhook URL；設了才會推 LINE（可選）
+    KEIS_HEARTBEAT_WEBHOOK  n8n 心跳 webhook URL（可選）
+    KEIS_LINE_DIRECT_TOKEN  LINE Messaging API Channel Access Token，繞過 n8n 直推告警用
+                            （可選；沒設就少了「n8n 本身掛掉」時的告警防線，見 send_watchdog_alert）
+    KEIS_LINE_PUSH_USERID   直推對象 LINE userId（可選，預設薛力瑜本人）
 """
 
 import argparse
@@ -192,6 +196,16 @@ NOTIFY_WEBHOOK = os.environ.get("KEIS_NOTIFY_WEBHOOK", "").strip()
 # 換掉原本每天固定推的跨日結算。失敗完全靜默（斷網時本來就送不出去，屬正常）。
 HEARTBEAT_WEBHOOK = os.environ.get("KEIS_HEARTBEAT_WEBHOOK", "").strip()
 HEARTBEAT_INTERVAL_SEC = 600
+
+# 2026-08-01：n8n 自己掛掉那天（Postgres 塞爆）證實一件事——上面這條「心跳→n8n→LINE」的鏈路，
+# 監控者跟被監控者是同一台主機，n8n 死了，通知「n8n 死了」的機制也跟著死。這裡加一條繞過 n8n
+# 的最後防線：心跳連續送不出去超過 HEARTBEAT_ALERT_AFTER_SEC（且排除已知每晚斷網窗口）就直接打
+# LINE Messaging API 本人。KEIS_LINE_DIRECT_TOKEN 要去 LINE Developers Console 複製 Channel
+# Access Token 貼進 .env（跟 n8n 用的是同一個 Bot，但 n8n Public API 不會吐出 credential 明文，
+# 只能另外拿一次）；沒填就這條防線形同虛設，只會寫 log，不會擋住原本的搶單邏輯。
+LINE_DIRECT_TOKEN = os.environ.get("KEIS_LINE_DIRECT_TOKEN", "").strip()
+LINE_PUSH_USERID = os.environ.get("KEIS_LINE_PUSH_USERID", "Ufab42c56b2eb9b9a9ff18c367b85a6dd").strip()
+HEARTBEAT_ALERT_AFTER_SEC = 7200   # 心跳連續失敗這麼久（不含斷網窗口）才升級直推 LINE
 
 # 跨日結算改落地到本機 CSV（一天一行），LINE 不再天天推；要查戰果用 LINE 打「戰果」隨時查
 DAILY_SUMMARY_CSV = Path(__file__).parent / "daily_summary.csv"
@@ -868,17 +882,48 @@ def notify_grabbed(grabbed: list[dict], quota_left: int | None,
             f"（資料已存 grabbed.csv／Notion，不會遺失，之後可用 LINE 打「戰果」查回來）")
 
 
-def push_heartbeat() -> None:
-    """對 n8n 打一下心跳（fire-and-forget）。timeout 短、失敗靜默——
-    斷網時段送不出去屬正常，絕不能拖慢搶單迴圈。"""
+def push_heartbeat() -> bool:
+    """對 n8n 打一下心跳（fire-and-forget）。timeout 短、失敗靜默於呼叫端——
+    斷網時段送不出去屬正常，絕不能拖慢搶單迴圈。回傳有沒有真的送到，讓呼叫端
+    判斷要不要升級成繞過 n8n 的外部告警（見 send_watchdog_alert）。"""
     if not HEARTBEAT_WEBHOOK:
-        return
+        return True   # 沒設定心跳 webhook 就當作不用管，別誤觸發外部告警
     try:
-        httpx.post(HEARTBEAT_WEBHOOK,
-                   json={"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-                   timeout=5)
+        r = httpx.post(HEARTBEAT_WEBHOOK,
+                        json={"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                        timeout=5)
+        return r.status_code < 400
     except Exception:
-        pass
+        return False
+
+
+def push_line_direct(text: str) -> bool:
+    """繞過 n8n，直接打 LINE Messaging API push——給「n8n 本身掛掉」這種情境用的最後防線。
+    沒設 KEIS_LINE_DIRECT_TOKEN 就跳過（回傳 False）。"""
+    if not LINE_DIRECT_TOKEN:
+        return False
+    try:
+        r = httpx.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={"Authorization": f"Bearer {LINE_DIRECT_TOKEN}",
+                     "Content-Type": "application/json"},
+            json={"to": LINE_PUSH_USERID, "messages": [{"type": "text", "text": text}]},
+            timeout=10,
+        )
+        return r.status_code < 400
+    except Exception:
+        return False
+
+
+def send_watchdog_alert(text: str) -> None:
+    """n8n 心跳鏈路失效時的告警出口：優先走繞過 n8n 的直推，n8n 那條路能通就當備援一起試
+    （不衝突，兩邊都推到同一個人）。兩條都送不出去，通常代表整個網路斷線，只能寫 log 留痕。"""
+    ok_direct = push_line_direct(text)
+    ok_n8n = notify({"event": "alert", "text": text})
+    if ok_direct or ok_n8n:
+        log(f"🚨 外部告警已送出（直推LINE={'✓' if ok_direct else '✗（未設KEIS_LINE_DIRECT_TOKEN或送不出去）'}／經n8n={'✓' if ok_n8n else '✗'}）：{text}")
+    else:
+        log(f"🚨🚨 外部告警兩條路都送不出去（可能整個網路斷線，不只 n8n）：{text}")
 
 
 def write_daily_summary(date_str: str, new_today: int, match_today: int,
@@ -1551,14 +1596,35 @@ def run_watch(clients: list, dry_run: bool) -> int:
     consecutive_errors = 0           # 連續失敗次數；判斷是暫時塞車還是真的斷網
     alerted_disconnect = False       # 「斷線警告」有沒有真的送達；沒送達就別推恢復通知
     last_heartbeat = 0.0             # 上次心跳時刻；0=啟動後第一輪就先打一下
+    heartbeat_fail_since: "datetime | None" = None  # 這輪連續心跳失敗從何時開始（斷網窗口內不計）
+    heartbeat_alert_sent = False     # 這輪失敗有沒有已經升級推播過，避免每 10 分鐘重推洗版
 
     while True:
         try:
             now = datetime.now()
             today = now.date()
             if time.time() - last_heartbeat >= HEARTBEAT_INTERVAL_SEC:
-                push_heartbeat()               # 放在查詢之前：就算 KEIS 掛了，程序活著也照報
+                hb_ok = push_heartbeat()       # 放在查詢之前：就算 KEIS 掛了，程序活著也照報
                 last_heartbeat = time.time()
+                if in_expected_offline(now):
+                    # 已知每晚斷網窗口：心跳送不出去是預期行為，不計入失敗計時、也不在這裡升級
+                    heartbeat_fail_since = None
+                elif hb_ok:
+                    if heartbeat_alert_sent:
+                        send_watchdog_alert(
+                            f"✅ KEIS 搶單：心跳恢復正常（先前連續失敗超過 "
+                            f"{HEARTBEAT_ALERT_AFTER_SEC // 60} 分鐘，n8n 應該已經回來了）")
+                    heartbeat_fail_since = None
+                    heartbeat_alert_sent = False
+                else:
+                    if heartbeat_fail_since is None:
+                        heartbeat_fail_since = now
+                    elif not heartbeat_alert_sent and \
+                            (now - heartbeat_fail_since).total_seconds() >= HEARTBEAT_ALERT_AFTER_SEC:
+                        send_watchdog_alert(
+                            f"🚨 KEIS 搶單：心跳連續失敗超過 {HEARTBEAT_ALERT_AFTER_SEC // 3600} 小時"
+                            f"（從 {heartbeat_fail_since.strftime('%H:%M')} 起），n8n 可能掛了，去看一下")
+                        heartbeat_alert_sent = True
             if seen_day is not None and seen_day != today:
                 # 跨日：全天分層輪詢不再有「離開時段」這個時間點，改成每天換日的瞬間結算一次昨天。
                 try:
