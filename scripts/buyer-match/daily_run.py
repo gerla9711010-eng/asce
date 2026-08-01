@@ -31,6 +31,7 @@ from pathlib import Path
 import httpx
 from playwright.async_api import async_playwright
 
+import build_static_view
 import buyer_match
 import chrome_cdp
 import foundi_need
@@ -223,6 +224,14 @@ async def run(args) -> int:
             if removed:
                 seen_store.save(data)
                 log(f"清掉 {removed} 筆 30 天沒再出現的記憶")
+
+        # 重產單檔 HTML 看板（OneDrive 那份），跑完就是最新的，不用人再手動產一次。
+        # 包 try：看板產不出來不該讓「配案本身跑成功了」變成失敗，頂多是看板停在舊資料。
+        try:
+            build_static_view.build(build_static_view.DEFAULT_OUT, "standalone")
+            log("已更新看板 HTML")
+        except Exception as e:
+            log(f"⚠ 看板 HTML 更新失敗（配案結果不受影響）：{type(e).__name__}: {e}")
 
         report = build_report(args.group, summary, args.dry_run, args.only_new)
         log("跑完：\n" + run_group_match.format_summary(args.group, summary))
