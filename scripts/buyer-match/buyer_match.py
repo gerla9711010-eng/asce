@@ -1025,16 +1025,32 @@ async def match_areas(
                     f"[INFO] 關鍵字「{keyword or '(不限)'}」第 {page_no} 頁第 {idx + 1} 張命中："
                     f"{card.case_name}"
                 )
-                try:
-                    agent, share_url = await open_detail_and_fetch(page, idx, dry_run=dry_run)
-                except Exception as e:
-                    # 開詳情頁本身失敗（例如卡片被 UI 元素暫時擋住、單次 click 逾時）不該
-                    # 讓整個客需子條件的其他命中都陪葬——2026-08-01 實測踩到：235巷老闆
-                    # 何先生那筆單一張卡的 Locator.click 逾時，害同一子條件另外 7 筆合法
-                    # 命中全部消失。改成印 WARN 跳過這一筆，其他卡片照跑。
+                # 開詳情頁本身失敗（例如卡片被 UI 元素暫時擋住、單次 click 逾時）不該
+                # 讓整個客需子條件的其他命中都陪葬——2026-08-01 實測踩到：235巷老闆
+                # 何先生那筆單一張卡的 Locator.click 逾時，害同一子條件另外 7 筆合法
+                # 命中全部消失。先重試 2 次（多半是暫時性的，重試就好），
+                # 3 次都不行才真的放棄跳過這一筆，不是失敗一次就算了。
+                agent = share_url = None
+                last_err: Optional[Exception] = None
+                for attempt in range(3):
+                    try:
+                        agent, share_url = await open_detail_and_fetch(
+                            page, idx, dry_run=dry_run
+                        )
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        print(
+                            f"[WARN] 開詳情頁第 {attempt + 1}/3 次嘗試失敗："
+                            f"{card.case_name}：{type(e).__name__}: {e}",
+                            file=sys.stderr,
+                        )
+                        await page.wait_for_timeout(1500)
+                if last_err is not None:
                     print(
-                        f"[WARN] 開詳情頁失敗，跳過這筆（不影響其他命中）："
-                        f"{card.case_name}：{type(e).__name__}: {e}",
+                        f"[WARN] 開詳情頁重試 3 次都失敗，跳過這筆（不影響其他命中）："
+                        f"{card.case_name}",
                         file=sys.stderr,
                     )
                     continue
