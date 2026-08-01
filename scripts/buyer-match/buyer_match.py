@@ -1025,7 +1025,19 @@ async def match_areas(
                     f"[INFO] 關鍵字「{keyword or '(不限)'}」第 {page_no} 頁第 {idx + 1} 張命中："
                     f"{card.case_name}"
                 )
-                agent, share_url = await open_detail_and_fetch(page, idx, dry_run=dry_run)
+                try:
+                    agent, share_url = await open_detail_and_fetch(page, idx, dry_run=dry_run)
+                except Exception as e:
+                    # 開詳情頁本身失敗（例如卡片被 UI 元素暫時擋住、單次 click 逾時）不該
+                    # 讓整個客需子條件的其他命中都陪葬——2026-08-01 實測踩到：235巷老闆
+                    # 何先生那筆單一張卡的 Locator.click 逾時，害同一子條件另外 7 筆合法
+                    # 命中全部消失。改成印 WARN 跳過這一筆，其他卡片照跑。
+                    print(
+                        f"[WARN] 開詳情頁失敗，跳過這筆（不影響其他命中）："
+                        f"{card.case_name}：{type(e).__name__}: {e}",
+                        file=sys.stderr,
+                    )
+                    continue
                 all_entries.append((card, agent, share_url))
                 hits += 1
                 await page.wait_for_timeout(400)
