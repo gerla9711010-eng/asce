@@ -1063,7 +1063,10 @@ async def run(args) -> None:
         )
         blocks = [format_block(card, agent, share_url) for card, agent, share_url in entries]
         print(f"[INFO] 實際處理 {len(blocks)} 筆")
-        label = (args.area or (districts[0] if districts else "search")).replace(",", "_")[:40]
+        label = (
+            (args.area or (districts[0] if districts else "search"))
+            .replace(",", "_").replace("/", "_").replace("\\", "_")
+        )[:40]
         output_blocks(blocks, label)
 
 

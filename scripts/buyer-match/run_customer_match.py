@@ -111,7 +111,10 @@ async def run(args) -> None:
             buyer_match.format_block(card, agent, share_url) for card, agent, share_url in entries
         ]
         print(f"[INFO] 實際處理 {len(blocks)} 筆")
-        label = f"{args.customer}_{need.need_name}".replace(",", "_")[:40]
+        label = (
+            f"{args.customer}_{need.need_name}"
+            .replace(",", "_").replace("/", "_").replace("\\", "_")
+        )[:40]
         buyer_match.output_blocks(blocks, label)
 
 

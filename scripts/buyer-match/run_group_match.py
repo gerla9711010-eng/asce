@@ -201,7 +201,11 @@ async def run_group(
                 record(JobResult(cust, need, hits=len(blocks)))
 
             if blocks:
-                label = f"{cust}_{need}".replace(",", "_").replace("，", "_")[:60]
+                label = (
+                    f"{cust}_{need}"
+                    .replace(",", "_").replace("，", "_")
+                    .replace("/", "_").replace("\\", "_")
+                )[:60]
                 buyer_match.OUTPUT_DIR.mkdir(exist_ok=True)
                 out_path = (
                     buyer_match.OUTPUT_DIR
