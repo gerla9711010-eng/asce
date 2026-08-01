@@ -2,16 +2,16 @@
 
 > 規則：完成的項目直接刪掉，不留歷史。歷史看 git log。
 
-最後更新：2026-07-30（配案排程上線＋只報新案；廣告線誤擋診斷完成待修）
+最後更新：2026-08-01（n8n Postgres 塞爆全掛的事故排除＋治本兩件事都做完）
 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ## 🔴 開工第一件事：GitHub 帳號停權中（2026-07-30 11:47 起）
 
 `git push` / `gh pr merge` 一律回 403 `Your account was suspended`（ToS 違規，GitHub 沒說哪一條）。
-**不要浪費時間重試推送。**
+**不要浪費時間重試推送，收工一律只做本機 commit，跳過 push/PR，等帳號恢復再一次補推。**
 
-- **未推上去的東西**：本機分支 `claude/multi-store-price-fix-0730` 有 4 個 commit（多店開價修正、
-  i智慧 session 救援、profile 搬家、n8n 現況更新）；GitHub 上 **PR #161 開著未合**。
+- **未推上去的東西**：本機分支 `claude/multi-store-price-fix-0730` 目前有 7 個 commit 未推（含其他
+  session 陸續加的，如買方配案輸出檔名修正）；GitHub 上 **PR #161 開著未合**。
   帳號恢復後：`git push` → 合 PR #161 → 把後續 commit 一起併進 main。
 - **離線備份**：`桌面\asce-備份-20260730.bundle`（完整歷史，`git clone` 那個檔就能還原）
 - **申訴**：2026-07-30 21:31 已送出工單（support.github.com，Sign-in issues → Something else），
@@ -21,6 +21,21 @@
   加上 commit 都帶 `Co-Authored-By: Claude`、分支都叫 `claude/...`，很像 bot 在刷。
   **之後改成：一批工作一個 PR、不要開完立刻合、不必每次刪分支。**
 - 排程與桌面工具**完全不依賴 GitHub**，停權期間照跑。
+
+## 2026-08-01 事故：n8n Postgres 塞爆，全系統靜悄悄停擺 4 小時
+
+Postgres 磁碟（500MB）被未清理的執行紀錄塞滿→n8n 寫不進執行紀錄→整個實例（含所有排程觸發器）
+09:24～13:35 台灣時間完全停擺，但 Web UI／API 仍回 200，看起來像正常運作，所以沒人發現，
+是使用者手動注意到粉專沒發文才查出來。廣告v3 09:00/11:00/13:00 三班永久跳過（n8n 不會補跑錯過的排程）。
+Railway 手動 resize volume 到 5GB＋重啟 Primary/Postgres/Redis/Worker 後恢復。
+
+**治本已做**（Railway Primary＋Worker 都已加，Deploy 過確認生效）：
+`EXECUTIONS_DATA_PRUNE=true` / `EXECUTIONS_DATA_MAX_AGE=336`（14天）/ `EXECUTIONS_DATA_SAVE_ON_SUCCESS=none`
+
+**監控死角已補**：`scripts/keis/grab.py` 心跳連續失敗滿 2 小時（排除每晚斷網窗口）會繞過 n8n，
+直接打 LINE Messaging API 告警——原本「心跳→n8n→LINE」這條路，n8n 死了連通知它死掉都做不到。
+用的是既有 LINE Channel Access Token（`KEIS_LINE_DIRECT_TOKEN`，.env 裡，沒有重發，不影響 n8n
+原本那組），2026-08-01 已實測收到告警。
 
 ---
 
