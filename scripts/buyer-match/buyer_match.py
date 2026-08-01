@@ -1157,12 +1157,13 @@ async def run(args) -> None:
         output_blocks(blocks, label)
 
 
-def output_blocks(blocks: list[str], label: str) -> None:
-    """把結果印出來、存成 output/<時間戳>_<label>.txt、複製到剪貼簿。
+def output_blocks(blocks: list[str], label: str) -> Optional[Path]:
+    """把結果印出來、存成 output/<時間戳>_<label>.txt、複製到剪貼簿。回傳存檔路徑
+    （沒有結果時回傳 None）給呼叫端需要的話拿去記 manifest（見 run_customer_match.py）。
     `buyer_match.py` CLI 跟 `run_customer_match.py`（房地客需 → i智慧）共用這段。"""
     if not blocks:
         print("[INFO] 沒有符合條件的物件")
-        return
+        return None
 
     output = "\n\n".join(blocks)
     print("\n" + "=" * 40 + "\n")
@@ -1180,6 +1181,8 @@ def output_blocks(blocks: list[str], label: str) -> None:
         print("[INFO] 已複製到剪貼簿，可直接貼給客戶")
     except Exception as e:
         print(f"[WARN] 複製到剪貼簿失敗（內容仍在上面/檔案裡）：{e}", file=sys.stderr)
+
+    return out_path
 
 
 def main() -> None:

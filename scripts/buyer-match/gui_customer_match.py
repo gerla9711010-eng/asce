@@ -359,6 +359,7 @@ class App:
                 args = Namespace(
                     customer=customer,
                     need=need,
+                    group=group,
                     price_min=to_int(self.price_min_entry),
                     price_max=to_int(self.price_max_entry),
                     rooms_min=to_int(self.rooms_entry),

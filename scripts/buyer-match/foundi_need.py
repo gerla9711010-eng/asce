@@ -288,6 +288,21 @@ async def list_groups(page: Page) -> list[str]:
     )
 
 
+async def find_customer_group(page: Page, customer: str) -> Optional[str]:
+    """這位客戶在房地「客需條件」裡屬於哪個群組（A買/B買/C買/其他）——
+    給 `run_customer_match.py` 記 manifest 用（單一客戶查詢本來不知道群組，
+    網頁看板要按群組分頁就需要這個）。找不到就回 None，不當成錯誤
+    （查詢本身不靠這個，只是看板分類會歸到「未分類」）。"""
+    for group in await list_groups(page):
+        try:
+            customers = await list_group(page, group)
+        except RuntimeError:
+            continue
+        if any(name == customer for name, _needs in customers):
+            return group
+    return None
+
+
 async def read_all_groups(page: Page) -> dict[str, list[tuple[str, list[str]]]]:
     """一次把整棵樹讀出來：{群組: [(客戶, [客需, ...]), ...]}。
     GUI 的三層下拉就是吃這個——讀一次就能離線切換群組/客戶，不用每次點都回去問房地。"""

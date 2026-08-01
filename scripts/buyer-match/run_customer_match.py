@@ -29,6 +29,7 @@ from playwright.async_api import async_playwright
 
 import buyer_match
 import foundi_need
+import manifest
 
 
 async def run(args) -> None:
@@ -116,7 +117,22 @@ async def run(args) -> None:
             f"{args.customer}_{need.need_name}"
             .replace(",", "_").replace("/", "_").replace("\\", "_")
         )[:40]
-        buyer_match.output_blocks(blocks, label)
+        out_path = buyer_match.output_blocks(blocks, label)
+
+        if out_path is not None:
+            group = getattr(args, "group", None)
+            if not group:
+                # GUI 單一客戶模式已經知道群組會直接傳進來；CLI 沒給的話回頭查一次
+                # 房地的客需條件樹，找這位客戶掛在哪個群組下——只為了讓網頁看板能分頁，
+                # 找不到就記「未分類」，不影響查詢本身。
+                foundi_page = await foundi_need.get_or_open_foundi_page(ctx)
+                try:
+                    group = await foundi_need.find_customer_group(foundi_page, args.customer)
+                except Exception as e:
+                    print(f"[WARN] 查不到客戶所屬群組（不影響查詢結果）：{e}", file=sys.stderr)
+            manifest.record_result(
+                group, args.customer, need.need_name, out_path, len(blocks), only_new=False
+            )
 
 
 def main() -> None:
@@ -134,6 +150,11 @@ def main() -> None:
         help="i智慧改用「上架：新>舊」排序（預設是總價低到高）。想優先看新案、讓 🆕 標記浮上來就加這個",
     )
     ap.add_argument("--dry-run", action="store_true", help="開詳情頁抓專員資訊，但不點分享（除錯用）")
+    ap.add_argument(
+        "--group", default=None,
+        help="這位客戶所屬的群組（A買/B買/C買/其他），只影響網頁看板分類；"
+        "不給的話會回頭查一次房地找",
+    )
     args = ap.parse_args()
 
     asyncio.run(run(args))

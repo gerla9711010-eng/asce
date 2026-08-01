@@ -30,6 +30,7 @@ from playwright.async_api import async_playwright
 
 import buyer_match
 import foundi_need
+import manifest
 import seen_store
 
 
@@ -179,9 +180,12 @@ async def run_group(
                     seen_data, scope, entries
                 )
                 blocks = [_unit_block(g) for g in fresh]
-                for group, old_price in dropped:
-                    note = seen_store.price_change_note(old_price, group.min_price)
-                    body = _unit_block(group)
+                # ⚠️ 這裡刻意不叫 `group`——外層 run_group() 的參數也叫 group（群組名字串），
+                # 這個 for 迴圈原本重用同一個名字，會把外層 group 悄悄覆蓋成 UnitGroup 物件，
+                # 害後面 manifest.record_result(group, ...) 拿到錯的值（2026-08-01 wiring manifest 時抓到）。
+                for repriced_group, old_price in dropped:
+                    note = seen_store.price_change_note(old_price, repriced_group.min_price)
+                    body = _unit_block(repriced_group)
                     blocks.append(f"{note}\n{body}" if note else body)
                 print(
                     f"[INFO] 撈到 {len(entries)} 筆委託 → 新 {len(fresh)} 戶／"
@@ -214,6 +218,9 @@ async def run_group(
                 )
                 out_path.write_text("\n\n".join(blocks), encoding="utf-8")
                 print(f"[INFO] 已存檔：{out_path}")
+                manifest.record_result(
+                    group, cust, need, out_path, len(blocks), only_new=only_new
+                )
 
     return summary
 
