@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +27,31 @@ import manifest
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 DEFAULT_OUT = BASE_DIR / "配案看板.html"
+
+
+def _parse_block(text: str) -> dict:
+    """把一段輸出文字拆成「顯示用內容 / 貼給客戶用的原文 / 新案或降價標記」。
+
+    對應 buyer_match.format_block（標題行可能帶 🆕）跟 run_group_match._unit_block
+    （降價會在最前面多塞一行 🔻 開頭的 note）這兩種寫法，兩邊格式都在同一支 repo，
+    直接照那邊的字元標記解析，不用另外存結構化欄位。"""
+    lines = text.split("\n")
+    tag = None
+    price_note = None
+    if lines and lines[0].startswith("🔻"):
+        tag = "repriced"
+        price_note = lines[0].strip()
+        lines = lines[1:]
+    if lines and "🆕" in lines[0]:
+        if tag is None:
+            tag = "new"
+        lines[0] = lines[0].replace("🆕 ", "").replace("🆕", "").strip()
+    return {
+        "raw": text,
+        "display": "\n".join(lines).strip(),
+        "tag": tag,
+        "price_note": price_note,
+    }
 
 
 def collect() -> dict:
@@ -43,7 +69,7 @@ def collect() -> dict:
                 print(f"[WARN] 結果檔不見了，跳過：{record['file']}")
                 continue
             text = path.read_text(encoding="utf-8")
-            blocks = [b.strip() for b in text.split("\n\n") if b.strip()]
+            blocks = [_parse_block(b.strip()) for b in text.split("\n\n") if b.strip()]
             rows.append(
                 {
                     "customer": entry["customer"],
@@ -170,15 +196,49 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
 }
 .drill-meta { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 12px; }
 
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 10px; }
+/* 固定兩欄矩形卡片：字才能放大又不會每張高度亂跳，掃視比較不累眼睛 */
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .propcard {
   position: relative; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 10px; padding: 13px 40px 50px 14px; box-shadow: var(--shadow);
+  border-radius: 12px; padding: 20px 34px 52px 14px; box-shadow: var(--shadow);
+  min-height: 150px; display: flex; flex-direction: column; justify-content: center;
+  overflow: visible;
 }
-.propcard pre {
-  white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit;
-  font-size: 13.5px; line-height: 1.55; margin: 0; font-variant-numeric: tabular-nums;
+.cardbody { display: flex; flex-direction: column; gap: 3px; }
+.textline {
+  font-family: inherit; font-size: 15px; line-height: 1.5;
+  overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
 }
+.textline-title { font-weight: 700; font-size: 16px; }
+.linkline {
+  display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  margin-top: 7px; border: 1px solid var(--accent); color: var(--accent); background: transparent;
+  border-radius: 7px; padding: 5px 11px; font-size: 13px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.pricenote {
+  color: var(--danger); font-weight: 800; font-size: 12.5px; margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 貼紙／印章：新案、降價一眼看到，不用逐行讀文字才知道 */
+.stamp {
+  position: absolute; top: -9px; left: 10px; z-index: 2;
+  font-size: 11px; font-weight: 800; letter-spacing: .03em;
+  padding: 4px 10px; border-radius: 4px; transform: rotate(-5deg);
+  box-shadow: 0 2px 5px rgba(40,30,10,.18); border: 2px solid currentColor;
+  background: var(--panel);
+}
+.stamp-new { color: var(--fresh); }
+.stamp-repriced { color: var(--danger); }
+
+@media (max-width: 420px) {
+  .cards { gap: 8px; }
+  .propcard { padding: 18px 30px 48px 12px; }
+  .textline { font-size: 14.5px; }
+  .textline-title { font-size: 15.5px; }
+}
+
 .x-btn {
   position: absolute; top: 7px; right: 7px; width: 30px; height: 30px; border-radius: 50%;
   border: none; background: rgba(128, 122, 114, .16);
@@ -192,6 +252,30 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   font-weight: 700; font-family: inherit;
 }
 .copy-btn[data-done="1"] { background: var(--accent); color: var(--on-accent); }
+
+/* 連結預覽：點連結不切分頁，原地跳一個夠寬的視窗把內容嵌進來看 */
+.linkmodal { position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 92;
+  display: none; align-items: center; justify-content: center; padding: 16px; }
+.linkmodal[data-on="1"] { display: flex; }
+.linkmodal-card {
+  background: var(--panel); border-radius: 14px; overflow: hidden;
+  width: min(94vw, 900px); height: min(88vh, 920px);
+  display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.35);
+}
+.linkmodal-bar {
+  display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+  border-bottom: 1px solid var(--line); flex: none;
+}
+.linkmodal-url {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums;
+}
+.linkmodal-frame { flex: 1; width: 100%; border: 0; background: var(--ground); }
+.linkmodal-fallback {
+  flex: 1; display: none; align-items: center; justify-content: center; flex-direction: column;
+  gap: 12px; padding: 24px; text-align: center; color: var(--ink-soft); font-size: 13.5px;
+}
+.linkmodal-fallback[data-on="1"] { display: flex; }
 
 .blank { color: var(--ink-soft); text-align: center; padding: 44px 0; font-size: 14px; }
 .toast {
@@ -248,6 +332,20 @@ BODY = r"""
     <p>這個瀏覽器擋掉了自動複製。長按下面文字 → 全選 → 拷貝</p>
     <textarea id="fallback-text" readonly></textarea>
     <button class="btn btn-primary" id="btn-fallback-close" style="width:100%;margin-top:10px">關閉</button>
+  </div>
+</div>
+
+<div class="linkmodal" id="linkmodal">
+  <div class="linkmodal-card">
+    <div class="linkmodal-bar">
+      <span class="linkmodal-url" id="linkmodal-url"></span>
+      <a class="btn" id="linkmodal-open" target="_blank" rel="noopener">開新分頁</a>
+      <button class="x-btn" id="linkmodal-close" style="position:static" aria-label="關閉">✕</button>
+    </div>
+    <iframe class="linkmodal-frame" id="linkmodal-frame" title="物件內容預覽"></iframe>
+    <div class="linkmodal-fallback" id="linkmodal-fallback">
+      <span>這個網站不給嵌入預覽，改開新分頁看內容</span>
+    </div>
   </div>
 </div>
 """
@@ -352,10 +450,17 @@ function openRow(r) {
 function renderCards() {
   const wrap = $('cards'), hidden = getX(row);
   wrap.innerHTML = '';
-  row.blocks.forEach((text, i) => {
+  row.blocks.forEach((blk, i) => {
     if (hidden.has(i)) return;
     const card = document.createElement('div');
     card.className = 'propcard';
+
+    if (blk.tag) {
+      const stamp = document.createElement('span');
+      stamp.className = 'stamp stamp-' + blk.tag;
+      stamp.textContent = blk.tag === 'new' ? '🆕 新案' : '🔻 降價';
+      card.appendChild(stamp);
+    }
 
     const x = document.createElement('button');
     x.className = 'x-btn';
@@ -364,21 +469,41 @@ function renderCards() {
     x.setAttribute('aria-label', '篩掉這筆');
     x.onclick = () => { const s = getX(row); s.add(i); setX(row, s); card.remove(); blankCheck(); };
 
-    const pre = document.createElement('pre');
-    pre.textContent = text;
+    const body = document.createElement('div');
+    body.className = 'cardbody';
+    if (blk.price_note) {
+      const note = document.createElement('div');
+      note.className = 'pricenote';
+      note.textContent = blk.price_note;
+      body.appendChild(note);
+    }
+    blk.display.split('\n').forEach((line, li) => {
+      if (/^https?:\/\//.test(line.trim())) {
+        const a = document.createElement('button');
+        a.className = 'linkline';
+        a.textContent = '🔗 看詳情／分享頁';
+        a.onclick = (e) => { e.stopPropagation(); openLink(line.trim()); };
+        body.appendChild(a);
+      } else {
+        const d = document.createElement('div');
+        d.className = 'textline' + (li === 0 ? ' textline-title' : '');
+        d.textContent = line;
+        body.appendChild(d);
+      }
+    });
 
     const c = document.createElement('button');
     c.className = 'copy-btn';
     c.textContent = '複製這筆';
     c.onclick = async () => {
-      if (await copyText(text)) {
+      if (await copyText(blk.raw)) {
         c.textContent = '已複製';
         c.dataset.done = '1';
         setTimeout(() => { c.textContent = '複製這筆'; c.dataset.done = '0'; }, 1200);
       }
     };
 
-    card.append(x, pre, c);
+    card.append(x, body, c);
     wrap.appendChild(card);
   });
   blankCheck();
@@ -387,14 +512,42 @@ function renderCards() {
 const blankCheck = () =>
   $('cards-blank').style.display = $('cards').children.length ? 'none' : 'block';
 
+let linkTimer = null;
+function openLink(url) {
+  $('linkmodal-url').textContent = url;
+  $('linkmodal-open').href = url;
+  $('linkmodal-fallback').dataset.on = '0';
+  const frame = $('linkmodal-frame');
+  frame.style.display = 'block';
+  let loaded = false;
+  frame.onload = () => { loaded = true; };
+  frame.onerror = () => { frame.style.display = 'none'; $('linkmodal-fallback').dataset.on = '1'; };
+  frame.src = url;
+  $('linkmodal').dataset.on = '1';
+  clearTimeout(linkTimer);
+  // iframe 被目標網站的 X-Frame-Options 擋掉的時候不一定會觸發 onerror，
+  // 用逾時當保底：時間到了還沒 load 完，就假設嵌不進來，改推薦開新分頁。
+  linkTimer = setTimeout(() => {
+    if (!loaded) { frame.style.display = 'none'; $('linkmodal-fallback').dataset.on = '1'; }
+  }, 2500);
+}
+function closeLink() {
+  $('linkmodal').dataset.on = '0';
+  $('linkmodal-frame').src = 'about:blank';
+  clearTimeout(linkTimer);
+}
+
 $('btn-back').onclick = showList;
 $('btn-restore').onclick = () => { setX(row, new Set()); renderCards(); toast('已復原'); };
 $('btn-copyall').onclick = async () => {
-  const t = [...document.querySelectorAll('#cards .propcard pre')].map(p => p.textContent);
+  const hidden = getX(row);
+  const t = row.blocks.filter((_, i) => !hidden.has(i)).map(b => b.raw);
   if (!t.length) return toast('沒有可複製的');
   if (await copyText(t.join('\n\n'))) toast('已複製 ' + t.length + ' 筆');
 };
 $('btn-fallback-close').onclick = () => $('fallback').dataset.on = '0';
+$('linkmodal-close').onclick = closeLink;
+$('linkmodal').addEventListener('click', (e) => { if (e.target.id === 'linkmodal') closeLink(); });
 
 renderGroups();
 showList();
