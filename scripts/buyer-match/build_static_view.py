@@ -163,23 +163,23 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
 .needcard {
   position: relative; width: 100%; text-align: left; font-family: inherit; color: inherit;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-  padding: 16px 14px 44px; cursor: pointer; box-shadow: var(--shadow); min-height: 118px;
+  padding: 16px 14px 48px; cursor: pointer; box-shadow: var(--shadow); min-height: 136px;
 }
 .needcard:active { transform: scale(.98); }
 .needcard-cust {
-  display: block; font-size: 15.5px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere;
+  display: block; font-size: 19px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;
 }
 .needcard-need {
-  display: block; font-size: 13px; color: var(--ink-soft); margin-top: 4px; overflow-wrap: anywhere;
+  display: block; font-size: 16px; color: var(--ink-soft); margin-top: 5px; overflow-wrap: anywhere;
 }
 .needcard-meta {
-  display: block; font-size: 11px; color: var(--ink-soft); margin-top: 8px;
+  display: block; font-size: 12.5px; color: var(--ink-soft); margin-top: 9px;
   font-variant-numeric: tabular-nums;
 }
 .needcard-count {
-  position: absolute; right: 12px; bottom: 10px; text-align: right; color: var(--ink-soft); font-size: 11px;
+  position: absolute; right: 12px; bottom: 11px; text-align: right; color: var(--ink-soft); font-size: 12.5px;
 }
-.needcard-count b { display: block; font-size: 20px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.needcard-count b { display: block; font-size: 23px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .needcard .chip-partial { position: absolute; top: 10px; right: 10px; }
 
 .chip-partial {
@@ -244,8 +244,9 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   .textline { font-size: 14.5px; }
   .textline-title { font-size: 15.5px; }
   #needlist { gap: 8px; }
-  .needcard { padding: 13px 12px 40px; min-height: 106px; }
-  .needcard-cust { font-size: 14.5px; }
+  .needcard { padding: 13px 12px 44px; min-height: 122px; }
+  .needcard-cust { font-size: 17.5px; }
+  .needcard-need { font-size: 14.5px; }
 }
 
 .x-btn {
@@ -430,8 +431,8 @@ function renderList() {
     b.className = 'needcard';
     b.innerHTML =
       (r.is_full ? '' : '<span class="chip-partial">僅新案</span>') +
-      '<span class="needcard-need">' + esc(r.need) + '</span>' +
       '<span class="needcard-cust">' + esc(r.customer) + '</span>' +
+      '<span class="needcard-need">' + esc(r.need) + '</span>' +
       '<span class="needcard-meta">' + esc((r.timestamp || '').replace('T', ' ').slice(0, 16)) + '</span>' +
       '<span class="needcard-count"><b>' + r.hits + '</b>筆</span>';
     b.onclick = () => openRow(r);
