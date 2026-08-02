@@ -156,26 +156,32 @@ body {
 
 main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
 
-/* 列表：左邊是誰要什麼，右邊是有幾筆——右側數字對齊，一眼掃完 */
-.needrow {
-  width: 100%; text-align: left; font-family: inherit; color: inherit;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  padding: 12px 14px; margin-bottom: 8px; cursor: pointer; box-shadow: var(--shadow);
-  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+/* 客戶/客需清單：跟物件卡片同款固定兩欄矩形卡片——客戶一多，長長一條直向列表
+   最容易看到疲勞，改成卡片格才會跟後面翻進去的物件卡片視覺一致、掃視省力。 */
+#needlist { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#needlist .blank { grid-column: 1 / -1; }
+.needcard {
+  position: relative; width: 100%; text-align: left; font-family: inherit; color: inherit;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 14px 44px; cursor: pointer; box-shadow: var(--shadow); min-height: 118px;
 }
-.needrow:active { transform: scale(.995); }
-.needrow-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.needrow-title {
-  display: block; font-size: 15px; font-weight: 600; letter-spacing: -.005em;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.needcard:active { transform: scale(.98); }
+.needcard-need {
+  display: block; font-size: 15.5px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere;
 }
-.needrow-meta {
-  display: block; font-size: 11.5px; color: var(--ink-soft);
+.needcard-cust {
+  display: block; font-size: 13px; color: var(--ink-soft); margin-top: 4px; overflow-wrap: anywhere;
+}
+.needcard-meta {
+  display: block; font-size: 11px; color: var(--ink-soft); margin-top: 8px;
   font-variant-numeric: tabular-nums;
 }
-.chip-partial + .needrow-meta, .needrow-main > .chip-partial { align-self: flex-start; }
-.count { flex: none; text-align: right; color: var(--ink-soft); font-size: 11px; }
-.count b { display: block; font-size: 19px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.needcard-count {
+  position: absolute; right: 12px; bottom: 10px; text-align: right; color: var(--ink-soft); font-size: 11px;
+}
+.needcard-count b { display: block; font-size: 20px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.needcard .chip-partial { position: absolute; top: 10px; right: 10px; }
+
 .chip-partial {
   display: inline-block; font-size: 10.5px; font-weight: 600;
   padding: 2px 7px; border-radius: 5px; letter-spacing: .02em;
@@ -237,6 +243,9 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   .propcard { padding: 18px 30px 48px 12px; }
   .textline { font-size: 14.5px; }
   .textline-title { font-size: 15.5px; }
+  #needlist { gap: 8px; }
+  .needcard { padding: 13px 12px 40px; min-height: 106px; }
+  .needcard-need { font-size: 14.5px; }
 }
 
 .x-btn {
@@ -418,14 +427,13 @@ function renderList() {
   if (!rows.length) { el.innerHTML = '<div class="blank">這組還沒有結果</div>'; return; }
   rows.forEach(r => {
     const b = document.createElement('button');
-    b.className = 'needrow';
+    b.className = 'needcard';
     b.innerHTML =
-      '<span class="needrow-main">' +
-        '<span class="needrow-title">' + esc(r.customer) + '　' + esc(r.need) + '</span>' +
-        '<span class="needrow-meta">' + esc((r.timestamp || '').replace('T', ' ').slice(0, 16)) + '</span>' +
-        (r.is_full ? '' : '<span class="chip-partial">僅新案</span>') +
-      '</span>' +
-      '<span class="count"><b>' + r.hits + '</b>筆</span>';
+      (r.is_full ? '' : '<span class="chip-partial">僅新案</span>') +
+      '<span class="needcard-need">' + esc(r.need) + '</span>' +
+      '<span class="needcard-cust">' + esc(r.customer) + '</span>' +
+      '<span class="needcard-meta">' + esc((r.timestamp || '').replace('T', ' ').slice(0, 16)) + '</span>' +
+      '<span class="needcard-count"><b>' + r.hits + '</b>筆</span>';
     b.onclick = () => openRow(r);
     el.appendChild(b);
   });
