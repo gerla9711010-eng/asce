@@ -166,10 +166,10 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   padding: 16px 14px 44px; cursor: pointer; box-shadow: var(--shadow); min-height: 118px;
 }
 .needcard:active { transform: scale(.98); }
-.needcard-need {
+.needcard-cust {
   display: block; font-size: 15.5px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere;
 }
-.needcard-cust {
+.needcard-need {
   display: block; font-size: 13px; color: var(--ink-soft); margin-top: 4px; overflow-wrap: anywhere;
 }
 .needcard-meta {
@@ -245,7 +245,7 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   .textline-title { font-size: 15.5px; }
   #needlist { gap: 8px; }
   .needcard { padding: 13px 12px 40px; min-height: 106px; }
-  .needcard-need { font-size: 14.5px; }
+  .needcard-cust { font-size: 14.5px; }
 }
 
 .x-btn {
