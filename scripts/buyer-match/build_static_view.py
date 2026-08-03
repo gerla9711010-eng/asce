@@ -521,8 +521,15 @@ function renderCards() {
 const blankCheck = () =>
   $('cards-blank').style.display = $('cards').children.length ? 'none' : 'block';
 
+// Claude Artifact 本身就跑在一層 iframe 裡，再嵌一層外部網站的 iframe 進去
+// 會被那層 CSP 擋掉、整個是黑的（跟目標網站本身有沒有設 X-Frame-Options 無關）。
+// 桌面單檔 HTML 是最上層視窗，才嵌得進去——用 window.top 能不能拿到判斷在哪種環境，
+// 在 Artifact 裡直接開新分頁，不要讓使用者看到那片黑。
+const topLevel = (() => { try { return window.self === window.top; } catch (e) { return false; } })();
+
 let linkTimer = null;
 function openLink(url) {
+  if (!topLevel) { window.open(url, '_blank', 'noopener,noreferrer'); return; }
   $('linkmodal-url').textContent = url;
   $('linkmodal-open').href = url;
   $('linkmodal-fallback').dataset.on = '0';
