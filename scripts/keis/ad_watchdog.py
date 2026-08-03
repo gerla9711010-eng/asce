@@ -241,6 +241,64 @@ def check_no_publish(state: dict, now: datetime, dry: bool) -> None:
         log("🚨 已告警：今天整天沒有任何已發布")
 
 
+def check_junk_copy(state: dict, now: datetime, dry: bool) -> None:
+    """判斷三：已發布的文案裡有沒有 JSON／程式殘骸（2026-08-03 加）。
+
+    前兩項判斷只問「有沒有發出去」，不問「發出去的東西對不對」。2026-08-03 就是因為這個缺口，
+    一篇整包 JSON 的爛貼文在粉專掛了 4 天沒人發現。這裡改看內容本身。
+
+    只掃最近 30 筆已發布，每筆每天最多提醒一次。
+    """
+    today = now.strftime("%Y-%m-%d")
+    alerted = state.setdefault("junk_alerted", {})    # {page_id: 最後告警日期}
+    j = notion_query({
+        "page_size": 30,
+        "filter": {"property": "狀態", "select": {"equals": "已發布"}},
+        "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+    })
+
+    bad = []
+    live = set()
+    for page in j.get("results", []):
+        live.add(page["id"])
+        pr = page["properties"]
+        copy = plain(pr.get("粉專文案")) + "\n" + plain(pr.get("社團文案"))
+        # 這幾樣只可能來自 AI 回傳格式壞掉，正常文案不會有
+        why = None
+        if '"粉專主體"' in copy or '"社團主體"' in copy:
+            why = "文案裡有原始 JSON"
+        elif "\\n" in copy:
+            why = "文案裡有字面上的 \\n（沒被解碼）"
+        elif "```" in copy:
+            why = "文案裡有 markdown code block"
+        if not why or alerted.get(page["id"]) == today:
+            continue
+        link = (pr.get("粉專貼文連結") or {}).get("url") or "(沒有連結)"
+        bad.append({"id": page["id"],
+                    "no": plain(pr.get("案件編號")) or "(無編號)",
+                    "name": plain(pr.get("案名"))[:24] or "(無案名)",
+                    "why": why, "link": link})
+
+    for pid in list(alerted):
+        if pid not in live:
+            del alerted[pid]
+
+    if not bad:
+        log(f"文案內容檢查：正常（掃了 {len(live)} 筆已發布）")
+        return
+
+    lines = [f"・{b['no']} {b['name']}\n　{b['why']}\n　{b['link']}" for b in bad]
+    text = (f"🔕 有 {len(bad)} 篇已發布的廣告，文案是壞的\n\n"
+            + "\n\n".join(lines)
+            + "\n\n＝AI 回傳格式壞掉，整包 JSON 被當文案貼出去。\n"
+              "處理：先把 FB 那篇改掉或刪掉，再看 n8n 該班的『解析文案』節點。\n"
+              "（2026-08-03 修過一次同樣的事，若又出現代表守門員的形狀檢查沒擋到）")
+    if push_line(text, dry):
+        for b in bad:
+            alerted[b["id"]] = today
+        log(f"🚨 已告警：{len(bad)} 篇文案壞掉（{', '.join(b['no'] for b in bad)}）")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="廣告發文看門狗（不依賴 n8n）")
     ap.add_argument("--dry", action="store_true", help="只印不推 LINE")
@@ -256,6 +314,8 @@ def main() -> int:
         # 卡關告警已經推出去就不再推保底那則——兩則講的是同一件事，一次一則就好
         if not check_stuck(state, now, args.dry):
             check_no_publish(state, now, args.dry)
+        # 這則講的是別件事（發出去了但內容是壞的），一定要獨立跑
+        check_junk_copy(state, now, args.dry)
     except httpx.HTTPError as e:
         # 門市每晚 00:00~約 07:22 固定斷網，那段時間查不到 Notion 是正常的，不告警
         # （而且真的斷網時 LINE 也推不出去，叫了也沒用）
