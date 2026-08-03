@@ -220,7 +220,7 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
   margin-top: 7px; border: 1px solid var(--accent); color: var(--accent); background: transparent;
   border-radius: 7px; padding: 5px 11px; font-size: 13px; font-weight: 700;
-  cursor: pointer; font-family: inherit;
+  cursor: pointer; font-family: inherit; text-decoration: none;
 }
 .pricenote {
   color: var(--danger); font-weight: 800; font-size: 12.5px; margin-bottom: 6px;
@@ -364,6 +364,12 @@ SCRIPT = r"""
 const DATA = __DATA_JSON__;
 let group = null, row = null;
 
+// Claude Artifact 本身就跑在一層 iframe 裡（沙盒沒開 allow-popups），JS 呼叫
+// window.open() 會被整個吃掉、按了沒反應；只有「使用者真的點到一個 <a target=_blank>」
+// 才放行。所以在 Artifact 裡要放真的 <a> 連結讓瀏覽器原生處理，不能用 JS 開視窗。
+// 桌面單檔 HTML 是最上層視窗，不受這限制，維持原本「原地彈窗預覽」。
+const topLevel = (() => { try { return window.self === window.top; } catch (e) { return false; } })();
+
 const $ = id => document.getElementById(id);
 const esc = s => (s || '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -488,11 +494,25 @@ function renderCards() {
     }
     blk.display.split('\n').forEach((line, li) => {
       if (/^https?:\/\//.test(line.trim())) {
-        const a = document.createElement('button');
-        a.className = 'linkline';
-        a.textContent = '🔗 看詳情／分享頁';
-        a.onclick = (e) => { e.stopPropagation(); openLink(line.trim()); };
-        body.appendChild(a);
+        const url = line.trim();
+        if (topLevel) {
+          const a = document.createElement('button');
+          a.className = 'linkline';
+          a.textContent = '🔗 看詳情／分享頁';
+          a.onclick = (e) => { e.stopPropagation(); openLink(url); };
+          body.appendChild(a);
+        } else {
+          // Artifact 裡：給真的 <a target=_blank>，讓瀏覽器原生處理開新分頁，
+          // JS 的 window.open() 在這層沙盒會被吃掉、按了沒反應。
+          const a = document.createElement('a');
+          a.className = 'linkline';
+          a.href = url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = '🔗 看詳情／分享頁';
+          a.onclick = (e) => { e.stopPropagation(); };
+          body.appendChild(a);
+        }
       } else {
         const d = document.createElement('div');
         d.className = 'textline' + (li === 0 ? ' textline-title' : '');
@@ -521,15 +541,8 @@ function renderCards() {
 const blankCheck = () =>
   $('cards-blank').style.display = $('cards').children.length ? 'none' : 'block';
 
-// Claude Artifact 本身就跑在一層 iframe 裡，再嵌一層外部網站的 iframe 進去
-// 會被那層 CSP 擋掉、整個是黑的（跟目標網站本身有沒有設 X-Frame-Options 無關）。
-// 桌面單檔 HTML 是最上層視窗，才嵌得進去——用 window.top 能不能拿到判斷在哪種環境，
-// 在 Artifact 裡直接開新分頁，不要讓使用者看到那片黑。
-const topLevel = (() => { try { return window.self === window.top; } catch (e) { return false; } })();
-
 let linkTimer = null;
 function openLink(url) {
-  if (!topLevel) { window.open(url, '_blank', 'noopener,noreferrer'); return; }
   $('linkmodal-url').textContent = url;
   $('linkmodal-open').href = url;
   $('linkmodal-fallback').dataset.on = '0';
