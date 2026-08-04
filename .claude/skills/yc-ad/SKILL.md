@@ -233,6 +233,7 @@ PATCH Notion `KEIS同步` ← `已同步`。
 
 ## 參考檔案
 
-- `docs/STATUS.md`：系統入口與 credentials（使用者姓名、LINE userId 等）
+- `docs/reference.md`：系統入口與 credentials、Notion 廣告 DB 欄位（使用者姓名、LINE userId 等）
+- `docs/STATUS.md`：現況與待辦
 - `workflows/yc-property-create.json`：建檔流程，本 skill 假設物件已建檔
 - `workflows/yc-removal-detector.json`：下架偵測 cron，本 skill 撤除流程跟它互補
