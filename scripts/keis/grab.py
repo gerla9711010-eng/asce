@@ -34,6 +34,7 @@ KEIS 公買搶單自動化（輕量無瀏覽器版）
 
 import argparse
 import csv
+import json
 import os
 import random
 import re
@@ -703,6 +704,100 @@ INVENTORY_MIN_PARSE_RATIO = 0.9              # 讀出來的筆數至少要有檔
 INVENTORY_COLS = ["summary_id", "首次看到", "首次狀態", "來源", "曾冷卻", "最後看到", "最後狀態",
                   "建檔時間", "縣市", "行政區", "類型", "預算", "電話", "app_time",
                   "符合篩選", "不符原因", "我方動作", "我方帳號"]
+
+
+# ---------- KEIS API 欄位體檢（2026-08-04 加）----------
+# KEIS 改版砍欄位是真的會發生的事：2026-07-23 把廣告那支 API 從 40 欄砍到 18 欄、照片網址
+# 整組消失，廣告線連續兩班靜靜空轉，沒有任何告警。公買這支 API 一樣沒有任何保證，
+# 而且它砍掉的每一個欄位都直接對應一條篩選規則（電話→只搶手機、預算→門檻…），
+# 少了會變成「條件全過、照單全搶」或「全部不符、整天掛零」，兩種都是無聲的。
+# 這裡每小時對照一次上次看到的欄位表，變動就講出來。純觀測，絕不擋搶單。
+SCHEMA_SNAPSHOT = _LOCAL / "api_schema.json"
+SCHEMA_CHECK_SEC = 3600
+# 少了這些其中一個，搶單邏輯就失效（對應 skip_reason() / grab_record() 實際讀的欄位）
+CRITICAL_RECORD_FIELDS = {
+    "summary_id",                   # 名單身分證，也是總帳與二手判定的鍵
+    "status",                       # 可不可搶
+    "start_time",                   # 建檔時間 → 10 天門檻
+    "app_time",                     # 申請時間 → 對帳、判斷誰幾點拿走
+    "phone_number",                 # 只搶手機
+    "target_city",                  # 只搶高雄
+    "property_category",            # 排除公寓
+    "budget_start", "budget_end",   # 預算上限門檻
+    "display_name",                 # 客戶姓名
+    "target_areas",                 # 行政區
+}
+CRITICAL_BODY_FIELDS = {"data", "new_case_quota_remaining"}   # 名單本體、剩餘配額
+
+
+def check_api_schema(body: dict) -> None:
+    """比對 KEIS 這次回傳的欄位跟上次看到的有沒有差異。
+
+    只讀不擋：任何例外都吞掉，寧可漏報一次也不能讓體檢弄死搶單迴圈。
+    告警每天每種只推一次（狀態存在快照檔裡），避免每小時吵一輪。"""
+    try:
+        records = body.get("data") or []
+        if not records:
+            return                       # 空池子看不出欄位，這輪跳過
+        # 取前 20 筆的欄位聯集：單筆可能剛好某欄是 null 而被省略，只看一筆會誤判
+        fields = set()
+        for r in records[:20]:
+            fields |= set(r.keys())
+        body_fields = set(body.keys())
+
+        snap = {}
+        if SCHEMA_SNAPSHOT.exists():
+            snap = json.loads(SCHEMA_SNAPSHOT.read_text(encoding="utf-8"))
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        if not snap.get("fields"):        # 第一次跑：建基準，不告警
+            SCHEMA_SNAPSHOT.write_text(json.dumps(
+                {"fields": sorted(fields), "body_fields": sorted(body_fields),
+                 "首次建立": today, "最後檢查": today, "已告警日": ""},
+                ensure_ascii=False, indent=2), encoding="utf-8")
+            log(f"🔬 API 欄位基準已建立：名單 {len(fields)} 欄、外層 {len(body_fields)} 欄"
+                f"（{SCHEMA_SNAPSHOT.name}）")
+            return
+
+        old, old_body = set(snap["fields"]), set(snap.get("body_fields") or [])
+        gone, added = old - fields, fields - old
+        body_gone = old_body - body_fields
+        critical_gone = (gone & CRITICAL_RECORD_FIELDS) | (body_gone & CRITICAL_BODY_FIELDS)
+
+        if not (gone or added or body_gone):
+            snap["最後檢查"] = today
+            SCHEMA_SNAPSHOT.write_text(json.dumps(snap, ensure_ascii=False, indent=2),
+                                       encoding="utf-8")
+            return
+
+        parts = []
+        if gone:
+            parts.append(f"名單少了：{'、'.join(sorted(gone))}")
+        if added:
+            parts.append(f"名單多了：{'、'.join(sorted(added))}")
+        if body_gone:
+            parts.append(f"外層少了：{'、'.join(sorted(body_gone))}")
+        detail = "；".join(parts)
+        log(f"🔬 KEIS API 欄位變動！{detail}")
+
+        if snap.get("已告警日") != today:      # 同一天只吵一次
+            if critical_gone:
+                text = (f"🚨 KEIS 公買 API 改版，少了關鍵欄位：{'、'.join(sorted(critical_gone))}\n"
+                        f"這些欄位是搶單篩選在用的，現在的判斷可能已經不準，請找人看一下。\n"
+                        f"（完整差異：{detail}）")
+            else:
+                text = (f"ℹ️ KEIS 公買 API 欄位有變動，但沒動到搶單用的關鍵欄位，"
+                        f"系統照常運作。\n{detail}")
+            notify({"event": "alert", "text": text})
+            snap["已告警日"] = today
+
+        # 基準跟著更新：不然每小時都拿舊基準比、每天都重報同一件事
+        snap.update({"fields": sorted(fields), "body_fields": sorted(body_fields),
+                     "最後檢查": today})
+        SCHEMA_SNAPSHOT.write_text(json.dumps(snap, ensure_ascii=False, indent=2),
+                                   encoding="utf-8")
+    except Exception as e:
+        log(f"⚠ API 欄位體檢失敗（純觀測，不影響搶單）：{type(e).__name__}")
 
 
 def backup_broken_inventory() -> None:
@@ -1664,6 +1759,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
     consecutive_errors = 0           # 連續失敗次數；判斷是暫時塞車還是真的斷網
     alerted_disconnect = False       # 「斷線警告」有沒有真的送達；沒送達就別推恢復通知
     last_heartbeat = 0.0             # 上次心跳時刻；0=啟動後第一輪就先打一下
+    last_schema_check = 0.0          # 上次 API 欄位體檢；0=啟動後第一輪就先驗一次
     heartbeat_fail_since: "datetime | None" = None  # 這輪連續心跳失敗從何時開始（斷網窗口內不計）
     heartbeat_alert_sent = False     # 這輪失敗有沒有已經升級推播過，避免每 10 分鐘重推洗版
 
@@ -1732,6 +1828,11 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 alerted_disconnect = False
             consecutive_errors = 0
             records = body.get("data", [])
+            # 每小時體檢一次 KEIS 有沒有偷改欄位（斷網時段跳過，那時本來就查不到）
+            if (time.time() - last_schema_check >= SCHEMA_CHECK_SEC
+                    and not in_expected_offline(now)):
+                check_api_schema(body)
+                last_schema_check = time.time()
 
             # ---- 總帳（純紀錄，不參與搶單判定）----
             # 窗口每輪記；全池掃描每 DEEP_SWEEP_SEC 一次、輪流換帳號，補齊窗口看不到的部分。
