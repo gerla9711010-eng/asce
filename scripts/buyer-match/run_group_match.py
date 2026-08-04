@@ -4,6 +4,7 @@
 
 用法：
     python run_group_match.py A買                       # 整組全部跑
+    python run_group_match.py A買 B買 C買                 # 三組依序跑完（GUI 的「★ 全部群組」走這條）
     python run_group_match.py A買 --customer 采儒         # 只跑這組裡的某個客戶（全部子條件）
     python run_group_match.py A買 --dry-run --limit 5     # 先小規模試跑，不點分享連結
 
@@ -229,20 +230,34 @@ def format_summary(group: str, summary: list[JobResult]) -> str:
     return "\n".join(f"客戶：{r.customer}／{r.need} → {r.text}" for r in summary)
 
 
+async def _connect_ctx(p):
+    """連上已開著的 CDP Chrome，拿到 context。連不到就直接結束（訊息講清楚怎麼救）。"""
+    try:
+        browser = await p.chromium.connect_over_cdp(buyer_match.CDP_URL)
+    except Exception:
+        print(
+            f"[ERROR] 連不到 {buyer_match.CDP_URL}。\n"
+            "請先雙擊 open_real_chrome.bat 開瀏覽器（i智慧、房地都要先手動登入過），"
+            "確認視窗開著之後再重跑這支腳本。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return browser.contexts[0] if browser.contexts else await browser.new_context()
+
+
+def _copy_report(report: str) -> None:
+    try:
+        import pyperclip
+
+        pyperclip.copy(report)
+        print("\n[INFO] 總表已複製到剪貼簿")
+    except Exception as e:
+        print(f"[WARN] 複製到剪貼簿失敗（總表仍在上面）：{e}", file=sys.stderr)
+
+
 async def run(args) -> None:
     async with async_playwright() as p:
-        try:
-            browser = await p.chromium.connect_over_cdp(buyer_match.CDP_URL)
-        except Exception:
-            print(
-                f"[ERROR] 連不到 {buyer_match.CDP_URL}。\n"
-                "請先雙擊 open_real_chrome.bat 開瀏覽器（i智慧、房地都要先手動登入過），"
-                "確認視窗開著之後再重跑這支腳本。",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+        ctx = await _connect_ctx(p)
 
         try:
             summary = await run_group(
@@ -262,19 +277,55 @@ async def run(args) -> None:
         print(f"群組「{args.group}」跑完，共 {len(summary)} 個客需子條件：\n")
         report = format_summary(args.group, summary)
         print(report)
+        _copy_report(report)
 
-        try:
-            import pyperclip
 
-            pyperclip.copy(report)
-            print("\n[INFO] 總表已複製到剪貼簿")
-        except Exception as e:
-            print(f"[WARN] 複製到剪貼簿失敗（總表仍在上面）：{e}", file=sys.stderr)
+async def run_all(args, groups: list[str]) -> None:
+    """一次跑好幾個群組（GUI 的「★ 全部群組」／CLI 給多個群組名）。
+
+    CDP 只連一次，群組之間接著跑；某一組整組失敗（例如群組名字在房地找不到）只印警告
+    往下跑，不會把後面幾組一起拖掉——整批要跑好幾小時，不該因為第一組打錯字就白等。
+    """
+    async with async_playwright() as p:
+        ctx = await _connect_ctx(p)
+
+        sections: list[str] = []
+        for i, group in enumerate(groups, 1):
+            print("\n" + "=" * 40)
+            print(f"[INFO] ({i}/{len(groups)}) 開始跑群組「{group}」")
+            try:
+                summary = await run_group(
+                    ctx,
+                    group,
+                    customer=None,
+                    limit=args.limit,
+                    dry_run=args.dry_run,
+                    newest=args.newest,
+                    only_new=getattr(args, "only_new", False),
+                )
+            except RuntimeError as e:
+                print(f"[WARN] 群組「{group}」整組失敗，跳過：{e}", file=sys.stderr)
+                sections.append(f"【{group}】整組失敗：{e}")
+                continue
+
+            print(f"\n群組「{group}」跑完，共 {len(summary)} 個客需子條件：\n")
+            body = format_summary(group, summary)
+            print(body)
+            sections.append(f"【{group}】{len(summary)} 個客需\n{body}")
+
+        report = "\n\n".join(sections)
+        print("\n" + "=" * 40)
+        print(f"全部 {len(groups)} 組跑完：\n")
+        print(report)
+        _copy_report(report)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="買方配案：批次跑房地某個群組底下全部客戶的客需")
-    ap.add_argument("group", help="房地「客需條件」裡的群組名稱，例：A買、B買、C買、其他")
+    ap.add_argument(
+        "group", nargs="+",
+        help="房地「客需條件」裡的群組名稱，例：A買、B買、C買、其他。給多個就一組一組接著跑",
+    )
     ap.add_argument("--customer", default=None, help="只跑這組裡的某個客戶（全部子條件），不給就整組跑")
     ap.add_argument("--limit", type=int, default=15, help="每個客需子條件在 i智慧 最多處理幾筆（預設 15）")
     ap.add_argument("--dry-run", action="store_true", help="開詳情頁抓專員資訊，但不點分享（除錯/試跑用）")
@@ -289,7 +340,14 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    asyncio.run(run(args))
+    groups = args.group
+    if len(groups) > 1:
+        if args.customer:
+            ap.error("--customer 只能配單一群組使用")
+        asyncio.run(run_all(args, groups))
+    else:
+        args.group = groups[0]   # 底下 run() 一路都當字串用
+        asyncio.run(run(args))
 
 
 if __name__ == "__main__":

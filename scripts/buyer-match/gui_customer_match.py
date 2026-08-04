@@ -6,7 +6,8 @@
 先讀房地那邊存好的客需條件，再回頭去 i智慧 現查。
 
 三個下拉的清單是開工具時直接從房地讀回來的（2026-07-30 改；之前要手打客戶名字，
-名字很長又會打錯）。三種範圍：
+名字很長又會打錯）。四種範圍：
+  群組＝「★ 全部群組」          → A買/B買/C買… 全部依序跑完（2026-08-04 加）
   客戶＝「全部客戶」            → 整組跑
   客戶＝某人、客需＝「全部客需」  → 只跑這位客戶所有條件
   客戶＝某人、客需＝某個條件      → 單查一條
@@ -48,8 +49,12 @@ from gui_main import (  # 沿用同一套配色與 Chrome 啟動/狀態邏輯，
     launch_chrome,
 )
 
+ALL_GROUPS = "（★ 全部群組：一組一組依序跑完）"
 ALL_CUSTOMERS = "（整組跑：全部客戶）"
 ALL_NEEDS = "（這位客戶的全部客需）"
+
+# 整組實測時間：2026-07-30 A買 7 位客戶 14 個客需約 46 分鐘 → 抓每組 45 分鐘估
+MINUTES_PER_GROUP = 45
 
 
 async def fetch_foundi_tree() -> dict[str, list[tuple[str, list[str]]]]:
@@ -273,7 +278,7 @@ class App:
 
         self.tree = tree
         groups = list(tree.keys())
-        self.group_cb.config(state="readonly", values=groups)
+        self.group_cb.config(state="readonly", values=[ALL_GROUPS] + groups)
         total_customers = sum(len(v) for v in tree.values())
         self.tree_status_lbl.config(
             text=f"已讀到 {len(groups)} 個群組、{total_customers} 位客戶", fg=OK_COLOR
@@ -283,6 +288,13 @@ class App:
         self._on_group_selected()
 
     def _on_group_selected(self, _event=None):
+        if self.group_var.get() == ALL_GROUPS:
+            # 全部群組：底下每一組的每位客戶、每個客需都會跑，兩個下拉都沒有意義
+            self.customer_cb.config(values=[], state="disabled")
+            self.customer_var.set("")
+            self.need_cb.config(values=[], state="disabled")
+            self.need_var.set("")
+            return
         customers = [name for name, _ in self.tree.get(self.group_var.get(), [])]
         values = [ALL_CUSTOMERS] + customers
         self.customer_cb.config(state="readonly", values=values)
@@ -335,12 +347,21 @@ class App:
             )
             return
 
-        # 三種模式：
+        # 四種模式：
+        #   群組＝全部群組         → 每一組依序整組跑（run_group_match.run_all）
         #   客戶＝全部            → 整組跑（每位客戶的每個客需）
         #   客戶＝某人、客需＝全部  → 只跑這位客戶的全部客需（也是走 run_group_match）
         #   客戶＝某人、客需＝某條件 → 單一查詢（run_customer_match）
-        all_customers = customer in ("", ALL_CUSTOMERS)
+        all_groups = group == ALL_GROUPS
+        all_customers = all_groups or customer in ("", ALL_CUSTOMERS)
         group_mode = all_customers or need in ("", ALL_NEEDS)
+
+        groups = list(self.tree.keys()) if all_groups else []
+        if all_groups and not groups:
+            messagebox.showwarning(
+                "沒有群組可跑", "客戶清單是空的，先按「從房地重新讀客戶清單」再試。"
+            )
+            return
 
         def to_int(entry):
             v = entry.get().strip()
@@ -349,7 +370,7 @@ class App:
         try:
             if group_mode:
                 args = Namespace(
-                    group=group,
+                    group=None if all_groups else group,
                     customer=None if all_customers else customer,
                     limit=to_int(self.limit_entry) or 15,
                     dry_run=self.dry_run_var.get(),
@@ -374,12 +395,18 @@ class App:
             return
 
         if group_mode:
-            scope = (
-                f"「{group}」底下全部客戶的全部客需" if all_customers
-                else f"客戶「{customer}」的全部客需"
-            )
+            if all_groups:
+                scope = f"全部 {len(groups)} 個群組（{'、'.join(groups)}）底下所有客戶的所有客需"
+            elif all_customers:
+                scope = f"「{group}」底下全部客戶的全部客需"
+            else:
+                scope = f"客戶「{customer}」的全部客需"
+            hours = len(groups) * MINUTES_PER_GROUP / 60
             est = (
-                "⚠️ 整組可能要幾十分鐘（2026-07-30 實測 A買 7 位客戶 14 個客需約 46 分鐘）。\n"
+                f"⚠️ 全部群組要一組一組跑，粗估 {hours:.1f} 小時（每組約 {MINUTES_PER_GROUP} 分鐘）。\n"
+                "期間電腦不能關、Chrome 視窗不能動。\n"
+                if all_groups
+                else "⚠️ 整組可能要幾十分鐘（2026-07-30 實測 A買 7 位客戶 14 個客需約 46 分鐘）。\n"
                 if all_customers
                 else "⚠️ 一位客戶的全部客需通常幾分鐘。\n"
             )
@@ -395,17 +422,21 @@ class App:
         self.run_btn.config(state="disabled", text="查詢中...")
         self.status_lbl.config(
             text=(
-                f"整組查詢中（{group}），請稍候，這會花幾十分鐘..."
+                f"全部群組查詢中（{'、'.join(groups)}），請稍候，這會花好幾小時..."
+                if all_groups
+                else f"整組查詢中（{group}），請稍候，這會花幾十分鐘..."
                 if group_mode and all_customers
                 else f"查詢中（{customer}），請稍候（先讀房地客需，再逐關鍵字查 i智慧）..."
             ),
             fg=WARN_COLOR,
         )
 
-        thread = threading.Thread(target=self._worker, args=(args, group_mode), daemon=True)
+        thread = threading.Thread(
+            target=self._worker, args=(args, group_mode, groups), daemon=True
+        )
         thread.start()
 
-    def _worker(self, args: Namespace, group_mode: bool = False):
+    def _worker(self, args: Namespace, group_mode: bool = False, groups: list[str] | None = None):
         writer = QueueWriter(self.log_queue)
         old_stdout, old_stderr = sys.stdout, sys.stderr
         sys.stdout = writer
@@ -413,7 +444,9 @@ class App:
         ok = True
         err_msg = ""
         try:
-            if group_mode:
+            if groups:
+                asyncio.run(run_group_match.run_all(args, groups))
+            elif group_mode:
                 asyncio.run(run_group_match.run(args))
             else:
                 asyncio.run(run_customer_match.run(args))
