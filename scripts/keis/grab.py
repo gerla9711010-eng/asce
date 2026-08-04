@@ -706,6 +706,162 @@ INVENTORY_COLS = ["summary_id", "首次看到", "首次狀態", "來源", "曾�
                   "符合篩選", "不符原因", "我方動作", "我方帳號"]
 
 
+# ---------- 每日健檢：帳號 + 開盤守門（2026-08-04 加）----------
+# 兩件事都是「系統看起來活著、其實已經失能」的缺口，共用一個每天跑一次的檢查點。
+DAILY_CHECK_HHMM = "07:50"          # 門市網路約 07:22 恢復、KEIS 約 08:01 放貨，抓中間
+DAILY_CHECK_STATE = _LOCAL / "daily_check.json"
+BLIND_DAYS_ALERT = 3                # 連續幾天「新名單=0」才告警
+
+
+def _daily_check_done_today() -> bool:
+    try:
+        if not DAILY_CHECK_STATE.exists():
+            return False
+        d = json.loads(DAILY_CHECK_STATE.read_text(encoding="utf-8"))
+        return d.get("最後檢查日") == datetime.now().strftime("%Y-%m-%d")
+    except Exception:
+        return False
+
+
+def _mark_daily_check_done() -> None:
+    try:
+        DAILY_CHECK_STATE.write_text(json.dumps(
+            {"最後檢查日": datetime.now().strftime("%Y-%m-%d")}, ensure_ascii=False),
+            encoding="utf-8")
+    except Exception:
+        pass
+
+
+def check_accounts(clients: list) -> None:
+    """驗每個帳號登得進去、配額查得到。
+
+    為什麼要有：帳號密碼過期/被鎖，現在只會在 log 寫一行「查配額失敗」然後靜靜跳過那個
+    帳號繼續跑——每天默默少 7 個配額，而且完全看不出來。這是目前最可能長期失血的地方。"""
+    bad = []
+    for cl in clients:
+        try:
+            _, q = pick_candidates(cl.query())
+            log(f"   🩺 [{cl.label}] 正常，剩餘配額 {q}")
+        except Exception as e:
+            bad.append(f"{cl.label}（{type(e).__name__}）")
+            log(f"   🩺 [{cl.label}] ❌ 查不到：{type(e).__name__}")
+    if bad:
+        notify({"event": "alert",
+                "text": f"⚠ KEIS 搶單帳號健檢：{len(bad)}/{len(clients)} 個帳號有問題\n"
+                        f"{'、'.join(bad)}\n"
+                        f"可能是密碼過期或帳號被鎖。這幾個帳號的配額今天等於沒用，"
+                        f"請登入 KEIS 確認一下。"})
+
+
+def check_blind_days() -> None:
+    """開盤守門：連續幾天「一筆新貨都沒看到」就告警。
+
+    補的是「程式活著但瞎了」——現有防線（心跳、欄位體檢）都證明不了系統真的看得見貨。
+    KEIS 若改成回空陣列（2026-07-23 廣告那支 API 就是這樣死的），grab.py 會安安靜靜什麼都不做。
+    ⚠️ 這不是「掛零通知」：搶到 0 筆很正常（貨都不符條件），使用者自己打「戰果」查。
+    這裡看的是**新名單**＝公買到底有沒有出貨，連續 3 天 0 才叫。用 3 天是因為歷史上最長
+    連續 0 只有 2 天（週六+週日），不會誤報。"""
+    try:
+        if not DAILY_SUMMARY_CSV.exists():
+            return
+        rows = []
+        with DAILY_SUMMARY_CSV.open(encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                v = (r.get("新名單") or "").strip()
+                if v.isdigit():                     # 舊資料那幾列新名單是空的，跳過
+                    rows.append((r.get("日期", ""), int(v)))
+        recent = rows[-BLIND_DAYS_ALERT:]
+        if len(recent) < BLIND_DAYS_ALERT or any(n > 0 for _, n in recent):
+            return
+        days = "、".join(d for d, _ in recent)
+        log(f"🚨 開盤守門：連續 {BLIND_DAYS_ALERT} 天新名單掛零（{days}）")
+        notify({"event": "alert",
+                "text": f"🚨 KEIS 搶單：連續 {BLIND_DAYS_ALERT} 天一筆新名單都沒看到"
+                        f"（{days}）\n公買真的沒出貨、或是查詢已經失效但沒有報錯。"
+                        f"建議登入 KEIS 網站看一眼池子裡有沒有東西。"})
+    except Exception as e:
+        log(f"⚠ 開盤守門檢查失敗（純觀測）：{type(e).__name__}")
+
+
+def run_daily_checks(clients: list, now: datetime) -> None:
+    """每天過了 DAILY_CHECK_HHMM 就跑一次（一天一次，用狀態檔記）。"""
+    if now.strftime("%H:%M") < DAILY_CHECK_HHMM or _daily_check_done_today():
+        return
+    log("🩺 每日健檢：驗帳號 + 開盤守門")
+    check_accounts(clients)
+    check_blind_days()
+    _mark_daily_check_done()
+
+
+# ---------- 當日計數落地（2026-08-04 加）----------
+# 三個數字（全新名單／符合條件／打中）本來只存記憶體，重啟就歸零，只有「打中」能從
+# grabbed.csv 回填。結果是重啟後前兩個數字被硬拉成等於「打中」——daily_summary.csv 從
+# 07-16 到 08-03 每一天都是 X／X／X，看起來完美，其實是假的（實際 08-04 是 39／10／10）。
+# 而門市電腦每天重啟 3~4 次，等於這個漏斗天天失效。改成落地存檔，重啟讀回來。
+DAY_STATE = _LOCAL / "day_state.json"
+
+
+def save_day_state(day: str, seen: int, match: int, grabbed: int,
+                   seen_ids: set, counted_ids: set) -> None:
+    """把當日累計寫檔。純輔助，失敗只記 log，絕不影響搶單。"""
+    try:
+        DAY_STATE.write_text(json.dumps({
+            "日期": day, "新名單": seen, "符合條件": match, "打中": grabbed,
+            "已計新名單編號": sorted(seen_ids), "已計符合編號": sorted(counted_ids),
+        }, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        log(f"⚠ 寫當日計數失敗（重啟會退回估算值）：{type(e).__name__}")
+
+
+def load_day_state(day: str) -> dict | None:
+    """讀回當日累計。只認「同一天」的紀錄，跨日的直接丟掉（那天的已經結算過了）。"""
+    try:
+        if not DAY_STATE.exists():
+            return None
+        d = json.loads(DAY_STATE.read_text(encoding="utf-8"))
+        if d.get("日期") != day:
+            return None
+        return d
+    except Exception as e:
+        log(f"⚠ 讀當日計數失敗（退回用已搶筆數估算）：{type(e).__name__}")
+        return None
+
+
+# ---------- 總帳每日備份（2026-08-04 加）----------
+# inventory.csv（二手判定的唯一依據）和 appearances.csv（唯一的首次出現紀錄）只存在
+# %LOCALAPPDATA%，門市電腦硬碟壞掉/重灌就全毀，而且事後回頭查證的能力也一起沒了
+# （2026-08-04 就是靠 appearances.csv 才查得出「那 7 筆到底是不是二手」）。
+# 每天複製一份到桌面 keis\backup\，OneDrive 會自動同步上雲。
+# ⚠️ 備份放 OneDrive、正本留本機：OneDrive 曾把 CSV 同步成損毀檔（page1_track.csv 事件），
+# 所以正本絕不搬過去，只放副本——副本壞掉頂多少一天備份，正本還在。
+BACKUP_DIR = Path(__file__).parent / "backup"
+BACKUP_KEEP_DAYS = 7
+BACKUP_FILES = ("inventory.csv", "appearances.csv", "api_schema.json")
+
+
+def backup_ledgers() -> None:
+    """每天一次把總帳類檔案複製到桌面 backup\\（OneDrive 同步）。純保險，失敗只記 log。"""
+    try:
+        today = datetime.now().strftime("%Y%m%d")
+        dst_dir = BACKUP_DIR / today
+        if dst_dir.exists():
+            return                       # 今天已經備份過了
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        done = []
+        for name in BACKUP_FILES:
+            src = _LOCAL / name
+            if src.exists():
+                shutil.copy2(src, dst_dir / name)
+                done.append(name)
+        log(f"💾 總帳已備份到 {dst_dir}（{'、'.join(done) or '沒有檔案可備份'}）")
+        # 只留最近 N 天，別把 OneDrive 塞爆
+        olds = sorted(d for d in BACKUP_DIR.iterdir() if d.is_dir())
+        for d in olds[:-BACKUP_KEEP_DAYS]:
+            shutil.rmtree(d, ignore_errors=True)
+    except Exception as e:
+        log(f"⚠ 總帳備份失敗（純保險，不影響搶單）：{type(e).__name__}")
+
+
 # ---------- KEIS API 欄位體檢（2026-08-04 加）----------
 # KEIS 改版砍欄位是真的會發生的事：2026-07-23 把廣告那支 API 從 40 欄砍到 18 欄、照片網址
 # 整組消失，廣告線連續兩班靜靜空轉，沒有任何告警。公買這支 API 一樣沒有任何保證，
@@ -1726,13 +1882,29 @@ def run_watch(clients: list, dry_run: bool) -> int:
     # 三者恆為 day_seen >= day_match >= day_grabbed，看一眼就知道是「沒貨」還是「搶輸」。
     # （舊版只有兩個數字，且那個「新名單」其實算的是 day_match，會讓人以為公買沒出貨。）
     day_grabbed, _today_sids = load_today_grabbed()
-    day_match = day_grabbed
-    day_seen = day_grabbed
-    seen_ids_today: set = set(_today_sids)  # 已計入 day_seen 的編號（避免重複算）
-    counted_today: set = set(_today_sids)   # 已計入 day_match 的編號
-    seen |= _today_sids                      # 也不用再嘗試搶（本來就已搶到）
-    if day_grabbed:
-        log(f"↺ 回填當日累計：今天已搶 {day_grabbed} 筆（重啟不歸零）")
+    seen |= _today_sids                      # 已搶到的不用再嘗試搶
+    # 先試著讀回落地的當日計數（2026-08-04 加）。讀得到就用真實數字，讀不到才退回舊做法
+    # ——舊做法把三個數字都拉成等於「已搶筆數」，等於漏斗失效，只當最後的保底。
+    _st = load_day_state(datetime.now().strftime("%Y-%m-%d"))
+    if _st:
+        day_seen = max(_st.get("新名單", 0), day_grabbed)
+        day_match = max(_st.get("符合條件", 0), day_grabbed)
+        seen_ids_today = {int(x) for x in _st.get("已計新名單編號", []) if str(x).isdigit()}
+        counted_today = {int(x) for x in _st.get("已計符合編號", []) if str(x).isdigit()}
+        seen_ids_today |= _today_sids
+        counted_today |= _today_sids
+        log(f"↺ 讀回當日累計：全新名單 {day_seen}／符合條件 {day_match}／打中 {day_grabbed}"
+            f"（重啟不歸零）")
+    else:
+        day_match = day_grabbed
+        day_seen = day_grabbed
+        seen_ids_today = set(_today_sids)    # 已計入 day_seen 的編號（避免重複算）
+        counted_today = set(_today_sids)     # 已計入 day_match 的編號
+        if day_grabbed:
+            log(f"↺ 回填當日累計：今天已搶 {day_grabbed} 筆"
+                f"（沒有落地紀錄，全新名單/符合條件先以此估算）")
+    last_day_state_save = 0.0
+    _last_saved_counts = (day_seen, day_match, day_grabbed)   # 數字沒變就不重複寫檔
     deep_sweep_turn = 0              # 全池掃描輪到哪個帳號（輪流換，避開自己申請的盲區）
     status_seen: dict = {}                          # 狀態變化觀測（記憶體，重啟會清空）
     last_deep_sweep = 0.0            # 上次全池掃描時刻；0=啟動後第一輪就先掃一次全池
@@ -1813,6 +1985,9 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 day_grabbed = 0
                 seen_ids_today.clear()
                 counted_today.clear()
+                # 立刻用新日期覆蓋落地檔，否則今天一早重啟會讀到昨天的數字
+                save_day_state(str(today), 0, 0, 0, set(), set())
+                _last_saved_counts = (0, 0, 0)
             seen_day = today
 
             # 【搶單只看這個窗口】編號最大的前 WINDOW_SIZE 筆。窗口本身就是「只搶新單」的
@@ -1832,7 +2007,10 @@ def run_watch(clients: list, dry_run: bool) -> int:
             if (time.time() - last_schema_check >= SCHEMA_CHECK_SEC
                     and not in_expected_offline(now)):
                 check_api_schema(body)
+                backup_ledgers()               # 順便：總帳每天備份一次（自己認日期，不會重複做）
                 last_schema_check = time.time()
+            if not in_expected_offline(now):   # 每天一次：驗帳號 + 開盤守門
+                run_daily_checks(clients, now)
 
             # ---- 總帳（純紀錄，不參與搶單判定）----
             # 窗口每輪記；全池掃描每 DEEP_SWEEP_SEC 一次、輪流換帳號，補齊窗口看不到的部分。
@@ -1909,6 +2087,17 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     if r["summary_id"] not in seen_ids_today:
                         seen_ids_today.add(r["summary_id"])
                         day_seen += 1
+
+            # 當日計數落地：數字一變就立刻寫（開盤那幾秒最怕重啟），否則每 2 分鐘寫一次
+            if (day_seen, day_match, day_grabbed) != _last_saved_counts:
+                save_day_state(str(today), day_seen, day_match, day_grabbed,
+                               seen_ids_today, counted_today)
+                _last_saved_counts = (day_seen, day_match, day_grabbed)
+                last_day_state_save = time.time()
+            elif time.time() - last_day_state_save >= 120:
+                save_day_state(str(today), day_seen, day_match, day_grabbed,
+                               seen_ids_today, counted_today)
+                last_day_state_save = time.time()
 
             interval = current_tier_interval(now)  # 全天分層：熱門時段5秒、一般1分鐘、深夜5分鐘
 
