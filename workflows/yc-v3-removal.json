@@ -637,6 +637,39 @@
         -180
       ],
       "id": "v3b-04b-merge"
+    },
+    {
+      "id": "has-fbpost-gate-20260804",
+      "name": "有貼文可刪?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        130,
+        16
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasFbPost }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -740,7 +773,7 @@
       "main": [
         [
           {
-            "node": "FB 刪貼文",
+            "node": "有貼文可刪?",
             "type": "main",
             "index": 0
           }
@@ -885,6 +918,24 @@
         [
           {
             "node": "LINE Push 摘要",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "有貼文可刪?": {
+      "main": [
+        [
+          {
+            "node": "FB 刪貼文",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "判定刪除結果",
             "type": "main",
             "index": 0
           }
