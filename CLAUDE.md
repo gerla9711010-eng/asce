@@ -33,7 +33,8 @@ Claude Code 每次開 session 會自動建新 branch，基礎點不一定是最�
 4. **分支策略**：harness 會把 Claude 綁在 `claude/...` 分支上，直接 push main 會被 403 擋。流程是：push feature branch → 開 PR 合 main → merge。不要再嘗試直接 push main。
 
 ## 禁止事項
-- 不要讓 STATUS.md 越來越長（超過 ~120 行就檢查有沒有東西該往 incidents.md / reference.md 搬）
+- 不要讓 STATUS.md 越來越長（目標 ~120 行；**超過 150 行 session-start hook 會當場叫**，
+  當次就要把事故經過搬去 incidents.md、查表搬去 reference.md，不要留給下一個 session）
 - 不要從 Notion 讀取狀態，那邊已停止維護
 - 不要在現有 workflow 裡直接 Import JSON，會覆蓋；一律開新空白 workflow 再匯入
 - 不要手改 `docs/n8n-live.md` 和 `workflows/_map.json`，那是 n8n_sync.py 產的
