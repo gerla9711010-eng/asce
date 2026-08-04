@@ -1738,6 +1738,11 @@ def run_watch(clients: list, dry_run: bool) -> int:
             # 這裡「新編號」只是紀錄用的，不會因此去搶——搶什麼一律由下面的窗口候選決定。
             try:
                 newly_seen = update_inventory(inventory, records, baseline=not inventory_ready)
+                # 「今天新進池」只認窗口看到的。全池掃描補到的編號雖然也是「總帳第一次看到」，
+                # 但那是考古（窗口排不到的老案，建檔可能是好幾個月前），不是今天出的新貨。
+                # 2026-08-04 修：舊版把兩者混在一起算，09:01 那次全池掃描補到 8 筆
+                # 建檔 1~6 月的老案，就讓 LINE 的「新名單」憑空多 8 筆。
+                new_arrivals = list(newly_seen)
                 deep_due = (time.time() - last_deep_sweep >= DEEP_SWEEP_SEC
                             and not in_expected_offline(now))
                 if deep_due or not inventory_ready:
@@ -1754,24 +1759,31 @@ def run_watch(clients: list, dry_run: bool) -> int:
                         seed_inventory_from_grabbed(inventory)   # 我方歷史搶單的章不能被基準蓋掉
                         inventory_ready = True
                         newly_seen = []
+                        new_arrivals = []
                         log(f"📒 建立名單總帳 inventory.csv：當下 {len(inventory)} 筆全部標為「基準快照」"
                             f"（搶單只看窗口前 {WINDOW_SIZE} 筆，總帳只是紀錄）")
                 if newly_seen or time.time() - last_inventory_save >= INVENTORY_SAVE_SEC:
                     save_inventory(inventory)
                     last_inventory_save = time.time()
-                observe_appearances(newly_seen)   # 上架偵測：總帳第一次看到的編號
-                # 「新名單」分母就從這裡算：第一次進總帳＝剛進池，跟符不符合條件無關。
-                for r in newly_seen:
+                observe_appearances(newly_seen)   # 上架偵測：總帳第一次看到的編號（含考古）
+                # 「全新名單」分母只算窗口看到的新進池，全池掃描補到的老編號不算（見上面說明）。
+                for r in new_arrivals:
                     sid = r.get("summary_id")
                     if sid is not None and sid not in seen_ids_today:
                         seen_ids_today.add(sid)
                         day_seen += 1
-                for r in newly_seen[:20]:         # 每個新編號留一行 log（一次爆量只印前 20 行）
-                    log(f"🆕 新編號 id{r.get('summary_id')}＝{r.get('status')}"
+                for r in new_arrivals[:20]:       # 每個新編號留一行 log（一次爆量只印前 20 行）
+                    log(f"🆕 新進池 id{r.get('summary_id')}＝{r.get('status')}"
                         f"｜{r.get('target_city') or ''}{fmt_district(r)} "
                         f"{r.get('property_category') or ''} {fmt_budget(r)}"
                         f"｜建檔{str(r.get('start_time'))[:16]}"
                         f"｜{'符合條件' if matches(r) else '不搶:' + str(skip_reason(r))}")
+                # 全池掃描補到的老編號分開記，別跟今天的新貨混在一起看
+                arrival_ids = {r.get("summary_id") for r in new_arrivals}
+                archaeology = [r for r in newly_seen if r.get("summary_id") not in arrival_ids]
+                if archaeology:
+                    log(f"🗄 全池掃描補記 {len(archaeology)} 筆窗口看不到的舊編號"
+                        f"（不算今日新名單，明細看 {INVENTORY_CSV.name}）")
             except Exception as e:
                 log(f"⚠ 總帳更新失敗（純紀錄，不影響搶單）：{type(e).__name__}: {e}")
 
