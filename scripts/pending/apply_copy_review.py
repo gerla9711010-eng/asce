@@ -17,6 +17,8 @@
 """
 import json, os, sys, time
 
+sys.stdout.reconfigure(encoding='utf-8')  # Windows 主控台是 cp950，不轉會被 emoji 噎到
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WF = os.path.join(ROOT, 'workflows', 'yc-v3-scan-publish.json')
 NODES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'copy_review_nodes.json')
