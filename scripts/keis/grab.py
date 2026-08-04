@@ -37,6 +37,7 @@ import csv
 import os
 import random
 import re
+import shutil
 import sys
 import time
 from datetime import datetime, timedelta
@@ -697,25 +698,79 @@ track_top_id.last_alert = 0.0
 #   曾冷卻=Y → 我們看過它是 CoolingDown（別人拿過），之後就算變回 Available 也是二手貨 → 不搶
 INVENTORY_CSV = _LOCAL / "inventory.csv"     # 放本機、不進 OneDrive（怕又被同步弄壞）
 INVENTORY_SAVE_SEC = 120                     # 最快多久寫一次檔（有新單號一定立刻寫）
+MAX_INVENTORY_BAD_LINES = 200                # 壞行超過這個數就當整份總帳失敗，別硬撐著用殘骸
+INVENTORY_MIN_PARSE_RATIO = 0.9              # 讀出來的筆數至少要有檔案行數的九成，否則視為壞掉
 INVENTORY_COLS = ["summary_id", "首次看到", "首次狀態", "來源", "曾冷卻", "最後看到", "最後狀態",
                   "建檔時間", "縣市", "行政區", "類型", "預算", "電話", "app_time",
                   "符合篩選", "不符原因", "我方動作", "我方帳號"]
 
 
+def backup_broken_inventory() -> None:
+    """總帳讀壞時先把原檔留一份再重建。重建是全量覆寫，不先備份就等於把每一筆名單的
+    「首次看到 / 首次符合篩選」歷史永久洗掉——2026-08-04 已經被洗掉一次，救不回來。"""
+    try:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        dst = INVENTORY_CSV.with_name(f"inventory.broken-{stamp}.csv")
+        shutil.copy2(INVENTORY_CSV, dst)
+        log(f"💾 壞掉的總帳已備份一份：{dst.name}（原始歷史留在裡面）")
+    except Exception as e:
+        log(f"⚠ 備份壞掉的總帳失敗（繼續跑）：{type(e).__name__}")
+
+
 def load_inventory() -> dict:
-    """讀回總帳。壞掉/不存在都回空 dict（會被當成第一次建立基準，不會炸掉搶單）。"""
+    """讀回總帳。順便設 load_inventory.failed 告訴呼叫端「這次讀的算不算數」。
+
+    為什麼要分這麼清楚：總帳是二手貨判定的**唯一**依據。讀壞了卻靜靜當成空的繼續跑，
+    池子裡躺了好幾週的回鍋名單會全部被當成「今天剛進池」搶下來——2026-08-04 就這樣
+    多搶了 7 筆別人放掉的二手貨，LINE 還顯示「新名單 2854」（真實只有 7 筆）。
+    所以：單一壞行只丟那一行，整份讀不出來就明講失敗，讓呼叫端回去重建基準快照。"""
     inv: dict = {}
+    load_inventory.failed = False
     if not INVENTORY_CSV.exists():
-        return inv
+        return inv                        # 第一次跑，交給基準快照流程建立，不算失敗
+    bad_lines = 0
     try:
         with INVENTORY_CSV.open(encoding="utf-8-sig", newline="") as f:
-            for row in csv.DictReader(f):
+            reader = csv.DictReader(f)
+            while True:
+                try:
+                    row = next(reader)
+                except StopIteration:
+                    break
+                except csv.Error:
+                    bad_lines += 1
+                    if bad_lines > MAX_INVENTORY_BAD_LINES:
+                        raise                    # 壞成這樣別硬撐，當整份失敗處理
+                    continue
                 sid = (row.get("summary_id") or "").strip()
                 if sid.isdigit():
                     inv[int(sid)] = row
     except Exception as e:
-        log(f"⚠ 讀 inventory.csv 失敗（當成空的重建，舊資料仍在檔案裡）：{type(e).__name__}")
+        load_inventory.failed = True
+        log(f"⚠ 讀 inventory.csv 整份失敗：{type(e).__name__}")
+        return {}
+    if bad_lines:
+        log(f"⚠ inventory.csv 有 {bad_lines} 行壞掉、已跳過，其餘 {len(inv)} 筆照用")
+    if not inv:
+        load_inventory.failed = True      # 檔案在、卻一筆都讀不出來＝這本總帳不可信
+        log("⚠ inventory.csv 存在卻一筆都讀不出來")
+        return inv
+    # 對帳：讀出來的筆數要跟檔案行數對得上。csv 的壞法不只「整份炸掉」——例如某一行
+    # 引號沒收尾，reader 會把後面幾千行當成同一個欄位吞掉，然後安安靜靜只回前面那幾筆。
+    # 那種情況上面每一關都會判成功，總帳卻少了一大半，等於又變成「當成空的硬跑」的翻版。
+    try:
+        with INVENTORY_CSV.open("rb") as f:
+            file_rows = max(sum(1 for _ in f) - 1, 0)     # 扣掉標題列
+        if file_rows and len(inv) < file_rows * INVENTORY_MIN_PARSE_RATIO:
+            load_inventory.failed = True
+            log(f"⚠ inventory.csv 對帳不過：檔案有 {file_rows} 行、只讀出 {len(inv)} 筆"
+                f"（少於 {int(INVENTORY_MIN_PARSE_RATIO * 100)}%），這本總帳不可信")
+    except Exception as e:
+        log(f"⚠ inventory.csv 行數對帳失敗（略過這道檢查）：{type(e).__name__}")
     return inv
+
+
+load_inventory.failed = False
 
 
 def save_inventory(inv: dict) -> None:
@@ -1502,7 +1557,9 @@ def run_once(clients: list, dry_run: bool) -> int:
         if before != len(cands):
             print(f"♻ 其中 {before - len(cands)} 筆是二手貨（別人拿過回鍋 / 建總帳前就在池子裡），不搶")
     elif ONLY_TRULY_NEW:
-        print("📒 還沒有 inventory.csv 總帳 → 分不出二手貨。先跑一次 --watch 建立基準再說")
+        why = ("總帳讀不出來（檔案在但壞了）" if load_inventory.failed
+               else "還沒有 inventory.csv 總帳")
+        print(f"📒 {why} → 分不出二手貨。先跑一次 --watch 建立基準再說")
         cands = []
     if not cands:
         print("😴 沒有符合條件且可申請的名單，這次不動作")
@@ -1585,7 +1642,18 @@ def run_watch(clients: list, dry_run: bool) -> int:
     status_seen: dict = {}                          # 狀態變化觀測（記憶體，重啟會清空）
     last_deep_sweep = 0.0            # 上次全池掃描時刻；0=啟動後第一輪就先掃一次全池
     inventory = load_inventory()     # 全名單編號總帳（也是二手貨判定依據），撐過重啟
-    inventory_ready = INVENTORY_CSV.exists()   # 檔案存在＝基準已建立過（要在 seed 之前判斷）
+    # 「基準已建立過」的依據是**總帳真的讀進來了**，不是「檔案存在」。
+    # 2026-08-04 踩過：檔案在、csv 解析失敗回空 dict，這行卻因為 exists() 是 True 就判定
+    # 基準已建立 → 跳過基準快照 → 整池 2800+ 筆躺很久的舊名單全被當成剛進池的新單，
+    # 二手回鍋貨照單全搶（那天多搶 7 筆）。要在 seed_inventory_from_grabbed 之前判斷。
+    inventory_ready = bool(inventory) and not load_inventory.failed
+    if load_inventory.failed:
+        backup_broken_inventory()    # 重建會全量覆寫，先留一份原始歷史
+        log("🔁 總帳不可信 → 這輪重新建立基準快照：當下池子全部標「來歷不明」一律不搶，"
+            "之後真正新進池的名單照常搶得到（寧可少搶，也不要誤搶二手回鍋貨）")
+        notify({"event": "alert",
+                "text": "⚠ KEIS 搶單：inventory.csv 總帳讀不出來，已備份壞檔並重建基準。"
+                        "今天可能少搶一批，但不會再誤搶別人放掉的二手名單。"})
     last_inventory_save = 0.0
     skipped_secondhand_logged: set = set()   # 二手貨每個編號只喊一次，別洗版
     if inventory:
