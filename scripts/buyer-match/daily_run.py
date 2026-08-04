@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""每天 08:10 自動跑房地/i智慧配案（預設 A買 整組），跑完推 LINE 總表。
+"""每天 08:10 自動跑房地/i智慧配案（預設 A買→B買→C買 三組），跑完推 LINE 總表。
 
 用法（平常不用手動跑，Windows 工作排程會叫它）：
-    python daily_run.py                 # 正式跑 A買 整組，跑完推 LINE
-    python daily_run.py --group B買      # 換一組
+    python daily_run.py                 # 正式跑 A買+B買+C買，跑完推 LINE
+    python daily_run.py --group B買      # 只跑其中一組
     python daily_run.py --dry-run        # 不點分享連結（試跑）
     python daily_run.py --notify-test    # 只推一則測試訊息，確認 LINE 通得到
 
@@ -40,6 +40,10 @@ import seen_store
 
 BASE_DIR = Path(__file__).resolve().parent
 LOG_PATH = BASE_DIR / "daily_run.log"
+
+# 每天早上要跑的群組，一組跑完接著下一組（2026-08-05 從只跑 A買 改成三組都跑）。
+# 房地「客需條件」底下還有「其他」之類的雜項資料夾，那些不是要配的買方名單，不跑。
+DEFAULT_GROUPS = ("A買", "B買", "C買")
 
 
 class _NullStream:
@@ -107,14 +111,23 @@ def notify(text: str) -> bool:
         return False
 
 
-def build_report(group: str, summary: list, dry_run: bool, only_new: bool) -> str:
-    """把總表壓成一則 LINE 訊息：先講總數，再逐筆列，失敗的獨立標出來。"""
+def build_report(
+    results: list[tuple[str, list | None]], dry_run: bool, only_new: bool
+) -> str:
+    """把總表壓成一則 LINE 訊息：先講總數，再逐筆列，失敗的獨立標出來。
+
+    `results` 是 [(群組名, 該組的 summary)]，整組跑不起來的那組 summary 是 None
+    （例：群組名在房地找不到）——那種要單獨講，不能混在「沒命中」裡面。"""
+    dead_groups = [g for g, s in results if s is None]
+    summary = [r for _, s in results if s for r in s]
+    group_label = "＋".join(g for g, _ in results)
+
     errors = [r for r in summary if r.error]
     hits = [r for r in summary if not r.error and r.hits > 0]
     total = sum(r.hits for r in summary if not r.error)
     customers = {r.customer for r in summary}
 
-    head = f"🏠 房地/i智慧配案（{group}）{datetime.now():%m/%d %H:%M}\n"
+    head = f"🏠 房地/i智慧配案（{group_label}）{datetime.now():%m/%d %H:%M}\n"
     if only_new:
         new_total = sum(r.new or 0 for r in summary if not r.error)
         repriced_total = sum(r.repriced or 0 for r in summary if not r.error)
@@ -130,9 +143,25 @@ def build_report(group: str, summary: list, dry_run: bool, only_new: bool) -> st
     if dry_run:
         head += "（試跑，沒有分享連結）"
 
-    lines = [f"・{r.customer}／{r.need} → {r.text}" for r in hits[:30]]
-    if len(hits) > 30:
-        lines.append(f"…另有 {len(hits) - 30} 個客需有結果，詳見電腦上的 output 資料夾")
+    # 跑多組時逐筆列會分不出誰是哪一組，所以照組分段；總行數還是上限 30 行，
+    # 免得 A買+B買+C買 一次擠出幾百行 LINE 訊息。
+    lines: list[str] = []
+    shown = 0
+    for group, group_summary in results:
+        if not group_summary:
+            continue
+        group_hits = [r for r in group_summary if not r.error and r.hits > 0]
+        if not group_hits:
+            continue
+        if len(results) > 1:
+            lines.append(f"【{group}】{len(group_hits)} 個客需有結果")
+        for r in group_hits:
+            if shown >= 30:
+                break
+            lines.append(f"・{r.customer}／{r.need} → {r.text}")
+            shown += 1
+    if len(hits) > shown:
+        lines.append(f"…另有 {len(hits) - shown} 個客需有結果，詳見電腦上的 output 資料夾")
     body = "\n".join(lines) if lines else (
         "（今天沒有新案源，都是看過的）" if only_new else "（今天沒有任何客需命中新案源）"
     )
@@ -141,6 +170,8 @@ def build_report(group: str, summary: list, dry_run: bool, only_new: bool) -> st
     if errors:
         err_lines = "\n".join(f"・{r.customer}／{r.need}：{r.error}" for r in errors[:5])
         tail = f"\n⚠ {len(errors)} 個客需失敗：\n{err_lines}" + tail
+    if dead_groups:
+        tail = f"\n❌ 整組沒跑成：{'、'.join(dead_groups)}（詳見 daily_run.log）" + tail
     return f"{head}\n\n{body}{tail}"
 
 
@@ -197,24 +228,37 @@ async def run(args) -> int:
             )
             return 3
 
-        log(
-            f"開始跑群組「{args.group}」（limit={args.limit}, dry_run={args.dry_run}, "
-            f"only_new={args.only_new}）"
-        )
-        try:
-            summary = await run_group_match.run_group(
-                ctx,
-                args.group,
-                limit=args.limit,
-                dry_run=args.dry_run,
-                newest=args.newest,
-                only_new=args.only_new,
-                on_result=lambda r: log(f"  ({r.customer}／{r.need}) → {r.text}"),
+        # 一組一組接著跑（預設 A買→B買→C買）。某一組炸掉只記下來、繼續下一組——
+        # 整批要跑好幾小時，不該因為第一組出問題就讓後面兩組整天沒資料。
+        results: list[tuple[str, list | None]] = []
+        for i, group in enumerate(args.group, 1):
+            log(
+                f"({i}/{len(args.group)}) 開始跑群組「{group}」（limit={args.limit}, "
+                f"dry_run={args.dry_run}, only_new={args.only_new}）"
             )
-        except Exception as e:
-            log(f"整批失敗：{type(e).__name__}: {e}")
-            traceback.print_exc()
-            notify(f"❌ 房地/i智慧配案跑到一半失敗\n原因：{type(e).__name__}: {e}\n👉 請到門市電腦手動跑一次看看")
+            try:
+                summary = await run_group_match.run_group(
+                    ctx,
+                    group,
+                    limit=args.limit,
+                    dry_run=args.dry_run,
+                    newest=args.newest,
+                    only_new=args.only_new,
+                    on_result=lambda r: log(f"  ({r.customer}／{r.need}) → {r.text}"),
+                )
+            except Exception as e:
+                log(f"群組「{group}」整組失敗：{type(e).__name__}: {e}")
+                traceback.print_exc()
+                results.append((group, None))
+                continue
+            results.append((group, summary))
+
+        if all(s is None for _, s in results):
+            notify(
+                "❌ 房地/i智慧配案跑到一半失敗\n"
+                f"原因：{'、'.join(g for g, _ in results)} 每一組都沒跑成（詳見 daily_run.log）\n"
+                "👉 請到門市電腦手動跑一次看看"
+            )
             return 4
 
         if args.only_new:
@@ -233,15 +277,20 @@ async def run(args) -> int:
         except Exception as e:
             log(f"⚠ 看板 HTML 更新失敗（配案結果不受影響）：{type(e).__name__}: {e}")
 
-        report = build_report(args.group, summary, args.dry_run, args.only_new)
-        log("跑完：\n" + run_group_match.format_summary(args.group, summary))
+        report = build_report(results, args.dry_run, args.only_new)
+        for group, summary in results:
+            if summary:
+                log(f"「{group}」跑完：\n" + run_group_match.format_summary(group, summary))
         notify(report)
         return 0
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="每天自動跑房地/i智慧配案並推 LINE")
-    ap.add_argument("--group", default="A買", help="要跑的群組，預設 A買")
+    ap.add_argument(
+        "--group", nargs="+", default=list(DEFAULT_GROUPS),
+        help=f"要跑的群組，可給多個，預設 {' '.join(DEFAULT_GROUPS)}（依序跑完）",
+    )
     ap.add_argument("--limit", type=int, default=15, help="每個客需在 i智慧 最多處理幾筆（預設 15）")
     ap.add_argument("--dry-run", action="store_true", help="不點分享連結（試跑用）")
     ap.add_argument(
