@@ -39,13 +39,32 @@
 | `Notion account` | `T62CHdfWuY9iXKWk` | Notion API | n8n Notion 節點 |
 | `Notion API Token` | `edOz4T0LC6EP41Ug` | HTTP Header Auth | HTTP Request 打 Notion API |
 | `LINE Channel Access Token` | `OmFzUGgZ1xIpAAP5` | HTTP Header Auth | LINE Reply / Push |
-| `Gemini API Key` | `zTIA89pDJJs0Ad29` | HTTP Header Auth | Gemini（Header `x-goog-api-key`）|
+| `Gemini API Key` | `zTIA89pDJJs0Ad29` | HTTP Header Auth | Gemini（Header `x-goog-api-key`）。🔴 **免費方案，每個模型每天只有 20 次**，見下方 |
 | `Google Drive account` | `0TSq1oyqs4BHQxWa` | Google Drive OAuth2 | 建檔器列 Drive 子資料夾用 |
 | `Google Calendar account` | **待建** | Google Calendar OAuth2 | 行事曆建立器寫 primary 行事曆用 |
 | `FB Page Token` | 已建立 | HTTP Header Auth | `Authorization: Bearer <永久粉專權杖>`，發文/刪文用 |
 | `KEIS 帳密（自動登入）` | `KPvi4Z4Z8IAhKbdz` | Custom Auth | `{"body":{"username":…,"password":…}}`。線 A/B 每次跑都自己打 `/auth/login` 拿新 token（KEIS 的 JWT 只活 8 小時，靜態 token 撐不過一天）|
 | `展售系統帳密（自動登入）` | `ZkOT0wWz3oZTpdME` | Custom Auth | `{"body":{"LoginType","HouseID","MemberID","MemberPW"}}`；本機 `.env` 也有一份（`ES_*`，已 gitignore）|
 | `KEIS_LINE_DIRECT_TOKEN` | `scripts/keis/.env` **和桌面 `keis\.env` 兩份都要有** | LINE Messaging API 直推 | grab.py 心跳 + 廣告看門狗繞過 n8n 直推用。⚠️ **改 .env 一律兩邊都改**（2026-08-02 就是因為桌面那份沒有這個 key，防線形同虛設）|
+
+### 🔴 Gemini 配額：免費方案「每個模型每天 20 次」
+
+2026-08-04 實測撞到的硬天花板（錯誤裡的原文：
+`quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier`、`quotaValue: 20`、
+`model: gemini-2.5-flash-lite`）。
+
+- **是「每天」不是「每分鐘」**，撞到之後要等太平洋時間午夜重置＝**台灣時間下午 3 點**
+- **配額是每個模型分開算的**：`gemini-2.5-flash-lite` 用完，`gemini-2.5-flash` 還有自己的 20 次
+  （實測 `gemini-2.0-flash` / `gemini-2.0-flash-lite` 一律 429，不能當備援）
+- 撞到時 n8n 顯示的訊息是 `The service is receiving too many requests from you`，
+  看起來像「打太快」，其實是「今天的份用完了」——**不要傻等一分鐘再重試**
+
+**現在的用量**：線 A 每天 6 班、線 C 最多 6 班、LINE 的行事曆/客戶/圖片分流器隨叫隨用，
+合計本來就在 20 的邊緣。要加任何一個新的 Gemini 呼叫之前先算這筆帳，
+或是**分散到不同模型**（配額分開算），再不然就去 Google Cloud 開帳單轉付費方案。
+
+⚠️ 用臨時 workflow 試跑 Gemini 相關的東西**會吃掉正式線的額度**
+（2026-08-04 就因此弄掛一班廣告，見 `incidents.md`）。要測就挑非整點、控制次數。
 
 ⚠️ FB Page Token **沒有 `pages_read_engagement`**（列不了貼文清單，只能發文／改文）。
 要做「掃粉專找爛貼文」得先補權限，見 `docs/fb-token-setup.md` F 步驟。
@@ -256,6 +275,28 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - ⚠️ 只收永慶/台慶連結，塞 houseol 網址會被 500 打槍
 - ⚠️ `show_in_web` **只有列表端點有，詳情端點沒有**。要稽核只能整份撈（`page_size` 上限 100，
   `total_pages` 欄位是 null，要靠 `total` 或「回傳筆數 < page_size」判斷收尾）
+
+### 2026-07-23 被砍的欄位「回來了」——但先別改回去
+
+2026-08-04 實測詳情端點（`GET /api/v1/property-management/{id}`）欄位數 61 → **85**，
+當初砍掉的全部又有值了：`images`（含網址）、`age`、`school_info`、`official_url`、
+`layout`、`floor_info`。
+
+**不要因為欄位回來就把繞道做法改回去**（照片走 download-images zip、屋齡學區走永慶官網、
+格局樓層自己組）。理由：現在這套不依賴 KEIS 給不給，KEIS 砍過一次就會砍第二次，
+而繞道做法已經跑順、還多了官網交叉驗證這層。除非現行做法出問題，否則不動。
+
+⚠️ 值得盯的一點：詳情端點的 `image_count` 現在反而是**空的**，而 `API 體檢` 有檢查這個欄位。
+體檢讀的是列表端點所以暫時沒事，但 KEIS 顯然還在動欄位。
+
+登入（給本機腳本用，n8n 走 credential）：
+```
+POST /api/v1/auth/login?device_type=desktop
+content-type: application/x-www-form-urlencoded
+username=<帳號>&password=<密碼>     → 回 {"access_token":…, "expires_in":28800}
+```
+賣點是 `feature_1` ~ `feature_5`；車位是 `parking_type`
+（⚠️ **「車位」指有產權的登記車位**，大樓那種；透天的「車庫」是空間、不會登記成車位，兩者不同）。
 
 ### 永慶官網連結反查（發文前的門檻）
 
