@@ -14,7 +14,7 @@
 `git push` / `gh pr merge` 一律回 403 `Your account was suspended`。
 **不要浪費時間重試推送，收工一律只做本機 commit，跳過 push/PR，等帳號恢復再一次補推。**
 
-- **未推的東西**：本機分支 `claude/multi-store-price-fix-0730` 有約 28 個 commit 未推；
+- **未推的東西**：本機分支 `claude/multi-store-price-fix-0730` 有 45 個 commit 未推（2026-08-04 計）；
   GitHub 上 **PR #161 開著未合**。恢復後：`git push` → 合 PR #161 → 把後續 commit 一起併進 main
 - **離線備份**：`桌面\asce-備份-20260730.bundle`（完整歷史，`git clone` 那個檔就能還原）
 - **申訴**：2026-07-30 21:31 已送工單（support.github.com），等 GitHub 客服回信，不用重複申訴
@@ -114,6 +114,9 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
   兩份停用的 Chrome 登入態，08-04 搬出來但沒刪、觀察一週。刪前看 `daily_run.log` 有沒有正常跑。
   徵兆是 LINE「🔑 房地要重新登入」→ 掃一次 QR Code 即可，不用搬回來。細節見記憶 buyer-match-chrome-profiles。
 - 車位型態（平面式/機械式）還沒對應，目前只做到「有/無車位」
+- **GUI 新增「★ 全部群組」（2026-08-04）**：群組下拉選它＝A買→B買→C買 依序整批跑，
+  CLI 等同 `python run_group_match.py A買 B買 C買`。只做過不開瀏覽器的煙霧測試，
+  **還沒實跑整批**（要好幾小時）；第一次建議先勾「只抓專員資訊」小試。桌面／repo 已同步
 
 ---
 
