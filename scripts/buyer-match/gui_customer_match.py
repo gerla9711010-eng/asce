@@ -7,7 +7,7 @@
 
 三個下拉的清單是開工具時直接從房地讀回來的（2026-07-30 改；之前要手打客戶名字，
 名字很長又會打錯）。四種範圍：
-  群組＝「★ 全部群組」          → A買/B買/C買… 全部依序跑完（2026-08-04 加）
+  群組＝「★ 全部群組」          → A買→B買→C買 依序跑完（其他雜項資料夾不跑）
   客戶＝「全部客戶」            → 整組跑
   客戶＝某人、客需＝「全部客需」  → 只跑這位客戶所有條件
   客戶＝某人、客需＝某個條件      → 單查一條
@@ -49,7 +49,10 @@ from gui_main import (  # 沿用同一套配色與 Chrome 啟動/狀態邏輯，
     launch_chrome,
 )
 
-ALL_GROUPS = "（★ 全部群組：一組一組依序跑完）"
+ALL_GROUPS = "（★ 全部群組：A買→B買→C買 依序跑完）"
+# 「全部群組」只跑這三組。房地「客需條件」底下還有「其他」之類的雜項資料夾，
+# 那些不是要配的買方名單，跑了只是浪費幾十分鐘（2026-08-04 實測跑進去過）。
+MAIN_GROUPS = ("A買", "B買", "C買")
 ALL_CUSTOMERS = "（整組跑：全部客戶）"
 ALL_NEEDS = "（這位客戶的全部客需）"
 
@@ -356,10 +359,13 @@ class App:
         all_customers = all_groups or customer in ("", ALL_CUSTOMERS)
         group_mode = all_customers or need in ("", ALL_NEEDS)
 
-        groups = list(self.tree.keys()) if all_groups else []
+        # 只跑 A買/B買/C買，房地上其他雜項資料夾（例：「其他」）一律跳過
+        groups = [g for g in MAIN_GROUPS if g in self.tree] if all_groups else []
         if all_groups and not groups:
             messagebox.showwarning(
-                "沒有群組可跑", "客戶清單是空的，先按「從房地重新讀客戶清單」再試。"
+                "沒有群組可跑",
+                f"讀不到 {'／'.join(MAIN_GROUPS)} 任何一組，"
+                "先按「從房地重新讀客戶清單」再試。",
             )
             return
 
