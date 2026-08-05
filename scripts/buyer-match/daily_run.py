@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -175,7 +177,70 @@ def build_report(
     return f"{head}\n\n{body}{tail}"
 
 
+# ── 開機觸發要的兩道保險（2026-08-05 加）─────────────────────────
+# 排程改成「登入後 15 分鐘」也跑（早到就早跑完），08:10 那個保留當備援。
+# 於是多出兩種以前不會發生的狀況，各補一道：
+#   ① 門市 00:00~約 07:22 斷網：太早開機的話，一開跑什麼都連不到。以前這會被
+#      當成「登入態掉了」推一則假的「🔑 房地要重新登入」，害人白掃一次 QR Code。
+#      → 先等網路通再開始，而且斷網期間 LINE 本來也送不出去，安靜等就好。
+#   ② 一天跑兩次：中午重開機會再觸發一次，白花兩小時又推一則重複的 LINE。
+#      → 成功跑完就記下日期，同一天再被叫起來就直接跳過（--force 可略過這道）。
+NET_PROBE_URL = "https://agent.foundi.info"
+STATE_PATH = BASE_DIR / "state" / "daily_run_state.json"
+
+
+def wait_for_network(max_wait_sec: int = 45 * 60, interval_sec: int = 60) -> bool:
+    """等到連得上房地為止。回 False＝等到逾時還是不通（這種時候 LINE 也推不出去）。"""
+    deadline = time.monotonic() + max_wait_sec
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            httpx.head(NET_PROBE_URL, timeout=10, follow_redirects=True)
+            if attempt > 1:
+                log(f"網路通了（等了 {attempt} 次）")
+            return True
+        except Exception as e:
+            if time.monotonic() >= deadline:
+                log(f"等了 {max_wait_sec // 60} 分鐘網路還是不通（{type(e).__name__}），這次不跑")
+                return False
+            if attempt == 1:
+                log(f"連不到 {NET_PROBE_URL}（{type(e).__name__}）——門市半夜到約 07:22 斷網，等網路通再開始")
+            time.sleep(interval_sec)
+
+
+def already_ran_today() -> bool:
+    try:
+        data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return data.get("last_success_date") == f"{datetime.now():%Y-%m-%d}"
+
+
+def mark_ran_today() -> None:
+    try:
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text(
+            json.dumps(
+                {"last_success_date": f"{datetime.now():%Y-%m-%d}",
+                 "finished_at": datetime.now().isoformat(timespec="seconds")},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        # 記不起來最多是重開機時多跑一次，不該讓「已經跑完的這班」算失敗
+        log(f"⚠ 當日紀錄寫不進去（{type(e).__name__}），重開機可能會重跑一次")
+
+
 async def run(args) -> int:
+    if not args.force and already_ran_today():
+        log("今天已經跑完過一輪，這次跳過（要重跑就加 --force）")
+        return 0
+
+    if not wait_for_network():
+        return 5
+
     ok, msg = chrome_cdp.ensure_cdp(timeout_sec=90)
     log(f"Chrome CDP：{msg}")
     if not ok:
@@ -281,6 +346,8 @@ async def run(args) -> int:
         for group, summary in results:
             if summary:
                 log(f"「{group}」跑完：\n" + run_group_match.format_summary(group, summary))
+        if not args.dry_run:
+            mark_ran_today()
         notify(report)
         return 0
 
@@ -303,6 +370,10 @@ def main() -> None:
         help="改用總價低到高排序（預設是「上架新>舊」，每天跑要的是新案）",
     )
     ap.set_defaults(newest=True)
+    ap.add_argument(
+        "--force", action="store_true",
+        help="今天已經跑過也照跑（排程開機那班跟 08:10 那班共用「一天一次」的鎖）",
+    )
     ap.add_argument("--notify-test", action="store_true", help="只推一則測試訊息就結束")
     args = ap.parse_args()
 

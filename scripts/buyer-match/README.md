@@ -294,9 +294,24 @@ python run_group_match.py A買 --only-new                 # 只給上次沒出�
 可能是幾十分鐘起跳，**第一次一定要先 `--dry-run --limit 5` 試跑**估時間，不要一次
 全開。
 
-## 每天 08:10 自動跑（`daily_run.py` + Windows 工作排程）
+## 每天早上自動跑（`daily_run.py` + Windows 工作排程 `buyer-match-daily`）
 
 2026-07-29 加：每天早上自動跑，跑完把「哪位客戶幾筆」的總表推到 LINE。
+
+**兩個觸發點（2026-08-05 改）**：門市電腦每晚 00:30 自動關機，所以「開機登入」＝人到店了。
+
+| 觸發 | 用意 |
+|---|---|
+| **登入後 15 分** | 早到就早跑早看到（三組要跑 ~1 小時）。延 15 分是讓 OneDrive／Chrome／LINE 先開完，別在開機瞬間搶記憶體 |
+| **每天 08:10** | 保險。晚到／沒登入時照跑 |
+
+兩個觸發不會跑成兩輪：跑完會把日期寫進 `state/daily_run_state.json`，同一天再觸發直接跳過
+（想強制重跑加 `--force`）；萬一前一輪還在跑，排程設 `MultipleInstances IgnoreNew` 也不會疊。
+
+**門市網路 00:00～約 07:22 是斷的**（正常現象，見記憶 keis-store-nightly-outage）。太早開機時
+`wait_for_network()` 會每分鐘探一次 `agent.foundi.info`、最多等 45 分鐘再開跑，**等待期間不推 LINE**
+——不然斷網會被誤判成「🔑 房地要重新登入」，每天早上吵你一次。等超過 45 分才放棄（exit 5），
+那時 08:10 那班會再試一次。
 
 **2026-08-05 起跑 `A買→B買→C買` 三組**（`daily_run.DEFAULT_GROUPS`，跟 GUI 的
 「★ 全部群組」同一組名單）。排程動作沒帶 `--group`，所以改那個常數就等於改排程。
@@ -319,6 +334,7 @@ python daily_run.py --dry-run       # 完整跑一次但不點分享連結
 
 **它會自己做的事**
 
+0. 今天已經跑完過一輪就直接結束（`state/daily_run_state.json`）；門市還沒通網就等網路
 1. CDP Chrome（port 9223）沒開就自己開起來，等到連得上為止（最多 90 秒）
 2. **先驗登入態**：房地、i智慧各檢查一次。任何一邊沒登入就**推 LINE 叫人去登、當場中止**
    ——絕不會靜靜撈到 0 筆然後回報「今天沒新案」
@@ -365,8 +381,10 @@ Unregister-ScheduledTask -TaskName 'buyer-match-daily' -Confirm:$false
 
 | 想改什麼 | 怎麼改 |
 |---|---|
-| 換群組（B買/C買） | `install-daily-task.ps1` 的 `-Argument` 加 `--group B買`，重跑安裝 |
-| 換時間 | 同一支 ps1 的 `-At 8:10am`，重跑安裝 |
+| 換群組（B買/C買） | 改 `daily_run.py` 的 `DEFAULT_GROUPS`；只想改排程那班就在 `install-daily-task.ps1` 的 `-Argument` 加 `--group B買` 重跑安裝 |
+| 換時間 | 同一支 ps1 的 `-At 8:10am`（保險那班）／`$logon.Delay = 'PT15M'`（開機那班），重跑安裝 |
+| 只留一個觸發 | ps1 的 `-Trigger @($daily, $logon)` 拿掉不要的那個，重跑安裝 |
+| 同一天想再跑一次 | `python daily_run.py --force`（GUI 手動跑不受這個鎖影響） |
 | 通知去哪 | 預設讀 `scripts/keis/.env` 的 `KEIS_NOTIFY_WEBHOOK`（n8n `keis-grab`，走 `event=alert` 分支）；要分開就在這邊的 `.env` 設 `BUYER_MATCH_NOTIFY_WEBHOOK` |
 
 ## 之後可以怎麼擴
