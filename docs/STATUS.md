@@ -104,24 +104,21 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
 - 手機看板 artifact（`c30bd39a-…`）最後更新 08-05 00:04。平常排程只重產桌面
   `配案看板.html`，**artifact 要人工再發布一次**才會更新
 
-### 5. 🔴 公開網頁全部 404，正在搬去 Cloudflare Pages（2026-08-05，**卡在使用者登入**）
+### 5. 公開網頁已搬到 Cloudflare Pages（2026-08-05 上線）
 
-帳號停權**連 GitHub Pages 一起關掉**：`yc-calc`（三合一計算機）、`kh-market`（行情看板）、
-`qingan3-calc` 現在對外都是 404。所以「情資」沒更新不是 bdinfo 壞掉——每週二照樣算好寫進
-`kh-market-tool\dist\data\intel\latest.json`，只是推不上去也開不了。
+**新網址（給客戶／自己用的）**
+- 三合一計算機 https://yc-tools.pages.dev/yc-calc/
+- 行情看板 https://yc-tools.pages.dev/kh-market/
 
-已經做完的（本機，不需要 GitHub）：
-- `kh-market-tool\update.py`：改成 **Cloudflare Pages 為主、GitHub 為次**，兩個站打包成一包
-  （`_cf_stage/kh-market`＋`_cf_stage/yc-calc`＋根目錄入口頁），推完會**真的去線上抓一次驗證**，
-  失敗推 LINE（同一種故障 3 天只吵一次）。手動重發：`python update.py --deploy-only`
-- `yc-calc\index.html`：三個寫死的 github.io 網址（開價建議 manifest／內部成交 JSON／看板 iframe）
-  改成**先同網域、失敗才回頭找 github.io**，兩邊主機都能跑
-- `yc-calc\sw.js`：`/data/intel/` 改成網路優先，不然手機會被舊快取卡在舊的那一週
+原因：帳號停權**連 GitHub Pages 一起關掉**，`github.io` 底下三個站對外全部 404
+（`git ls-remote` 讀取也 403）。「情資沒更新」不是 bdinfo 壞掉——每週二照樣算好寫檔，是推不上去。
 
-**下一步（要使用者做，2 分鐘）**：① 用 Google 登入註冊 Cloudflare（免費、免信用卡）
-② 在對話打 `! npx wrangler login` 按 Allow。之後我跑一次部署，網址變 `xxx.pages.dev`，
-每天 13:37 那班（`KH-Market-AutoUpdate`）會自動重發。
-⚠️ `qingan3-calc` 沒有本機原始檔、GitHub 讀取也被擋，**要等帳號恢復才能搬**。
+現在的鏈路：週二 09:55 bdinfo 產完 `dist/data/intel/latest.json` → **當場叫 `update.py --deploy-only`
+發布**（不用等 13:37）→ 每天 13:37 `KH-Market-AutoUpdate` 再發一次保底 → 發完**真的去線上抓一次
+比對**，不符或 404 就推 LINE（同故障 3 天只吵一次，狀態存 `publish_state.json`）。
+GitHub 仍是次要通道，帳號恢復當天會自動補推積著的 commit。手動重發：`python update.py --deploy-only`
+
+⚠️ **`qingan3-calc` 沒有本機原始檔、GitHub 讀取也被擋，只能等帳號恢復才搬得動**（現在還是 404）。
 
 ---
 
