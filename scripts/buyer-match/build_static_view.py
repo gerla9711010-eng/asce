@@ -54,6 +54,10 @@ def _parse_block(text: str) -> dict:
     }
 
 
+# 卡片排序：新上架 → 降價 → 其他（沒標記的）
+TAG_ORDER = {"new": 0, "repriced": 1, None: 2}
+
+
 def collect() -> dict:
     """把 manifest + 每個結果檔的內容，全部讀成一包可以嵌進 HTML 的資料。"""
     data = manifest.load()
@@ -70,6 +74,11 @@ def collect() -> dict:
                 continue
             text = path.read_text(encoding="utf-8")
             blocks = [_parse_block(b.strip()) for b in text.split("\n\n") if b.strip()]
+            # 🆕 新上架排最前面、其次 🔻 降價，剩下的維持原本順序（穩定排序）。
+            # 打開一個客戶就先看到「今天有什麼新東西可以打電話」，不用自己從頭掃。
+            blocks.sort(key=lambda b: TAG_ORDER.get(b["tag"], 9))
+            new_n = sum(1 for b in blocks if b["tag"] == "new")
+            repriced_n = sum(1 for b in blocks if b["tag"] == "repriced")
             rows.append(
                 {
                     "customer": entry["customer"],
@@ -77,6 +86,8 @@ def collect() -> dict:
                     "timestamp": record["timestamp"],
                     "hits": record["hits"],
                     "is_full": entry.get("full") is not None,
+                    "new_n": new_n,
+                    "repriced_n": repriced_n,
                     "blocks": blocks,
                 }
             )
@@ -180,7 +191,16 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   position: absolute; right: 12px; bottom: 11px; text-align: right; color: var(--ink-soft); font-size: 12.5px;
 }
 .needcard-count b { display: block; font-size: 23px; color: var(--ink); font-variant-numeric: tabular-nums; }
-.needcard .chip-partial { position: absolute; top: 10px; right: 10px; }
+/* 卡片右上角那排標籤：🆕 幾筆新上架、🔻 幾筆降價、僅新案 */
+.needcard-flags {
+  position: absolute; top: 9px; right: 9px; display: flex; gap: 4px; align-items: center;
+}
+.chip-new, .chip-drop {
+  display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 7px;
+  border-radius: 5px; font-variant-numeric: tabular-nums;
+}
+.chip-new { background: rgba(45, 125, 79, .14); color: var(--fresh); }
+.chip-drop { background: rgba(196, 64, 43, .13); color: var(--danger); }
 
 .chip-partial {
   display: inline-block; font-size: 10.5px; font-weight: 600;
@@ -222,6 +242,14 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   border-radius: 7px; padding: 5px 11px; font-size: 13px; font-weight: 700;
   cursor: pointer; font-family: inherit; text-decoration: none;
 }
+.linkrow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 7px; }
+.linkrow .linkline { margin-top: 0; }
+.linkcopy {
+  border: 1px solid var(--line); background: transparent; color: var(--ink-soft);
+  border-radius: 7px; padding: 5px 9px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+}
+.linkcopy[data-done="1"] { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+
 .pricenote {
   color: var(--danger); font-weight: 800; font-size: 12.5px; margin-bottom: 6px;
   font-variant-numeric: tabular-nums;
@@ -435,8 +463,13 @@ function renderList() {
   rows.forEach(r => {
     const b = document.createElement('button');
     b.className = 'needcard';
+    // 有新上架就在客戶卡上直接標出來，不用一個一個點進去才知道誰有新東西
+    const flags =
+      (r.new_n ? '<span class="chip-new">新 ' + r.new_n + '</span>' : '') +
+      (r.repriced_n ? '<span class="chip-drop">降 ' + r.repriced_n + '</span>' : '');
     b.innerHTML =
-      (r.is_full ? '' : '<span class="chip-partial">僅新案</span>') +
+      '<span class="needcard-flags">' + flags +
+      (r.is_full ? '' : '<span class="chip-partial">僅新案</span>') + '</span>' +
       '<span class="needcard-cust">' + esc(r.customer) + '</span>' +
       '<span class="needcard-need">' + esc(r.need) + '</span>' +
       '<span class="needcard-meta">' + esc((r.timestamp || '').replace('T', ' ').slice(0, 16)) + '</span>' +
@@ -495,12 +528,17 @@ function renderCards() {
     blk.display.split('\n').forEach((line, li) => {
       if (/^https?:\/\//.test(line.trim())) {
         const url = line.trim();
+        // 連結那排：主按鈕（預覽或開新分頁）＋ 複製連結。
+        // 電腦上用 claude.ai 開這份看板時，外站連結會被那層 iframe 攔下來、
+        // 有時候按了像沒反應，所以一定要留一個「複製連結」的退路。
+        const wrapLink = document.createElement('div');
+        wrapLink.className = 'linkrow';
         if (topLevel) {
           const a = document.createElement('button');
           a.className = 'linkline';
           a.textContent = '🔗 看詳情／分享頁';
           a.onclick = (e) => { e.stopPropagation(); openLink(url); };
-          body.appendChild(a);
+          wrapLink.appendChild(a);
         } else {
           // Artifact 裡：給真的 <a target=_blank>，讓瀏覽器原生處理開新分頁，
           // JS 的 window.open() 在這層沙盒會被吃掉、按了沒反應。
@@ -511,8 +549,18 @@ function renderCards() {
           a.rel = 'noopener noreferrer';
           a.textContent = '🔗 看詳情／分享頁';
           a.onclick = (e) => { e.stopPropagation(); };
-          body.appendChild(a);
+          wrapLink.appendChild(a);
         }
+        const cp = document.createElement('button');
+        cp.className = 'linkcopy';
+        cp.textContent = '複製連結';
+        cp.onclick = async (e) => {
+          e.stopPropagation();
+          if (await copyText(url)) { cp.textContent = '已複製'; cp.dataset.done = '1';
+            setTimeout(() => { cp.textContent = '複製連結'; cp.dataset.done = '0'; }, 1600); }
+        };
+        wrapLink.appendChild(cp);
+        body.appendChild(wrapLink);
       } else {
         const d = document.createElement('div');
         d.className = 'textline' + (li === 0 ? ' textline-title' : '');
