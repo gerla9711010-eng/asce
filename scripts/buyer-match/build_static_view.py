@@ -266,6 +266,29 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
 .stamp-new { color: var(--fresh); }
 .stamp-repriced { color: var(--danger); }
 
+/* 電腦螢幕：字整體放大一級、卡片寬一點。手機那邊維持原樣不動。
+   （2026-08-05 使用者要求：電腦上看眼睛比較舒適） */
+@media (min-width: 760px) {
+  body { font-size: 17px; }
+  main { max-width: 1180px; padding: 18px 20px; }
+  .masthead h1 { font-size: 19px; }
+  .built { font-size: 12.5px; }
+  .grouppill { font-size: 15.5px; padding: 7px 17px; }
+  #needlist { gap: 14px; }
+  .needcard { padding: 19px 17px 54px; min-height: 152px; }
+  .needcard-cust { font-size: 22px; }
+  .needcard-need { font-size: 18px; }
+  .needcard-meta { font-size: 13.5px; }
+  .needcard-count b { font-size: 26px; }
+  .cards { gap: 14px; }
+  .propcard { padding: 24px 38px 58px 18px; min-height: 166px; }
+  .textline { font-size: 17px; }
+  .textline-title { font-size: 18.5px; }
+  .linkline, .btn { font-size: 15px; }
+  .copy-btn { font-size: 14.5px; padding: 9px 0; }
+  .drill-meta { font-size: 14px; }
+}
+
 @media (max-width: 420px) {
   .cards { gap: 8px; }
   .propcard { padding: 18px 30px 48px 12px; }
@@ -652,15 +675,25 @@ __BODY__
 """
 
 
-def build(out_path: Path, fmt: str) -> Path:
-    groups = collect()
-    total = sum(len(rows) for rows in groups.values())
+def render(fmt: str = "standalone", groups: dict | None = None) -> str:
+    """產生看板 HTML 字串。
+
+    webview_server.py 也是叫這支——版面只有這一份，改一次三個入口
+    （localhost 網頁／桌面單檔／手機 artifact）就一起跟著變。"""
+    if groups is None:
+        groups = collect()
     shell = STANDALONE if fmt == "standalone" else ARTIFACT
-    html = (
+    return (
         shell.replace("__STYLE__", STYLE)
         .replace("__BODY__", BODY.replace("__BUILT_AT__", datetime.now().strftime("%Y-%m-%d %H:%M")))
         .replace("__SCRIPT__", SCRIPT.replace("__DATA_JSON__", json.dumps(groups, ensure_ascii=False)))
     )
+
+
+def build(out_path: Path, fmt: str) -> Path:
+    groups = collect()
+    total = sum(len(rows) for rows in groups.values())
+    html = render(fmt, groups)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
     print(f"[INFO] 已產生看板（{fmt}）：{out_path}")
