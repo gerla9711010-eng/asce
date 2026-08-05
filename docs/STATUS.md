@@ -14,7 +14,7 @@
 `git push` / `gh pr merge` 一律回 403 `Your account was suspended`。
 **不要浪費時間重試推送，收工一律只做本機 commit，跳過 push/PR，等帳號恢復再一次補推。**
 
-- **未推的東西**：本機分支 `claude/multi-store-price-fix-0730` 有 57 個 commit 未推（2026-08-05 計）；
+- **未推的東西**：本機分支 `claude/multi-store-price-fix-0730` 有 60 個 commit 未推（2026-08-05 計）；
   GitHub 上 **PR #161 開著未合**。恢復後：`git push` → 合 PR #161 → 把後續 commit 一起併進 main
 - **離線備份**：`桌面\asce-備份-20260730.bundle`｜**申訴**：07-30 已送工單，等回信，不用重複送
 - 已設每天自動檢查帳號有沒有恢復；排程與桌面工具**完全不依賴 GitHub**，停權期間照跑
