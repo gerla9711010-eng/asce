@@ -115,7 +115,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 下架判定，兩套邏輯：\n//\n// (1) 有 KEIS廣告ID 的（v3 自己發的）→ 直接看 KEIS 廣告追蹤怎麼標。\n//     那個頁面本來就是拿來盯廣告死活的：KEIS 每天凌晨會去抓一輪 adcase_url，\n//     失效就把 url_invalid 設成 true、status_tags 加「案件下架」。實測新增時也會在 ~15 秒內抓一次。\n//     這比我們自己去打永慶網站準，也不用每筆手動確認。\n//\n// (2) 沒有 KEIS廣告ID 的（v2 時期用 LINE 手動建檔的舊資料，本來就不在 KEIS）\n//     → 退回雙重確認：property-management 查無 **而且** 來源連結真的死了。\n//     只看其中一邊都會誤判：舊資料本來就不在 KEIS；而 houseol 的來源連結會自己爛掉（物件還在賣）。\nconst items = $input.all();\n\nconst adMap = {};\ntry {\n  const raw = $('KEIS 撈廣告清單').first().json;\n  const body = raw.body ?? raw;\n  for (const a of (body.adcases || [])) adMap[a.adcase_id] = a;\n} catch (e) {}\n\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const inItem = $('展開結果').itemMatching(i).json || {};\n  const adId = Number(inItem.keisAdId || 0);\n  let isRemoved = false, reason = '';\n\n  if (adId > 0) {\n    const ad = adMap[adId];\n    if (!ad) {\n      reason = `KEIS 廣告追蹤查無 #${adId}（可能被手動刪掉）→ 略過`;\n    } else {\n      const tags = Array.isArray(ad.status_tags) ? ad.status_tags : [];\n      const tagDead = tags.some(t => String(t).includes('下架'));\n      if (ad.url_invalid === true || tagDead) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤標記官網連結已失效' + (tags.length ? `（${tags.join('、')}）` : '');\n      } else if (ad.is_expired === true) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤上這筆已結束';\n      } else {\n        reason = 'KEIS 廣告追蹤顯示連結正常';\n      }\n    }\n  } else {\n    const r = items[i].json || {};\n    const status = Number(r.statusCode ?? r.status ?? 0);\n    const body = r.body ?? r;\n    let keisOk = false, keisGone = false;\n    if (status === 200 && body && typeof body === 'object') {\n      keisOk = true;\n      const items = body.items || body.data || [];\n      const total = body.total != null ? Number(body.total) : items.length;\n      if (total === 0) { keisGone = true; reason = '(舊資料) KEIS 查無此案'; }\n      else if (items[0] && items[0].is_active === false) { keisGone = true; reason = '(舊資料) KEIS is_active=false'; }\n      else { reason = '(舊資料) 仍在架上'; }\n    } else {\n      reason = `(舊資料) KEIS 暫時無法確認(HTTP ${status})，本次略過`;\n    }\n    if (keisOk && keisGone) {\n      const url = inItem.sourceUrl || '';\n      if (!url) {\n        reason += '；無來源連結可二次確認 → 略過';\n      } else {\n        try {\n          const resp = await this.helpers.httpRequest({\n            url, json: false, timeout: 20000, returnFullResponse: true, ignoreHttpStatusErrors: true,\n            headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' } });\n          const code = Number(resp.statusCode || 0);\n          const html = String(resp.body || '');\n          const dead = code >= 400 || /已下架|物件不存在|已成交|查無此物件|查無此案/.test(html);\n          if (dead) { isRemoved = true; reason += `；來源連結已失效(HTTP ${code}) → 判定下架`; }\n          else { reason += `；但來源連結仍正常(HTTP ${code}) → 略過`; }\n        } catch (e) {\n          reason += '；來源連結查詢失敗 → 略過';\n        }\n      }\n    }\n  }\n  out.push({ json: { ...inItem, isRemoved, reason, detectedAt: new Date().toISOString() } });\n}\nreturn out;"
+        "jsCode": "// 下架判定，兩套邏輯：\n//\n// (1) 有 KEIS廣告ID 的（v3 自己發的）→ 直接看 KEIS 廣告追蹤怎麼標。\n//     那個頁面本來就是拿來盯廣告死活的：KEIS 每天凌晨會去抓一輪 adcase_url，\n//     失效就把 url_invalid 設成 true、status_tags 加「案件下架」。實測新增時也會在 ~15 秒內抓一次。\n//     這比我們自己去打永慶網站準，也不用每筆手動確認。\n//\n// (2) 沒有 KEIS廣告ID 的（v2 時期用 LINE 手動建檔的舊資料，本來就不在 KEIS）\n//     → 退回雙重確認：property-management 查無 **而且** 來源連結真的死了。\n//     只看其中一邊都會誤判：舊資料本來就不在 KEIS；而 houseol 的來源連結會自己爛掉（物件還在賣）。\nconst items = $input.all();\n\nconst adMap = {};\ntry {\n  const raw = $('KEIS 撈廣告清單').first().json;\n  const body = raw.body ?? raw;\n  for (const a of (body.adcases || [])) adMap[a.adcase_id] = a;\n} catch (e) {}\n\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const inItem = $('展開結果').itemMatching(i).json || {};\n  const adId = Number(inItem.keisAdId || 0);\n  let isRemoved = false, reason = '';\n  // 降價重發用：KEIS 每天自己會拿廣告建檔價(adcase_price)去比官網現價(url_price)，\n  // 降了就掛「降價XX萬」標籤。我們不用自己算，直接沿用它的判斷。\n  let priceDropped = false, oldPrice = 0, newPrice = 0, dropAmount = 0;\n\n  if (adId > 0) {\n    const ad = adMap[adId];\n    if (!ad) {\n      reason = `KEIS 廣告追蹤查無 #${adId}（可能被手動刪掉）→ 略過`;\n    } else {\n      const tags = Array.isArray(ad.status_tags) ? ad.status_tags : [];\n      const tagDead = tags.some(t => String(t).includes('下架'));\n      if (ad.url_invalid === true || tagDead) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤標記官網連結已失效' + (tags.length ? `（${tags.join('、')}）` : '');\n      } else if (ad.is_expired === true) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤上這筆已結束';\n      } else {\n        reason = 'KEIS 廣告追蹤顯示連結正常';\n        // 還在架上 → 看看有沒有降價。降價要重發一篇新的（編輯舊貼文不會重新進動態消息，\n        // 等於沒人看得到），所以這裡只負責勾「要重發」，實際重發交給線 C。\n        const oldP = Number(ad.adcase_price || 0);\n        const newP = Number(ad.url_price || 0);\n        if (tags.some(t => String(t).includes('降價')) && oldP > 0 && newP > 0 && newP < oldP && inItem.fbPostUrl) {\n          priceDropped = true; oldPrice = oldP; newPrice = newP;\n          dropAmount = Math.round((oldP - newP) * 10) / 10;\n          reason += `；偵測到降價 ${dropAmount} 萬（${oldP} → ${newP}），排入重發`;\n        }\n      }\n    }\n  } else {\n    const r = items[i].json || {};\n    const status = Number(r.statusCode ?? r.status ?? 0);\n    const body = r.body ?? r;\n    let keisOk = false, keisGone = false;\n    if (status === 200 && body && typeof body === 'object') {\n      keisOk = true;\n      const items = body.items || body.data || [];\n      const total = body.total != null ? Number(body.total) : items.length;\n      if (total === 0) { keisGone = true; reason = '(舊資料) KEIS 查無此案'; }\n      else if (items[0] && items[0].is_active === false) { keisGone = true; reason = '(舊資料) KEIS is_active=false'; }\n      else { reason = '(舊資料) 仍在架上'; }\n    } else {\n      reason = `(舊資料) KEIS 暫時無法確認(HTTP ${status})，本次略過`;\n    }\n    if (keisOk && keisGone) {\n      const url = inItem.sourceUrl || '';\n      if (!url) {\n        reason += '；無來源連結可二次確認 → 略過';\n      } else {\n        try {\n          const resp = await this.helpers.httpRequest({\n            url, json: false, timeout: 20000, returnFullResponse: true, ignoreHttpStatusErrors: true,\n            headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' } });\n          const code = Number(resp.statusCode || 0);\n          const html = String(resp.body || '');\n          const dead = code >= 400 || /已下架|物件不存在|已成交|查無此物件|查無此案/.test(html);\n          if (dead) { isRemoved = true; reason += `；來源連結已失效(HTTP ${code}) → 判定下架`; }\n          else { reason += `；但來源連結仍正常(HTTP ${code}) → 略過`; }\n        } catch (e) {\n          reason += '；來源連結查詢失敗 → 略過';\n        }\n      }\n    }\n  }\n  out.push({ json: { ...inItem, isRemoved, reason, priceDropped, oldPrice, newPrice, dropAmount,\n    detectedAt: new Date().toISOString() } });\n}\nreturn out;"
       },
       "id": "v3b-05-judge",
       "name": "判斷是否下架",
@@ -670,6 +670,88 @@
         },
         "options": {}
       }
+    },
+    {
+      "id": "pricedrop-if-20260805",
+      "name": "有降價?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        328
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "pd-b1",
+              "leftValue": "={{ $json.priceDropped }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pricedrop-patch-20260805",
+      "name": "勾要重發",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        200,
+        328
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $json.pageId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { '要重發': { checkbox: true } } }) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
     }
   ],
   "connections": {
@@ -766,7 +848,13 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "有降價?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "備妥刪文": {
@@ -940,6 +1028,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "有降價?": {
+      "main": [
+        [
+          {
+            "node": "勾要重發",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },

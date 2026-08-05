@@ -65,7 +65,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 挑最久沒重發的一筆；沒有就整條線靜靜結束（不推 LINE）\nconst rows = $input.first().json.results || [];\nif (!rows.length) return [];\nconst p = rows[0].properties || {};\nconst txt = k => (p[k]?.rich_text?.[0]?.plain_text || '');\nconst permalink = p['粉專貼文連結']?.url || '';\n// permalink 形如 https://www.facebook.com/{pageId}/posts/{postId} → FB 刪文要 {pageId}_{postId}\nlet oldPostId = '';\nlet m = permalink.match(/facebook\\.com\\/(\\d+)\\/posts\\/(\\w+)/);\nif (m) { oldPostId = `${m[1]}_${m[2]}`; }\nelse { m = permalink.match(/facebook\\.com\\/(\\d+_\\w+)/); if (m) oldPostId = m[1]; }\nreturn [{ json: {\n  notionPageId: rows[0].id,\n  contract_no: txt('案件編號').toUpperCase(),\n  keisId: p['KEIS物件ID']?.number || null,\n  oldPermalink: permalink,\n  oldPostId,\n  重發次數: p['重發次數']?.number || 0,\n  文案版本: p['文案版本']?.number || 1,\n  official_url: p['來源連結']?.url || '',\n} }];\n"
+        "jsCode": "// 挑最久沒重發的一筆；沒有就整條線靜靜結束（不推 LINE）\nconst rows = $input.first().json.results || [];\nif (!rows.length) return [];\nconst p = rows[0].properties || {};\nconst txt = k => (p[k]?.rich_text?.[0]?.plain_text || '');\n// 文案可能被 Notion 切成多個 rich_text 區塊，要全部接回來才不會只拿到前半段\nconst txtAll = k => (p[k]?.rich_text || []).map(r => r.plain_text || '').join('');\nconst permalink = p['粉專貼文連結']?.url || '';\n// permalink 形如 https://www.facebook.com/{pageId}/posts/{postId} → FB 刪文要 {pageId}_{postId}\nlet oldPostId = '';\nlet m = permalink.match(/facebook\\.com\\/(\\d+)\\/posts\\/(\\w+)/);\nif (m) { oldPostId = `${m[1]}_${m[2]}`; }\nelse { m = permalink.match(/facebook\\.com\\/(\\d+_\\w+)/); if (m) oldPostId = m[1]; }\nreturn [{ json: {\n  notionPageId: rows[0].id,\n  contract_no: txt('案件編號').toUpperCase(),\n  keisId: p['KEIS物件ID']?.number || null,\n  oldPermalink: permalink,\n  oldPostId,\n  重發次數: p['重發次數']?.number || 0,\n  文案版本: p['文案版本']?.number || 1,\n  official_url: p['來源連結']?.url || '',\n  // 降價重發要用的：上一版文案原文 + 上一版價格。KEIS 那邊的現價由 白名單清洗 帶進來，\n  // 兩邊一比就知道有沒有降價，不用另外開 Notion 欄位。\n  舊粉專文案: txtAll('粉專文案'),\n  舊社團文案: txtAll('社團文案'),\n  舊總價萬: Number(String(txt('總價')).replace(/[^\\d.]/g, '')) || 0,\n  keisAdId: p['KEIS廣告ID']?.number || 0,\n} }];\n"
       },
       "id": "v3c-03-pick",
       "name": "挑一件重發",
@@ -391,7 +391,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ properties: { '粉專貼文連結': { url: $('取貼文結果').first().json.permalink || null }, '粉專文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['粉專文案']||'').slice(0,1900) } }] }, '社團文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['社團文案']||'').slice(0,1900) } }] }, '重發次數': { number: Number($('挑一件重發').first().json['重發次數'] || 0) + 1 }, '文案版本': { number: Number($('挑一件重發').first().json['文案版本'] || 1) + 1 }, '專員電話': { phone_number: ($('查專員電話').first().json['專員電話'] || null) }, '要重發': { checkbox: false }, '最後重發時間': { date: { start: $now.setZone('Asia/Taipei').toISODate() } } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ properties: { '粉專貼文連結': { url: $('取貼文結果').first().json.permalink || null }, '粉專文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['粉專文案']||'').slice(0,1900) } }] }, '社團文案': { rich_text: [{ text: { content: String($('取貼文結果').first().json['社團文案']||'').slice(0,1900) } }] }, '重發次數': { number: Number($('挑一件重發').first().json['重發次數'] || 0) + 1 }, '文案版本': { number: Number($('挑一件重發').first().json['文案版本'] || 1) + 1 }, '專員電話': { phone_number: ($('查專員電話').first().json['專員電話'] || null) }, '總價': { rich_text: [{ text: { content: ($('取貼文結果').first().json['總價萬'] != null ? $('取貼文結果').first().json['總價萬'] + ' 萬' : '') } }] }, '要重發': { checkbox: false }, '最後重發時間': { date: { start: $now.setZone('Asia/Taipei').toISODate() } } } }) }}",
         "options": {}
       },
       "id": "v3c-13-notion",
@@ -429,7 +429,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `🔁 已重發 ${$('取貼文結果').first().json.contract_no}\\n${$('取貼文結果').first().json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n舊貼文已刪，社團分享請重按這篇的「分享」。\\n（Notion 的勾勾已自動取消，要再發就再勾一次）\\n\\n━ 社團版 ━\\n${$('取貼文結果').first().json['社團文案'] || ''}` }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `${(() => { const o = Number($('挑一件重發').first().json['舊總價萬']||0), n = Number($('取貼文結果').first().json['總價萬']||0); return (o > n && n > 0) ? `🔻 降價重發（${o} 萬 → ${n} 萬，降 ${Math.round((o-n)*10)/10} 萬）\\n` : ''; })()}🔁 已重發 ${$('取貼文結果').first().json.contract_no}\\n${$('取貼文結果').first().json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n舊貼文已刪，社團分享請重按這篇的「分享」。\\n（Notion 的勾勾已自動取消，要再發就再勾一次）\\n\\n━ 社團版 ━\\n${$('取貼文結果').first().json['社團文案'] || ''}` }] }) }}",
         "options": {}
       },
       "id": "v3c-14-line",
@@ -467,7 +467,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 數字守門員 v2：\n// (1) 文案裡的每個數字都要在官方事實裡找得到\n// (2) 官方沒有的欄位（屋齡/學區），文案裡連提都不准提——擋 AI 自己腦補\nconst j = $input.first().json;\n\nconst facts = new Set();\nconst push = v => {\n  if (v === null || v === undefined || v === '') return;\n  const n = String(v).replace(/,/g, '');\n  facts.add(n);\n  if (/^\\d+\\.\\d+$/.test(n)) { facts.add(String(Math.round(Number(n)))); facts.add(n.split('.')[0]); }\n  if (/^\\d+$/.test(n)) facts.add(String(Number(n)));\n};\n[j['總價萬'], j['單價'], j['主建坪'], j['建物坪'], j['屋齡']].forEach(push);\nconst raw = [j['格局'], j['樓層'], j['地址'], j['案名'], j['社區'], j['車位'], j['學區'],\n  ...(j['賣點'] || []), ...Object.values(j['機能'] || {})].join(' ');\n(raw.match(/\\d+(?:\\.\\d+)?/g) || []).forEach(push);\n['0912877583', '11034791100', '417208', '111'].forEach(push);\n\nconst fb = String(j['粉專文案'] || '');\nconst grp = String(j['社團文案'] || '');\nconst body = fb + '\\n' + grp;\n\n// (1) 數字檢查（先把網址拿掉，LINE 連結的亂碼裡有數字，不是文案在講的數字）\nconst scan = body.replace(/https?:\\/\\/\\S+/g, ' ');\nconst used = [...new Set((scan.match(/\\d+(?:\\.\\d+)?/g) || []))];\nconst badNums = used.filter(n => !facts.has(n) && !facts.has(String(Number(n))));\n\n// (2) 沒資料就不准提\nconst banned = [];\nif (j['屋齡'] === null || j['屋齡'] === undefined || j['屋齡'] === '') {\n  if (/屋齡|年新|新成屋|中古/.test(body)) banned.push('屋齡（官方沒這筆資料）');\n}\nif (!j['學區']) {\n  if (/學區|國小|國中/.test(body)) banned.push('學區（官方沒這筆資料）');\n}\nif (!j['格局'] && /\\d+房\\d+廳/.test(body)) banned.push('格局（官方沒這筆資料）');\nif (!j['樓層'] && /\\d+\\s*\\/\\s*\\d+\\s*樓|樓層/.test(body)) banned.push('樓層（官方沒這筆資料）');\n\nconst ctx = n => {\n  const i = body.indexOf(n);\n  return i < 0 ? '' : body.slice(Math.max(0, i - 12), i + 12).replace(/\\n/g, ' ');\n};\n// (3) 出貨前形狀檢查（2026-08-03 加）：\n// AI 回傳格式壞掉時，整包 JSON 會被當文案發出去。這裡是最後一道，寧可不發也不要貼垃圾。\nconst len = j['_主體長度'] || {};\nconst 殘骸 = [];\nif (/\"粉專主體\"|\"社團主體\"|\\\\n|```/.test(body)) 殘骸.push('文案裡有 JSON／程式殘骸，AI 回傳格式壞掉');\nif (typeof len.fb === 'number' && len.fb < 60) 殘骸.push(`粉專主體只有 ${len.fb} 字，不像正常文案`);\nif (typeof len.grp === 'number' && len.grp < 15) 殘骸.push(`社團主體只有 ${len.grp} 字，不像正常文案`);\n\nconst ok = badNums.length === 0 && banned.length === 0 && 殘骸.length === 0;\nconst msg = ok ? '' :\n  `⚠️ ${j.contract_no} 這篇沒發，文案沒過檢查：\\n` +\n  (badNums.length ? `・查無出處的數字：${badNums.map(n => `${n}（…${ctx(n)}…）`).join('；')}\\n` : '') +\n  (banned.length ? `・不該提的項目：${banned.join('、')}\\n` : '') +\n  (殘骸.length ? `・文案本身壞掉：${殘骸.join('、')}\\n` : '') +\n  `Notion 沒有建列，要發請手動處理。`;\n\nreturn [{ json: { ...j, _guardOk: ok, _guardBad: badNums, _guardBanned: banned, _guardJunk: 殘骸, _guardMsg: msg } }];\n"
+        "jsCode": "// 數字守門員 v2：\n// (1) 文案裡的每個數字都要在官方事實裡找得到\n// (2) 官方沒有的欄位（屋齡/學區），文案裡連提都不准提——擋 AI 自己腦補\nconst j = $input.first().json;\n\nconst facts = new Set();\nconst push = v => {\n  if (v === null || v === undefined || v === '') return;\n  const n = String(v).replace(/,/g, '');\n  facts.add(n);\n  if (/^\\d+\\.\\d+$/.test(n)) { facts.add(String(Math.round(Number(n)))); facts.add(n.split('.')[0]); }\n  if (/^\\d+$/.test(n)) facts.add(String(Number(n)));\n};\n[j['總價萬'], j['單價'], j['主建坪'], j['建物坪'], j['屋齡']].forEach(push);\nconst raw = [j['格局'], j['樓層'], j['地址'], j['案名'], j['社區'], j['車位'], j['學區'],\n  ...(j['賣點'] || []), ...Object.values(j['機能'] || {})].join(' ');\n(raw.match(/\\d+(?:\\.\\d+)?/g) || []).forEach(push);\n['0912877583', '11034791100', '417208', '111'].forEach(push);\n// 降價重發時，文案會多出「舊價」和「降幅」兩個數字，它們的出處是 Notion 上一版與 KEIS 現價，\n// 不是 AI 掰的，要放行；但「殘留舊價」（該換沒換到）仍然要擋。\nconst dz = j['_降價'];\nif (dz) { [dz['舊價'], dz['新價'], dz['降幅']].forEach(push); }\n\nconst fb = String(j['粉專文案'] || '');\nconst grp = String(j['社團文案'] || '');\nconst body = fb + '\\n' + grp;\n\n// (1) 數字檢查（先把網址拿掉，LINE 連結的亂碼裡有數字，不是文案在講的數字）\nconst scan = body.replace(/https?:\\/\\/\\S+/g, ' ');\nconst used = [...new Set((scan.match(/\\d+(?:\\.\\d+)?/g) || []))];\nlet badNums = used.filter(n => !facts.has(n) && !facts.has(String(Number(n))));\n\n// (2) 沒資料就不准提\nlet banned = [];\nif (j['屋齡'] === null || j['屋齡'] === undefined || j['屋齡'] === '') {\n  if (/屋齡|年新|新成屋|中古/.test(body)) banned.push('屋齡（官方沒這筆資料）');\n}\nif (!j['學區']) {\n  if (/學區|國小|國中/.test(body)) banned.push('學區（官方沒這筆資料）');\n}\nif (!j['格局'] && /\\d+房\\d+廳/.test(body)) banned.push('格局（官方沒這筆資料）');\nif (!j['樓層'] && /\\d+\\s*\\/\\s*\\d+\\s*樓|樓層/.test(body)) banned.push('樓層（官方沒這筆資料）');\n\n// 降價重發是拿「上一版已經過守門員的文案」原封不動改價，只有降價那句是新的。\n// 若拿今天的 KEIS／官網資料回頭重審整篇，只要官網又砍欄位（砍過不只一次）就會誤擋一篇合法的重發。\n// 所以這裡改成只審「這一版新冒出來的東西」：舊文案本來就有的數字與描述視同已審過，\n// 真正該擋的「價格沒換乾淨」由 _降價.殘留舊價 獨立把關，不受這段放寬影響。\nif (dz) {\n  const 舊數 = new Set(((String(dz['舊文'] || '').replace(/https?:\\/\\/\\S+/g, ' ')).match(/\\d+(?:\\.\\d+)?/g) || []));\n  badNums = badNums.filter(n => !舊數.has(n) && !舊數.has(String(Number(n))));\n  banned = [];\n}\n\nconst ctx = n => {\n  const i = body.indexOf(n);\n  return i < 0 ? '' : body.slice(Math.max(0, i - 12), i + 12).replace(/\\n/g, ' ');\n};\n// (3) 出貨前形狀檢查（2026-08-03 加）：\n// AI 回傳格式壞掉時，整包 JSON 會被當文案發出去。這裡是最後一道，寧可不發也不要貼垃圾。\nconst len = j['_主體長度'] || {};\nconst 殘骸 = [];\nif (/\"粉專主體\"|\"社團主體\"|\\\\n|```/.test(body)) 殘骸.push('文案裡有 JSON／程式殘骸，AI 回傳格式壞掉');\nif (typeof len.fb === 'number' && len.fb < 60) 殘骸.push(`粉專主體只有 ${len.fb} 字，不像正常文案`);\nif (typeof len.grp === 'number' && len.grp < 15) 殘骸.push(`社團主體只有 ${len.grp} 字，不像正常文案`);\nif (dz && dz['殘留舊價']) 殘骸.push(`降價重發但文案裡還看得到舊價 ${dz['舊價']} 萬，價格沒換乾淨`);\n\nconst ok = badNums.length === 0 && banned.length === 0 && 殘骸.length === 0;\nconst msg = ok ? '' :\n  `⚠️ ${j.contract_no} 這篇沒發，文案沒過檢查：\\n` +\n  (badNums.length ? `・查無出處的數字：${badNums.map(n => `${n}（…${ctx(n)}…）`).join('；')}\\n` : '') +\n  (banned.length ? `・不該提的項目：${banned.join('、')}\\n` : '') +\n  (殘骸.length ? `・文案本身壞掉：${殘骸.join('、')}\\n` : '') +\n  `Notion 沒有建列，要發請手動處理。`;\n\nreturn [{ json: { ...j, _guardOk: ok, _guardBad: badNums, _guardBanned: banned, _guardJunk: 殘骸, _guardMsg: msg } }];\n"
       },
       "id": "v3c-g1",
       "name": "數字守門員",
@@ -634,6 +634,127 @@
           "waitForSubWorkflow": true
         }
       }
+    },
+    {
+      "id": "pricedrop-if-20260805",
+      "name": "降價重發?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        580,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "pd-1",
+              "leftValue": "={{ Number($json['總價萬']||0) > 0 && Number($('挑一件重發').first().json['舊總價萬']||0) > Number($json['總價萬']||0) && String($('挑一件重發').first().json['舊粉專文案']||'').length > 40 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "pricedrop-copy-20260805",
+      "name": "降價改文案",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        180
+      ],
+      "parameters": {
+        "jsCode": "// 降價重發：不叫 AI 重寫，沿用上一版文案原文，只做兩件事——\n//   ① 文案裡的舊價全部換成新價 ② 標題底下插一行降價說明\n// 為什麼不重新產：使用者要的就是「同一篇、只差那一句」；而且 Gemini 免費配額每天只有 20 次\n// （見 STATUS 0.5），能省一次是一次。順帶好處是不會有 AI 亂寫的風險。\nconst src = $input.first().json;                 // 永慶官網補資料 的輸出，總價萬 已是 KEIS 現價\nconst ctx = $('挑一件重發').first().json;\nconst oldP = Number(ctx['舊總價萬'] || 0);\nconst newP = Number(src['總價萬'] || 0);\nconst drop = Math.round((oldP - newP) * 10) / 10;\n\n// 舊文案寫價格的方式有「1298萬」「1298 萬」「1,298萬」好幾種。\n// 先把千分位逗號拿掉統一成一種寫法再換，不然漏掉一種就是掛著舊價發出去。\nconst denorm = t => String(t || '').replace(/(\\d),(?=\\d{3}(?!\\d))/g, '$1');\nconst swap = t => denorm(t)\n  .split(oldP + ' 萬').join(newP + ' 萬')\n  .split(oldP + '萬').join(newP + '萬');\n\nconst dropLine = '🔻 降價 ' + drop + ' 萬（' + oldP + ' 萬 → ' + newP + ' 萬）';\n\n// 粉專版：第一行是【】標題，降價那句插在標題正下方，最顯眼又不會擋到標題\nlet fb = swap(ctx['舊粉專文案']);\nconst lines = fb.split('\\n');\nlines.splice(1, 0, dropLine);\nfb = lines.join('\\n');\n\n// 社團版本來就不寫具體價格，所以降價這句放最前面當開頭\nconst grp = dropLine + '\\n' + swap(ctx['舊社團文案']);\n\n// 防呆：換完還看得到舊價（且不是降價那句裡的），代表舊文案的價格寫法沒被涵蓋到\n// → 標記起來交給守門員擋下，寧可不發也不要掛錯價格\nconst 掃描 = denorm(fb + ' ' + grp).split(dropLine).join(' ');\nconst 殘留舊價 = new RegExp('(?:^|[^0-9])' + oldP + '\\\\s*萬').test(掃描);\n\nreturn [{ json: { ...src, 粉專文案: fb, 社團文案: grp,\n  _降價: { 舊價: oldP, 新價: newP, 降幅: drop, 殘留舊價,\n          舊文: String(ctx['舊粉專文案'] || '') + ' ' + String(ctx['舊社團文案'] || '') },\n  _主體長度: { fb: fb.length, grp: grp.length } } }];\n"
+      }
+    },
+    {
+      "id": "repost-hasad-20260805",
+      "name": "有 KEIS 廣告?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2800,
+        160
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "ra-1",
+              "leftValue": "={{ Number($('挑一件重發').first().json.keisAdId || 0) > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "repost-keisupd-20260805",
+      "name": "KEIS 更新廣告",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3000,
+        160
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://keis.kshouse.com.tw/api/v1/adcases/{{ $('挑一件重發').first().json.keisAdId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('KEIS 登入').first().json.body.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ adcase_price: Number($('取貼文結果').first().json['總價萬']), adcase_urlfacebook: ($('取貼文結果').first().json.permalink || null) }) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -798,6 +919,11 @@
             "node": "LINE 重發通知",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "有 KEIS 廣告?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -835,7 +961,7 @@
       "main": [
         [
           {
-            "node": "Gemini 產文案",
+            "node": "降價重發?",
             "type": "main",
             "index": 0
           }
@@ -884,6 +1010,47 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "降價重發?": {
+      "main": [
+        [
+          {
+            "node": "降價改文案",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini 產文案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "降價改文案": {
+      "main": [
+        [
+          {
+            "node": "數字守門員",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "有 KEIS 廣告?": {
+      "main": [
+        [
+          {
+            "node": "KEIS 更新廣告",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
