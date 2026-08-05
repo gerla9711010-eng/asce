@@ -36,7 +36,7 @@ python publish.py YC1868650
 ```
 
 腳本會：
-1. 從 Notion 撈該物件的「來源連結」+「粉專貼文連結」
+1. 從 Notion 撈該物件的「永慶官網連結」+「粉專貼文連結」
 2. 開無頭瀏覽器（用 `profile/` 內 session 自動登入 KEIS）
 3. 點新增廣告 → 自動填表 → 送出
 4. 成功 PATCH Notion `KEIS同步 = 已同步`

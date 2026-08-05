@@ -106,7 +106,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const cmd = $('解析 LINE 指令').first().json;\nconst page = ($json.results || [])[0];\nif (!page) {\n  return [{ json: { _notFound: true, replyToken: cmd.replyToken, replyText: `❌ Notion 找不到 ${cmd.caseId}\\n\\n請先用「建檔 永慶網址」把物件建進來，再發廣告。` } }];\n}\nconst props = page.properties || {};\nconst rt = k => (props[k]?.rich_text?.[0]?.plain_text) || '';\nconst tt = k => (props[k]?.title?.[0]?.plain_text) || '';\nconst sel = k => props[k]?.select?.name || '';\nconst num = k => props[k]?.number ?? null;\nconst chk = k => !!props[k]?.checkbox;\nconst url = k => props[k]?.url || '';\nconst 粉專文案 = rt('粉專文案');\nconst 社團文案 = rt('社團文案');\nreturn [{ json: {\n  _notFound: false,\n  notionPageId: page.id,\n  existingVersion: num('文案版本') || 0,\n  needCopy: !粉專文案,\n  粉專文案, 社團文案,\n  案名: tt('案名'), 案件編號: rt('案件編號'), 社區名稱: rt('社區名稱'), 地址: rt('地址'),\n  建物類型: sel('建物類型'), 格局: rt('格局'), 樓層: rt('樓層'), 屋齡: num('屋齡'),\n  總價: rt('總價'), 單價: rt('單價'), 建物坪數: num('建物坪數'), 主建物坪數: num('主建物坪數'),\n  公設坪數: num('公設坪數'), 附屬建物: rt('附屬建物'), 土地坪數: num('土地坪數'),\n  有無車位: chk('有無車位'), 車位類型: sel('車位類型'), 特色說明: rt('特色說明'),\n  來源連結: url('來源連結') || rt('來源連結'),\n  replyToken: cmd.replyToken, userId: cmd.userId, caseId: cmd.caseId\n}}];"
+        "jsCode": "const cmd = $('解析 LINE 指令').first().json;\nconst page = ($json.results || [])[0];\nif (!page) {\n  return [{ json: { _notFound: true, replyToken: cmd.replyToken, replyText: `❌ Notion 找不到 ${cmd.caseId}\\n\\n請先用「建檔 永慶網址」把物件建進來，再發廣告。` } }];\n}\nconst props = page.properties || {};\nconst rt = k => (props[k]?.rich_text?.[0]?.plain_text) || '';\nconst tt = k => (props[k]?.title?.[0]?.plain_text) || '';\nconst sel = k => props[k]?.select?.name || '';\nconst num = k => props[k]?.number ?? null;\nconst chk = k => !!props[k]?.checkbox;\nconst url = k => props[k]?.url || '';\nconst 粉專文案 = rt('粉專文案');\nconst 社團文案 = rt('社團文案');\nreturn [{ json: {\n  _notFound: false,\n  notionPageId: page.id,\n  existingVersion: num('文案版本') || 0,\n  needCopy: !粉專文案,\n  粉專文案, 社團文案,\n  案名: tt('案名'), 案件編號: rt('案件編號'), 社區名稱: rt('社區名稱'), 地址: rt('地址'),\n  建物類型: sel('建物類型'), 格局: rt('格局'), 樓層: rt('樓層'), 屋齡: num('屋齡'),\n  總價: rt('總價'), 單價: rt('單價'), 建物坪數: num('建物坪數'), 主建物坪數: num('主建物坪數'),\n  公設坪數: num('公設坪數'), 附屬建物: rt('附屬建物'), 土地坪數: num('土地坪數'),\n  有無車位: chk('有無車位'), 車位類型: sel('車位類型'), 特色說明: rt('特色說明'),\n  永慶官網連結: url('永慶官網連結') || rt('永慶官網連結'),\n  replyToken: cmd.replyToken, userId: cmd.userId, caseId: cmd.caseId\n}}];"
       },
       "id": "a2839dab-c692-40cb-9636-b8959ad0dccc",
       "name": "取出物件資料",
@@ -304,7 +304,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $('整合文案').first().json['來源連結'] }}",
+        "url": "={{ $('整合文案').first().json['永慶官網連結'] }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

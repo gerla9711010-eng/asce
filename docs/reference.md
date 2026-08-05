@@ -169,10 +169,13 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 | 廣告貼文紀錄 | rich_text | append：社團名 / 日期，多行 |
 | KEIS同步 | select | `未同步`(預設) / `已同步` |
 | 文案版本 | number | 每次重產 +1 |
-| 來源連結 | url | 建檔器用這個判重 |
 | 狀態 | select | `草稿`/`待發`/`已發布`/`下架`/`取消` |
 | KEIS廣告ID | number | 線 D 寫入：`ad-tracker` 的 `adcase_id`，線 B 靠它關廣告 |
-| 永慶官網連結 | url | 線 D 寫入：反查出來的 `buy.yungching.com.tw/house/{id}` |
+| 永慶官網連結 | url | 線 D 寫入：反查出來的 `buy.yungching.com.tw/house/{id}`。**全系統唯一的物件官網連結**：KEIS `adcase_url`、線 B 舊資料二次確認、`publish.py` 手動上架都用它 |
+
+> ⚠️ **`來源連結` 已於 2026-08-05 刪除**。它是 v1/v2「LINE 貼永慶網址建檔」時代的輸入兼判重鍵；
+> v3 改成掃 KEIS API 後，寫進去的變成 KEIS `official_url`＝houseol 網址，而 houseol 的 `sell_item`
+> 頁會過期（刪除前 72 筆全部 404）。所有引用都改指 `永慶官網連結`，理由見 incidents.md。
 | 專員 | rich_text | 線 A 寫入：KEIS `sales_agent_name` |
 | 所屬門市 | rich_text | 線 A 寫入：KEIS `store_name` |
 | 專員電話 | phone_number | 子流程「查專員電話（展售系統）」寫入 |
