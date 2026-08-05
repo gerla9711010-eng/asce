@@ -30,15 +30,18 @@ WARN=""
 lines_of() { [ -f "$1" ] && wc -l < "$1" | tr -d ' ' || echo 0; }
 
 C_L=$(lines_of CLAUDE.md)
+G_L=$(lines_of "$HOME/.claude/CLAUDE.md")   # 全域回覆格式，每個專案都會載入
 S_L=$(lines_of docs/STATUS.md)
 M_L=$(lines_of "$MEM_DIR/MEMORY.md")
 M_N=$(ls "$MEM_DIR"/*.md 2>/dev/null | grep -vc 'MEMORY\.md$' || echo 0)
 
 echo ""
-echo "📏 體檢｜CLAUDE.md $C_L/60 ｜ STATUS.md $S_L/150 ｜ MEMORY.md $M_L/45（$M_N/45 檔）"
+echo "📏 體檢｜CLAUDE.md $C_L+$G_L/75 ｜ STATUS.md $S_L/150 ｜ MEMORY.md $M_L/45（$M_N/45 檔）"
 
-[ "$C_L" -gt 60 ] && WARN="$WARN
-⚠️ CLAUDE.md 已經 $C_L 行——查表類搬去 docs/reference.md，只留「每次都要遵守的規則」"
+# 兩份 CLAUDE.md 一起算：全域那份每個專案都吃，佔的是同一份注意力預算
+[ "$((C_L + G_L))" -gt 75 ] && WARN="$WARN
+⚠️ CLAUDE.md 合計已經 $((C_L + G_L)) 行（專案 $C_L ＋全域 $G_L）——查表類搬去
+   docs/reference.md，只留「每次都要遵守的規則」"
 
 [ "$S_L" -gt 150 ] && WARN="$WARN
 ⚠️ docs/STATUS.md 已經 $S_L 行（目標 ~120）——這次 session 結束前要瘦身：
