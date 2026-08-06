@@ -183,6 +183,13 @@ async def run_group(
                 record(JobResult(cust, need, error=str(e)))
                 continue
 
+            label = (
+                f"{cust}_{need}"
+                .replace(",", "_").replace("，", "_")
+                .replace("/", "_").replace("\\", "_")
+            )[:60]
+            buyer_match.OUTPUT_DIR.mkdir(exist_ok=True)
+
             if only_new:
                 scope = seen_store.scope_key(cust, need)
                 fresh, dropped, skipped, raised = seen_store.classify(
@@ -207,6 +214,23 @@ async def run_group(
                 )
                 # 每跑完一個客需就存一次，中途掛掉不會把前面 40 分鐘的記憶全丟掉
                 seen_store.save(seen_data)
+
+                # 「完整清單」快照跟 only_new 篩選無關，一律用這次 i智慧 現查的 entries
+                # 整批覆蓋——只回報新案/降價不代表沒重新查過，物件下架就該從網頁上消失，
+                # 不用等哪天有人手動點「完整查詢」才會更新。
+                full_blocks = [
+                    buyer_match.format_block(card, agent, share_url)
+                    for card, agent, share_url in entries
+                ]
+                if full_blocks:
+                    full_path = (
+                        buyer_match.OUTPUT_DIR
+                        / f"{datetime.now():%Y%m%d_%H%M%S}_{label}_full.txt"
+                    )
+                    full_path.write_text("\n\n".join(full_blocks), encoding="utf-8")
+                    manifest.update_full(group, cust, need, full_path, len(full_blocks))
+                else:
+                    manifest.update_full(group, cust, need, None, 0)
             else:
                 blocks = [
                     buyer_match.format_block(card, agent, share_url)
@@ -215,12 +239,6 @@ async def run_group(
                 record(JobResult(cust, need, hits=len(blocks)))
 
             if blocks:
-                label = (
-                    f"{cust}_{need}"
-                    .replace(",", "_").replace("，", "_")
-                    .replace("/", "_").replace("\\", "_")
-                )[:60]
-                buyer_match.OUTPUT_DIR.mkdir(exist_ok=True)
                 out_path = (
                     buyer_match.OUTPUT_DIR
                     / f"{datetime.now():%Y%m%d_%H%M%S}_{label}.txt"

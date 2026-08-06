@@ -24,10 +24,12 @@ import argparse
 import asyncio
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -37,6 +39,7 @@ import build_static_view
 import buyer_match
 import chrome_cdp
 import foundi_need
+import manifest
 import run_group_match
 import seen_store
 
@@ -92,6 +95,28 @@ def log(msg: str) -> None:
             f.write(line + "\n")
     except OSError:
         pass  # OneDrive 偶爾鎖檔，log 寫不進去不該害整批中止
+
+
+def trim_log(days: int = 7) -> None:
+    """log 只留最近 N 天——診斷用途看得到最近幾次跑的紀錄就夠，不用無限累積。"""
+    if not LOG_PATH.exists():
+        return
+    cutoff_date = (datetime.now() - timedelta(days=days)).date()
+    try:
+        lines = LOG_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    kept = []
+    for line in lines:
+        m = re.match(r"^\[(\d{4}-\d{2}-\d{2}) ", line)
+        # 解析不出時間戳的行（不該發生，但保守起見）也留著，不要誤刪
+        if not m or datetime.strptime(m.group(1), "%Y-%m-%d").date() >= cutoff_date:
+            kept.append(line)
+    if len(kept) != len(lines):
+        try:
+            LOG_PATH.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        except OSError:
+            pass  # 砍不動就算了，下次執行還會再試一次
 
 
 def notify(text: str) -> bool:
@@ -233,7 +258,34 @@ def mark_ran_today() -> None:
         log(f"⚠ 當日紀錄寫不進去（{type(e).__name__}），重開機可能會重跑一次")
 
 
+# 手機看板原本靠 Claude Artifact（要人工重新 publish 才會更新，2026-08-06 改掉）。
+# 借行情看板/計算機同一個 Cloudflare Pages 專案（yc-tools）發布，這樣跑完排程網頁
+# 就自動是最新的。update.py 的 build_stage() 會把這份看板一起打包進去，不用重寫部署邏輯。
+KH_MARKET_UPDATE = Path.home() / "kh-market-tool" / "update.py"
+
+
+def deploy_web_view() -> None:
+    """部署失敗只記 log，不影響配案本身的結果——看板頂多停在舊資料，明天還會再試一次。"""
+    if not KH_MARKET_UPDATE.exists():
+        log(f"⚠ 找不到 {KH_MARKET_UPDATE}，看板沒有自動部署到網路上")
+        return
+    try:
+        r = subprocess.run(
+            [sys.executable, str(KH_MARKET_UPDATE), "--deploy-only"],
+            cwd=str(KH_MARKET_UPDATE.parent),
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=300,
+        )
+        if r.returncode != 0:
+            log(f"⚠ 看板部署失敗：{(r.stderr or r.stdout)[-300:]}")
+        else:
+            log("已部署看板到 yc-tools.pages.dev/buyer-match/")
+    except Exception as e:
+        log(f"⚠ 看板部署跑不起來：{type(e).__name__}: {e}")
+
+
 async def run(args) -> int:
+    trim_log()
     if not args.force and already_ran_today():
         log("今天已經跑完過一輪，這次跳過（要重跑就加 --force）")
         return 0
@@ -334,11 +386,18 @@ async def run(args) -> int:
                 seen_store.save(data)
                 log(f"清掉 {removed} 筆 30 天沒再出現的記憶")
 
+        # output/ 每次查詢都留一個新檔案，查完舊檔案沒人讀，只會一直堆積
+        # （2026-08-06 手動清過一次 223→28 個，改成每天自動清，不用再手動）
+        removed_files = manifest.prune_orphaned_files()
+        if removed_files:
+            log(f"清掉 {removed_files} 個沒被引用的舊查詢檔")
+
         # 重產單檔 HTML 看板（OneDrive 那份），跑完就是最新的，不用人再手動產一次。
         # 包 try：看板產不出來不該讓「配案本身跑成功了」變成失敗，頂多是看板停在舊資料。
         try:
             build_static_view.build(build_static_view.DEFAULT_OUT, "standalone")
             log("已更新看板 HTML")
+            deploy_web_view()
         except Exception as e:
             log(f"⚠ 看板 HTML 更新失敗（配案結果不受影響）：{type(e).__name__}: {e}")
 
