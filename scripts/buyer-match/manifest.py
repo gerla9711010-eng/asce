@@ -78,6 +78,52 @@ def prune_group(group: str, valid_keys: set[str]) -> list[str]:
     return removed
 
 
+def prune_orphaned_files() -> int:
+    """砍掉 output/ 裡沒被任何 manifest 項目引用的舊查詢檔（每次查詢都是新檔案，
+    重新查完舊檔案就沒人讀了，只會一直堆積）。回傳刪除的檔案數。"""
+    data = load()
+    referenced = {
+        record["file"]
+        for bucket in data.values()
+        for entry in bucket.values()
+        for record in (entry.get("full"), entry.get("latest"))
+        if record
+    }
+    removed = 0
+    for path in MANIFEST_PATH.parent.glob("*.txt"):
+        if path.name not in referenced:
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
+def update_full(
+    group: Optional[str], customer: str, need: str, file_path: Optional[Path], hits: int
+) -> None:
+    """把「完整清單」快照直接換成現在這批，跟 only_new 模式無關——每天排程雖然只輸出
+    「新案/降價」給 LINE 看，但每次都有跟 i智慧 現查一輪的完整結果，用這批覆蓋 full，
+    網頁看板才不會停在最後一次有人手動完整查詢的舊資料上（2026-08-06 抓到的坑：
+    某客戶好幾天沒人手動查，其中一戶早就下架，網頁還留著失效連結）。
+    file_path=None（這次現查 0 筆）就直接清空 full，不留舊資料在網址上。"""
+    g = group or UNASSIGNED_GROUP
+    data = load()
+    bucket = data.setdefault(g, {})
+    key = f"{customer}／{need}"
+    entry = bucket.setdefault(
+        key, {"customer": customer, "need": need, "full": None, "latest": None}
+    )
+    entry["full"] = None if file_path is None else {
+        "file": file_path.name,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "hits": hits,
+        "only_new": False,
+    }
+    save(data)
+
+
 def record_result(
     group: Optional[str],
     customer: str,
