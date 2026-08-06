@@ -10,16 +10,16 @@
 
 ---
 
-## 🔴 開工第一件事：GitHub 帳號停權中（2026-07-30 11:47 起）
+## ✅ GitHub 帳號已恢復（2026-08-06，停權 07-30～08-06 約 1 週）
 
-`git push` / `gh pr merge` 一律回 403 `Your account was suspended`。
-**不要浪費時間重試推送，收工一律只做本機 commit，跳過 push/PR，等帳號恢復再一次補推。**
+`git fetch` / `gh auth status` 都正常，82 個積壓 commit（含這次的交叉審核、買方配案、AI 工具情報整理）
+已推上 `claude/multi-store-price-fix-0730` → **PR #161 合併進 main**。合併前逐條核過三條永久紅線，
+均**未被弱化**，守門員判斷條件反而從 2 項加到 4 項（見下方紅線段落）。
 
-- **未推的東西**：本機分支 `claude/multi-store-price-fix-0730` 有 80+ 個 commit 未推（實際數字跑 `git rev-list origin/main..HEAD --count`，別再手動追）；
-  GitHub 上 **PR #161 開著未合**。恢復後：`git push` → 合 PR #161 → 把後續 commit 一起併進 main
-- **離線備份**：`桌面\asce-備份-20260730.bundle`｜**申訴**：07-30 已送工單，等回信，不用重複送
-- 已設每天自動檢查帳號有沒有恢復；排程與桌面工具**完全不依賴 GitHub**，停權期間照跑
-- 觸發原因與往後的 PR 節奏 → `incidents.md`
+- `桌面\asce-備份-20260730.bundle` 離線備份現在是多餘的，**可以刪了**（main 已跟 GitHub 對齊）
+- 停權原因與教訓（兩小時 5 個 PR）已在 `incidents.md`，往後維持「一批工作一個 PR」
+- `qingan3-calc` 卡「GitHub 讀取被擋」那個技術性障礙已解除，但**沒有本機原始檔的事實沒變**，
+  要救還是得先找到原始檔（見下方第 5 節）
 
 ---
 
@@ -121,7 +121,8 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
 比對**，不符或 404 就推 LINE（同故障 3 天只吵一次，狀態存 `publish_state.json`）。
 GitHub 仍是次要通道，帳號恢復當天會自動補推積著的 commit。手動重發：`python update.py --deploy-only`
 
-⚠️ **`qingan3-calc` 沒有本機原始檔、GitHub 讀取也被擋，只能等帳號恢復才搬得動**（現在還是 404）。
+⚠️ **`qingan3-calc` 帳號恢復了但還是 404**：GitHub 讀取被擋那個技術性障礙已解除，
+問題回到本質——**沒有本機原始檔**，github.io 那邊也還是掛掉，要救得先找到原始檔才動得了。
 
 ---
 
