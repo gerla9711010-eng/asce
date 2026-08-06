@@ -7,7 +7,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 0 8 * * *"
+              "expression": "0 0 9 * * *"
             },
             {
               "field": "cronExpression",
@@ -62,7 +62,10 @@
           "id": "edOz4T0LC6EP41Ug",
           "name": "Notion API Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
     },
     {
       "parameters": {
@@ -288,7 +291,10 @@
           "id": "edOz4T0LC6EP41Ug",
           "name": "Notion API Token"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
     },
     {
       "parameters": {
@@ -462,7 +468,10 @@
         -1180,
         -32
       ],
-      "id": "8e2a2cc6-cfd4-41fc-aa9c-edeec26160cf"
+      "id": "8e2a2cc6-cfd4-41fc-aa9c-edeec26160cf",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
     },
     {
       "parameters": {
