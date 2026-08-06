@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-08-06 15:47 自動產生）
+# n8n 線上現況（2026-08-06 15:54 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -8,7 +8,7 @@
 | 狀態 | 名稱 | 檔案 | 節點 | 最近執行 |
 |---|---|---|---|---|
 | 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-08-06T01:00 success |
-| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-06T07:38 success |
+| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-06T07:49 success |
 | 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | 2026-08-05T03:28 success |
 | 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | 2026-08-04T00:39 success |
 | 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | 2026-08-06T01:13 success |
