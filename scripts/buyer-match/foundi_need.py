@@ -24,6 +24,8 @@ from typing import Optional
 
 from playwright.async_api import Page
 
+import buyer_match
+
 FOUNDI_BASE_URL = "https://agent.foundi.info/tool/property/map"
 
 # i智慧「縣市區域」下拉最多勾 3 個區（buyer_match._select_districts 的網站限制），
@@ -38,6 +40,12 @@ class FoundiNeed:
     customer: str
     need_name: str
     areas: list[str] = field(default_factory=list)
+    # 社區關鍵字 -> [(路名, 這戶自己的樓層, 這戶自己的主建坪數), ...]。
+    # 只有「主關鍵字是社區名」的候選才會有 entry——社區名在 i智慧 搜 0 筆時，
+    # match_areas 會改搜路名，但額外要求樓層+主建坪數對得上（大樓保險機制，2026-08-01）。
+    fallback_hints: dict[str, list[tuple[str, Optional[int], Optional[float]]]] = field(
+        default_factory=dict
+    )
     districts: list[str] = field(default_factory=list)
     filter_summary: str = ""
     price_min: Optional[int] = None
@@ -280,6 +288,21 @@ async def list_groups(page: Page) -> list[str]:
     )
 
 
+async def find_customer_group(page: Page, customer: str) -> Optional[str]:
+    """這位客戶在房地「客需條件」裡屬於哪個群組（A買/B買/C買/其他）——
+    給 `run_customer_match.py` 記 manifest 用（單一客戶查詢本來不知道群組，
+    網頁看板要按群組分頁就需要這個）。找不到就回 None，不當成錯誤
+    （查詢本身不靠這個，只是看板分類會歸到「未分類」）。"""
+    for group in await list_groups(page):
+        try:
+            customers = await list_group(page, group)
+        except RuntimeError:
+            continue
+        if any(name == customer for name, _needs in customers):
+            return group
+    return None
+
+
 async def read_all_groups(page: Page) -> dict[str, list[tuple[str, list[str]]]]:
     """一次把整棵樹讀出來：{群組: [(客戶, [客需, ...]), ...]}。
     GUI 的三層下拉就是吃這個——讀一次就能離線切換群組/客戶，不用每次點都回去問房地。"""
@@ -400,6 +423,20 @@ def _parse_filter_summary(summary: str) -> dict:
     }
 
 
+def _parse_candidate_specs(text: str) -> tuple[Optional[int], Optional[float]]:
+    """從候選卡片自己的 text 抓「這一戶自己的」樓層＋主建坪數，給大樓保險機制比對用
+    （不是客需的範圍條件，是這一筆候選實際的值）。
+
+    2026-08-01 實測卡片 text 長相：
+    「...4樓/共20樓 總 56.26坪 主 40.44坪 地 4.64坪 36.6年 約1989 4房2廳2衛 大樓,住宅」
+    樓層格式跟 i智慧 的「樓層」欄位一樣，直接沿用 `buyer_match._parse_floors`。
+    抓不到就回 None——不確定的候選不參與保險比對（呼叫端只在至少一項有值時才建 hint）。"""
+    lo, _hi, _total = buyer_match._parse_floors(text)
+    m = re.search(r"主\s*([\d.]+)\s*坪", text)
+    main_ping = float(m.group(1)) if m else None
+    return lo, main_ping
+
+
 def _derive_districts_from_candidates(raw_cards: list[dict]) -> list[str]:
     """框選模式的摘要沒有區名可解析，改從候選清單的 subtitle（例："高雄市 苓雅區 林泉街"）
     反推這個多邊形實際涵蓋哪些行政區——出現次數最多的前 `_MAX_DISTRICTS` 個區，
@@ -433,16 +470,23 @@ async def load_customer_need(ctx, customer: str, need: Optional[str] = None) -> 
 
     areas: list[str] = []
     seen = set()
+    fallback_hints: dict[str, list[tuple[str, Optional[int], Optional[float]]]] = {}
     for c in raw_cards:
-        name = (c.get("community") or "").strip()
-        if not name:
-            # 沒有社區名就退而求其次用路名（subtitle 最後一段，例："高雄市 苓雅區 光華一路" → 光華一路）
-            subtitle = (c.get("subtitle") or "").strip()
-            parts = subtitle.split()
-            name = parts[-1] if parts else ""
+        community = (c.get("community") or "").strip()
+        # 沒有社區名就退而求其次用路名（subtitle 最後一段，例："高雄市 苓雅區 光華一路" → 光華一路）
+        subtitle = (c.get("subtitle") or "").strip()
+        parts = subtitle.split()
+        road = parts[-1] if parts else ""
+        name = community or road
         if name and name not in seen:
             seen.add(name)
             areas.append(name)
+        # 主關鍵字是社區名、而且路名抓得到又跟社區名不同 → 記一筆保險 hint
+        # （社區名在 i智慧 搜 0 筆時，改搜路名 + 這一戶自己的樓層/坪數去對，見 match_areas）
+        if community and road and road != community:
+            floor, main_ping = _parse_candidate_specs(c.get("text") or "")
+            if floor is not None or main_ping is not None:
+                fallback_hints.setdefault(community, []).append((road, floor, main_ping))
 
     parsed = _parse_filter_summary(filter_summary)
 
@@ -474,6 +518,7 @@ async def load_customer_need(ctx, customer: str, need: Optional[str] = None) -> 
         customer=customer,
         need_name=picked_need,
         areas=areas,
+        fallback_hints=fallback_hints,
         districts=districts,
         filter_summary=filter_summary,
         price_min=parsed["price_min"],

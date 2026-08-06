@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 *.log
 backup/
+ad_watchdog_state.json

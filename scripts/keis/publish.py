@@ -8,7 +8,9 @@ KEIS 廣告上架自動化腳本
     python publish.py --login              # 開瀏覽器讓你手動登入並存 session（第一次跑用）
 
 流程:
-    1. 用 案件編號 從 Notion 撈：來源連結 + 粉專貼文連結
+    1. 用 案件編號 從 Notion 撈：永慶官網連結 + 粉專貼文連結
+       （2026-08-05 改：原本讀「來源連結」，那欄存的是 KEIS official_url＝houseol 網址，
+        頁面會過期、KEIS 表單也不收，欄位已刪除）
     2. Playwright 開 KEIS（用 profile/ 內的 session）
     3. 沒登入就停下來請使用者跑 --login
     4. 已登入 → 新增廣告 → 填表 → 送出
@@ -76,11 +78,11 @@ def fetch_property(yc_id: str) -> PropertyData:
 
     page = results[0]
     props = page["properties"]
-    yungching = props["來源連結"]["url"]
+    yungching = props["永慶官網連結"]["url"]
     fb_url = props["粉專貼文連結"]["url"]
 
     if not yungching:
-        raise SystemExit(f"❌ {yc_id} 沒有「來源連結」")
+        raise SystemExit(f"❌ {yc_id} 沒有「永慶官網連結」")
     if not fb_url:
         raise SystemExit(f"❌ {yc_id} 沒有「粉專貼文連結」— 先發粉專、回報連結再來上架")
 
@@ -162,7 +164,7 @@ def main() -> int:
 
     print(f"🔍 撈 Notion {args.yc_id}...")
     data = fetch_property(args.yc_id)
-    print(f"  ✓ 來源連結: {data.yungching_url}")
+    print(f"  ✓ 永慶官網連結: {data.yungching_url}")
     print(f"  ✓ 粉專連結: {data.facebook_url}")
 
     if not PROFILE_DIR.exists():

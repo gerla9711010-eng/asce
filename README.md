@@ -1,11 +1,14 @@
 # asce — 永慶博愛凱璿 n8n 廣告系統
 
-> **單一真相**：[`docs/STATUS.md`](docs/STATUS.md)（系統 ID／credentials／待辦）
-> **workflow 真相**：[`workflows/`](workflows/)（從 n8n 匯出，請保持與 n8n 同步）
+> **現況與待辦**：[`docs/STATUS.md`](docs/STATUS.md)（保持 100 行內）
+> **查表**：[`docs/reference.md`](docs/reference.md)（系統 ID／credentials／Notion 欄位／指令／工具清單）
+> **事故血淚史**：[`docs/incidents.md`](docs/incidents.md)（動紅線之前先看）
+> **workflow 真相**：[`workflows/`](workflows/) 與 [`docs/n8n-live.md`](docs/n8n-live.md)（n8n_sync.py 產的）
 
 ## 給未來的 AI / 協作者
 
-開新對話請先讀 `docs/STATUS.md`。**不用再 fetch Notion**，那邊已停止維護。
+開新對話請先讀 `docs/STATUS.md`，需要查東西再翻 `reference.md` / `incidents.md`。
+**不用再 fetch Notion**，那邊已停止維護。
 
 ## 給薛力瑜
 

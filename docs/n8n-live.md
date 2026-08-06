@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-07-29 21:51 自動產生）
+# n8n 線上現況（2026-08-06 18:08 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -7,27 +7,27 @@
 
 | 狀態 | 名稱 | 檔案 | 節點 | 最近執行 |
 |---|---|---|---|---|
-| 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-07-29T01:00 success |
-| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-07-29T13:48 success |
-| 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | 2026-07-28T12:40 success |
-| 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | 2026-07-28T16:01 success |
-| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | 2026-07-29T00:02 success |
-| 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 15 | 2026-07-28T16:01 success |
-| 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | 2026-07-28T02:30 success |
-| 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | 2026-07-16T10:15 success |
-| 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 21 | 2026-07-29T00:00 success |
-| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 59 | 2026-07-29T11:00 success |
-| 🟢 | 廣告v3 煞車（停） | `yc-v3-stop.json` | 9 | 2026-07-22T14:02 success |
-| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 24 | 2026-07-29T11:30 success |
-| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-07-29T11:00 success |
-| 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 3 | 2026-07-28T12:05 success |
-| 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | 2026-07-26T01:18 success |
-| 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | 2026-07-28T02:30 success |
-| 🟢 | 靜默失敗巡邏 | `靜默失敗巡邏.json` | 7 | 2026-07-29T13:30 success |
+| 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-08-06T01:00 success |
+| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-06T10:03 success |
+| 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | 2026-08-05T03:28 success |
+| 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | 2026-08-04T00:39 success |
+| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | 2026-08-06T01:13 success |
+| 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 15 | 2026-08-04T16:11 success |
+| 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | 2026-08-01T03:07 success |
+| 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | 2026-07-31T14:34 success |
+| 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 26 | 2026-08-06T00:00 error |
+| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 61 | 2026-08-06T09:00 success |
+| 🟢 | 廣告v3 煞車（停） | `yc-v3-stop.json` | 9 | — |
+| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 28 | 2026-08-06T09:30 success |
+| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-06T09:00 success |
+| 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 3 | 2026-08-06T00:00 success |
+| 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | 2026-08-06T01:35 success |
+| 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | 2026-08-01T03:07 success |
+| 🟢 | 靜默失敗巡邏 | `靜默失敗巡邏.json` | 7 | 2026-08-06T10:00 success |
 | ⚪ | LINE 新聞推播 | `line-news-push.json` | 6 | — |
-| ⚪ | YC 建檔器 v2（抓真物編productID） | `yc-property-create.json` | 13 | 2026-07-20T15:15 success |
+| ⚪ | YC 建檔器 v2（抓真物編productID） | `yc-property-create.json` | 13 | — |
 | ⚪ | YC 建檔器 v3（鎖物編+總價） | `yc-property-create-v3.json` | 13 | — |
-| ⚪ | YC 發文線（發 YCxxx） | `yc-fb-publish.json` | 24 | 2026-07-20T12:44 success |
+| ⚪ | YC 發文線（發 YCxxx） | `yc-fb-publish.json` | 24 | — |
 | ⚪ | 文案重產器 | `yc-rewrite-copy.json` | 10 | — |
 
 ## 廣告 DB 欄位｜誰在寫
@@ -35,11 +35,10 @@
 | 欄位 | workflow |
 |---|---|
 | KEIS同步 | （停用）YC 發文線（發 YCxxx）、廣告v3 掃描發文線 |
-| KEIS廣告ID | 廣告v3 下架偵測線、廣告v3 掃描發文線 |
+| KEIS廣告ID | 廣告v3 重發輪替線、廣告v3 下架偵測線、廣告v3 掃描發文線 |
 | KEIS物件ID | 廣告v3 重發輪替線、廣告v3 掃描發文線 |
 | 下架偵測時間 | 廣告v3 下架偵測線 |
 | 主建物坪數 | （停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）文案重產器、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 掃描發文線 |
-| 來源連結 | 廣告v3 重發輪替線、（停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 下架偵測線、廣告v3 掃描發文線 |
 | 地址 | 廣告v3 重發輪替線、（停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）文案重產器、（停用）YC 建檔器 v2（抓真物編productID）、客戶建檔器、廣告v3 掃描發文線 |
 | 專員 | 查專員電話（展售系統）、廣告v3 掃描發文線 |
 | 專員電話 | 廣告v3 重發輪替線、查專員電話（展售系統）、廣告v3 掃描發文線 |
@@ -56,14 +55,14 @@
 | 案件編號 | 廣告v3 重發輪替線、廣告v3 煞車（停）、（停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）文案重產器、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 下架偵測線、廣告v3 掃描發文線 |
 | 案名 | 廣告v3 重發輪替線、廣告v3 煞車（停）、（停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）文案重產器、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 下架偵測線、廣告v3 掃描發文線 |
 | 樓層 | 廣告v3 重發輪替線、（停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）文案重產器、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 掃描發文線 |
-| 永慶官網連結 | 廣告v3 掃描發文線 |
+| 永慶官網連結 | （停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 下架偵測線、廣告v3 掃描發文線 |
 | 狀態 | 廣告v3 重發輪替線、廣告v3 煞車（停）、（停用）YC 發文線（發 YCxxx）、廣告v3 下架偵測線、客戶建檔器、廣告v3 掃描發文線 |
 | 社區名稱 | （停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）文案重產器、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 掃描發文線 |
 | 社團文案 | 廣告v3 重發輪替線、（停用）YC 發文線（發 YCxxx）、廣告v3 掃描發文線 |
 | 粉專文案 | 廣告v3 重發輪替線、（停用）YC 發文線（發 YCxxx）、廣告v3 掃描發文線 |
 | 粉專貼文連結 | 廣告v3 重發輪替線、（停用）YC 發文線（發 YCxxx）、廣告v3 下架偵測線、廣告v3 掃描發文線 |
-| 總價 | （停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）文案重產器、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 掃描發文線 |
-| 要重發 | 廣告v3 重發輪替線 |
+| 總價 | 廣告v3 重發輪替線、（停用）YC 建檔器 v3（鎖物編+總價）、（停用）YC 發文線（發 YCxxx）、（停用）文案重產器、（停用）YC 建檔器 v2（抓真物編productID）、廣告v3 掃描發文線 |
+| 要重發 | 廣告v3 重發輪替線、廣告v3 下架偵測線 |
 | 重發次數 | 廣告v3 重發輪替線 |
 
 ## 分岔檢查

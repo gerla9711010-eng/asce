@@ -30,6 +30,28 @@ CHROME_EXE_CANDIDATES = [
 FOUNDI_URL = "https://agent.foundi.info/tool/property/map"
 
 
+def profile_dir() -> Path:
+    """CDP Chrome 的 user-data-dir。
+
+    ⚠️ **絕對不要放在工具資料夾裡**（桌面那份在 OneDrive 底下）。2026-07-30 查出來：
+    profile 放在 `桌面\\工具\\買方配案\\chrome_profile` 時，OneDrive 會同步整個 Chrome
+    profile（實測 5943 個檔、4.75 GB），連 `Default\\Network\\Cookies` 都被變成雲端
+    佔位檔（ReparsePoint）。Chrome 關著的時候 OneDrive 只要把它變成「線上檔案」，
+    下次開起來就等於被登出——這很可能就是「莫名其妙被登出」的真兇（同一個坑在
+    KEIS 的 CSV 上踩過一次，見 scripts/keis 的 README）。
+
+    預設放 `%LOCALAPPDATA%\\buyer-match-chrome`（不會被雲端同步、不用管理員權限）。
+    要改位置設環境變數 `BUYER_MATCH_PROFILE_DIR`。
+    """
+    override = os.environ.get("BUYER_MATCH_PROFILE_DIR")
+    if override:
+        return Path(override)
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        return Path(local) / "buyer-match-chrome"
+    return SCRIPT_DIR / "chrome_profile"  # 最後退路（非 Windows / 環境變數壞掉）
+
+
 def find_chrome_exe():
     paths = list(CHROME_EXE_CANDIDATES)
     local = os.environ.get("LOCALAPPDATA")
@@ -65,12 +87,11 @@ def launch_chrome(with_foundi: bool = False) -> tuple[bool, str]:
     exe = find_chrome_exe()
     if not exe:
         return False, "找不到 chrome.exe，請確認 Chrome 有裝在預設路徑"
-    profile_dir = SCRIPT_DIR / "chrome_profile"
     args = [
         exe,
         f"--remote-debugging-port={buyer_match.CDP_PORT}",
         "--remote-allow-origins=*",
-        f"--user-data-dir={profile_dir}",
+        f"--user-data-dir={profile_dir()}",
         buyer_match.ISMART_SEARCH_URL,
     ]
     if with_foundi:

@@ -160,7 +160,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ filter: { property: '來源連結', url: { equals: $json.targetUrl } }, page_size: 1 }) }}",
+        "jsonBody": "={{ JSON.stringify({ filter: { property: '永慶官網連結', url: { equals: $json.targetUrl } }, page_size: 1 }) }}",
         "options": {}
       },
       "id": "0a449b58-6548-4c0b-8e54-0ee42f6d38bf",
@@ -350,7 +350,7 @@
               "textContent": "={{ $json['產生的文案'] }}"
             },
             {
-              "key": "來源連結|url",
+              "key": "永慶官網連結|url",
               "urlValue": "={{ $json['targetUrl'] }}"
             },
             {

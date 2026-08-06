@@ -294,38 +294,57 @@ async def _looks_like_login(page: Page) -> bool:
         return False
 
 
-async def ensure_search_page(page: Page) -> None:
-    login_attempted = False
-    for attempt in range(3):
-        try:
-            await page.goto(ISMART_SEARCH_URL, wait_until="domcontentloaded")
-            # session 過期時，i智慧是先把 is.ycut.com.tw 這份文件載進來、
-            # 前端 JS 判斷過期後才用 client-side redirect 轉去 opid.ycut.com.tw 登入頁——
-            # domcontentloaded 那個時間點 URL 還沒變。
-            # ⚠️ 2026-07-29 實測：轉址有時要 5 秒以上，舊版只在 1.5 秒後看一次 URL，
-            # 慢一點就漏判，然後落去等搜尋框逾時 → 明明 .env 有帳密卻不會觸發自動登入，
-            # 只回報「搜尋頁載入失敗」。改成輪詢 20 秒，登入頁跟搜尋框哪個先出現就走哪條。
-            outcome = ""
-            for _ in range(20):
-                if await _looks_like_login(page):
-                    outcome = "login"
-                    break
-                if await page.evaluate(
-                    # 要看「看得到」而不只是「在 DOM 上」——搜尋框會先掛上去、隔一下才顯示，
-                    # 只認 querySelector 的話下面 wait_for_selector（等 visible）還是會白等 20 秒
-                    "(sel) => { const e = document.querySelector(sel);"
-                    " return !!e && !!(e.offsetParent || e.getClientRects().length); }",
-                    SEARCH_BOX_SELECTOR,
-                ):
-                    outcome = "search"
-                    break
-                await page.wait_for_timeout(1000)
+async def _wait_for_login_or_search(page: Page, seconds: int = 20) -> str:
+    """輪詢等「登入頁」或「搜尋框」哪個先出現，回傳 'login' / 'search' / ''。
 
+    ⚠️ 2026-07-29 實測：SSO 轉址有時要 5 秒以上，舊版只在 goto 後 1.5 秒看一次 URL，
+    慢一點就漏判 → 明明 .env 有帳密卻不會觸發自動登入，只回報「搜尋頁載入失敗」。"""
+    for _ in range(seconds):
+        if await _looks_like_login(page):
+            return "login"
+        if await page.evaluate(
+            # 要看「看得到」而不只是「在 DOM 上」——搜尋框會先掛上去、隔一下才顯示，
+            # 只認 querySelector 的話後面 wait_for_selector（等 visible）還是會白等 20 秒
+            "(sel) => { const e = document.querySelector(sel);"
+            " return !!e && !!(e.offsetParent || e.getClientRects().length); }",
+            SEARCH_BOX_SELECTOR,
+        ):
+            return "search"
+        await page.wait_for_timeout(1000)
+    return ""
+
+
+async def ensure_search_page(page: Page) -> None:
+    # 三段式救援，一段比一段暴力（2026-07-30 用真的卡死的分頁一項一項試出來的）：
+    #   goto   → 正常情況
+    #   reload → 硬重載，會吃到 302 轉去 SSO 登入頁（session 中途失效時要靠這個被偵測到）
+    #   blank  → 先跳 about:blank 再回搜尋頁，**唯一救得回卡死分頁的招**
+    # ⚠️ 這是整組跑到一半「13 個客需連續全掛在搜尋頁載入失敗」的真兇：session 中途
+    # 失效後那個分頁會變成「網址還在、畫面整片空白、連登入表單都沒有」（Angular 早就
+    # 載好了只是抓不到資料）。goto 同一個網址被當成同文件導航、reload 也救不回來，
+    # 只有先離開這個 origin（about:blank）再回來才會重新啟動整個 app。
+    # 自動登入成功後也要用 blank：登入後分頁會停在 /is/home，直接切深層路由同樣不渲染。
+    login_attempted = False
+    navigate = "goto"
+    for attempt in range(4):
+        try:
+            if navigate == "reload":
+                await page.reload(wait_until="domcontentloaded")
+            else:
+                if navigate == "blank":
+                    await page.goto("about:blank")
+                await page.goto(ISMART_SEARCH_URL, wait_until="domcontentloaded")
+            navigate = {"goto": "reload"}.get(navigate, "blank")  # 下一輪再暴力一點
+
+            outcome = await _wait_for_login_or_search(page)
             cur = page.url or ""
+
             if outcome == "login":
                 if not login_attempted:
                     login_attempted = True
                     if await try_auto_login(page):
+                        # 登入後分頁會停在 /is/home，要用 blank 繞一圈才會渲染深層路由
+                        navigate = "blank"
                         continue
                 has_creds = bool(os.environ.get("ISMART_ACCOUNT"))
                 reason = (
@@ -338,15 +357,21 @@ async def ensure_search_page(page: Page) -> None:
                     "請切到 open_real_chrome.bat 開的那個 Chrome 視窗手動重新登入，"
                     "登好後重跑這支腳本（不用重開 Chrome）。"
                 )
+            if outcome != "search":
+                raise TimeoutError(
+                    "畫面空白、既沒有搜尋框也沒有登入表單（多半是 session 中途失效／"
+                    f"分頁卡死），下一輪改用「{navigate}」再試"
+                )
+
             await page.wait_for_selector(SEARCH_BOX_SELECTOR, timeout=20000)
             await _ensure_scope_all(page)
             return
         except RuntimeError:
             raise
         except Exception as e:
-            print(f"[WARN] 搜尋頁第 {attempt + 1}/3 次嘗試失敗：{e}", file=sys.stderr)
+            print(f"[WARN] 搜尋頁第 {attempt + 1}/4 次嘗試失敗：{e}", file=sys.stderr)
             await page.wait_for_timeout(2000)
-    raise RuntimeError("i智慧搜尋頁載入失敗")
+    raise RuntimeError("i智慧搜尋頁載入失敗（goto 與硬 reload 都試過了）")
 
 
 async def _range_label(page: Page) -> str:
@@ -666,6 +691,29 @@ def _is_top_floor(floor_raw: str) -> bool:
     return hi >= total
 
 
+def _spec_matches(
+    c: Card, floor: Optional[int], main_ping: Optional[float], ping_tol: float = 1.0
+) -> bool:
+    """大樓保險機制用：路名搜到的這張卡片是不是房地那筆候選講的那一戶。
+
+    路名比社區名籠統很多（同條路上很多棟），所以要求樓層／主建坪數兩項只要有抓到
+    就都要對得上（坪數容許 ±1 坪，登記坪數常有小數點誤差）。**兩項都抓不到就不算數**
+    ——跟這個 repo 其他欄位「抓不到就不擋」的原則刻意不同：這裡目的是確認身分，
+    沒有任何可比對的依據時不該放行，不然路名保險等於沒有保險。"""
+    matched_any = False
+    if floor is not None:
+        lo, hi, _total = _parse_floors(c.floor_raw)
+        if lo is not None:
+            matched_any = True
+            if not (lo <= floor <= hi):
+                return False
+    if main_ping is not None and c.main_area_ping is not None:
+        matched_any = True
+        if abs(c.main_area_ping - main_ping) > ping_tol:
+            return False
+    return matched_any
+
+
 def passes_filters(
     c: Card,
     price_min: Optional[int],
@@ -924,6 +972,7 @@ async def match_areas(
     newest_first: bool = False,
     limit: int = 15,
     dry_run: bool = False,
+    fallback_hints: Optional[dict[str, list[tuple[str, Optional[int], Optional[float]]]]] = None,
 ) -> list[tuple[Card, Optional[Agent], Optional[str]]]:
     """逐個關鍵字搜 i智慧，命中的開詳情頁抓專員/分享連結，全部關鍵字跑完後
     用 Card.fingerprint() 去重（同一戶被多店委託、或被多個關鍵字重複搜到都只留一筆）。
@@ -931,23 +980,34 @@ async def match_areas(
 
     `districts`／`parking_mode` 是網站端真篩選（跟 `--district`/`--parking` 一樣）；
     其餘（price/rooms/usage/age/area_ping/exclude_top_floor）都是 Python 端讀卡片文字
-    後自己過濾，見 `passes_filters()`。"""
+    後自己過濾，見 `passes_filters()`。
+
+    `fallback_hints`：{社區關鍵字: [(路名, 這戶自己的樓層, 這戶自己的主建坪數), ...]}
+    （見 `foundi_need.FoundiNeed.fallback_hints`）。社區名搜 0 筆時改搜路名，但額外要求
+    樓層／主建坪數對得上（`_spec_matches`），避免路名太籠統掃到同條路上不相干的物件
+    （2026-08-01 大樓保險機制）。"""
     all_entries: list[tuple[Card, Optional[Agent], Optional[str]]] = []
-    for area in areas or [""]:
+
+    async def _scan_keyword(
+        keyword: str, spec: Optional[tuple[Optional[int], Optional[float]]] = None
+    ) -> int:
+        """搜一個關鍵字、逐頁掃、命中的開詳情頁抓資料存進 all_entries，回傳命中幾筆。
+        `spec`＝(樓層, 主建坪數) 不是 None 時，額外要求 `_spec_matches` 通過
+        （大樓保險機制的路名重試才會帶這個）。"""
         if len(all_entries) >= limit:
-            break
+            return 0
         remaining = limit - len(all_entries)
-        await submit_search(page, area, districts, parking_mode, parking_types)
+        await submit_search(page, keyword, districts, parking_mode, parking_types)
         if newest_first:
             await sort_by_newest(page)
-        hit_this_area = 0
+        hits = 0
         async for page_no, raw in iter_pages(page):
             for idx, r in enumerate(raw):
-                if hit_this_area >= remaining:
+                if hits >= remaining:
                     break
                 card = _parse_card(r)
                 if not passes_filters(
-                    card, price_min, price_max, rooms_min, usage, area,
+                    card, price_min, price_max, rooms_min, usage, keyword,
                     usage_any=usage_any, age_min=age_min, age_max=age_max,
                     area_ping_min=area_ping_min, area_ping_max=area_ping_max,
                     main_area_ping_min=main_area_ping_min,
@@ -959,16 +1019,68 @@ async def match_areas(
                     exclude_top_floor=exclude_top_floor,
                 ):
                     continue
+                if spec is not None and not _spec_matches(card, spec[0], spec[1]):
+                    continue
                 print(
-                    f"[INFO] 關鍵字「{area or '(不限)'}」第 {page_no} 頁第 {idx + 1} 張命中："
+                    f"[INFO] 關鍵字「{keyword or '(不限)'}」第 {page_no} 頁第 {idx + 1} 張命中："
                     f"{card.case_name}"
                 )
-                agent, share_url = await open_detail_and_fetch(page, idx, dry_run=dry_run)
+                # 開詳情頁本身失敗（例如卡片被 UI 元素暫時擋住、單次 click 逾時）不該
+                # 讓整個客需子條件的其他命中都陪葬——2026-08-01 實測踩到：235巷老闆
+                # 何先生那筆單一張卡的 Locator.click 逾時，害同一子條件另外 7 筆合法
+                # 命中全部消失。先重試 2 次（多半是暫時性的，重試就好），
+                # 3 次都不行才真的放棄跳過這一筆，不是失敗一次就算了。
+                agent = share_url = None
+                last_err: Optional[Exception] = None
+                for attempt in range(3):
+                    try:
+                        agent, share_url = await open_detail_and_fetch(
+                            page, idx, dry_run=dry_run
+                        )
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        print(
+                            f"[WARN] 開詳情頁第 {attempt + 1}/3 次嘗試失敗："
+                            f"{card.case_name}：{type(e).__name__}: {e}",
+                            file=sys.stderr,
+                        )
+                        await page.wait_for_timeout(1500)
+                if last_err is not None:
+                    print(
+                        f"[WARN] 開詳情頁重試 3 次都失敗，跳過這筆（不影響其他命中）："
+                        f"{card.case_name}",
+                        file=sys.stderr,
+                    )
+                    continue
                 all_entries.append((card, agent, share_url))
-                hit_this_area += 1
+                hits += 1
                 await page.wait_for_timeout(400)
-            if hit_this_area >= remaining:
+            if hits >= remaining:
                 break
+        return hits
+
+    for area in areas or [""]:
+        if len(all_entries) >= limit:
+            break
+        hit_this_area = await _scan_keyword(area)
+
+        if hit_this_area == 0 and fallback_hints and area in fallback_hints:
+            tried_roads: set[str] = set()
+            for road, floor, main_ping in fallback_hints[area]:
+                if len(all_entries) >= limit:
+                    break
+                if not road or road in tried_roads:
+                    continue
+                tried_roads.add(road)
+                print(
+                    f"[INFO] 「{area}」搜不到，改用路名「{road}」+ 樓層/坪數比對重試"
+                    "（大樓保險機制）"
+                )
+                got = await _scan_keyword(road, spec=(floor, main_ping))
+                if got:
+                    print(f"[INFO] 保險比對命中 {got} 筆")
 
     deduped = dedup_by_fingerprint(all_entries)
     dropped = len(all_entries) - len(deduped)
@@ -1038,16 +1150,20 @@ async def run(args) -> None:
         )
         blocks = [format_block(card, agent, share_url) for card, agent, share_url in entries]
         print(f"[INFO] 實際處理 {len(blocks)} 筆")
-        label = (args.area or (districts[0] if districts else "search")).replace(",", "_")[:40]
+        label = (
+            (args.area or (districts[0] if districts else "search"))
+            .replace(",", "_").replace("/", "_").replace("\\", "_")
+        )[:40]
         output_blocks(blocks, label)
 
 
-def output_blocks(blocks: list[str], label: str) -> None:
-    """把結果印出來、存成 output/<時間戳>_<label>.txt、複製到剪貼簿。
+def output_blocks(blocks: list[str], label: str) -> Optional[Path]:
+    """把結果印出來、存成 output/<時間戳>_<label>.txt、複製到剪貼簿。回傳存檔路徑
+    （沒有結果時回傳 None）給呼叫端需要的話拿去記 manifest（見 run_customer_match.py）。
     `buyer_match.py` CLI 跟 `run_customer_match.py`（房地客需 → i智慧）共用這段。"""
     if not blocks:
         print("[INFO] 沒有符合條件的物件")
-        return
+        return None
 
     output = "\n\n".join(blocks)
     print("\n" + "=" * 40 + "\n")
@@ -1065,6 +1181,8 @@ def output_blocks(blocks: list[str], label: str) -> None:
         print("[INFO] 已複製到剪貼簿，可直接貼給客戶")
     except Exception as e:
         print(f"[WARN] 複製到剪貼簿失敗（內容仍在上面/檔案裡）：{e}", file=sys.stderr)
+
+    return out_path
 
 
 def main() -> None:
