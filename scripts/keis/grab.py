@@ -59,6 +59,8 @@ except Exception:
 # ====== 設定：直接改這裡 ======
 INQUIRY_TYPE = 1              # 1=買屋, 2=租屋
 CITIES = ["高雄市"]           # 只搶這些縣市；空 list [] = 不限縣市
+                               # 用 startswith 比對（見 skip_reason），縣市欄位空白一律當高雄市放行，
+                               # 只有明確填了「不是高雄市開頭」的才排除（08-03 改，之前空白會被誤擋）
 PROPERTY_TYPES: list[str] = []  # 物件類型(中文)白名單，例 ["透天", "大樓"]；空 = 全收
 MIN_BUDGET = None            # 預算下限(萬)，None=不限。只比對有填預算的(budget_start>0)
 MAX_BUDGET = None            # 預算上限(萬)，None=不限
@@ -76,7 +78,13 @@ MIN_BUDGET_CEILING = 1000     # 預算「上限」低於這個(萬)不搶；預�
 # 改用「總帳沒看過就是新」替代，結果 10 分鐘就誤搶一筆建檔 2026-01-13 的老案
 # （原因：三帳號看到的池子不一樣，2823/2835/2836，「沒看過」常常只是「這個帳號看不到」）。
 # 定案：**搶單只看窗口前 WINDOW_SIZE 筆**，全池掃描降級成純紀錄、不參與任何搶單判定。
-WINDOW_SIZE = 40              # 搶單決策的窗口：只看編號最大的前 N 筆（使用者 07-23 拍板 40）
+WINDOW_SIZE = 70              # 搶單決策的窗口：只看編號最大的前 N 筆（07-23 拍板 40，08-03 因為
+                               # 一次爆量 32 筆時排到窗口外漏搶兩筆，改 60→70；考慮過拉到 API 上限
+                               # 100，但那是每 5 秒熱門檔輪詢都要付的成本，而目前觀測到的單日最大量
+                               # 只有 32 筆，70 已有 2 倍多緩衝，先不衝上限。仍是「只看最新那端」，
+                               # 不動 is_truly_new/MAX_AGE_DAYS 那層真新單防呆，跟 07-23 全池誤搶是兩件事。
+                               # 08-03 另外加了「漏接偵測」（見 update_inventory 的 missed）：真的還是
+                               # 被視窗排除掉的合格名單，會自動 LINE 通知，不用再靠這個數字硬猜。
 PAGE_SIZE = 100               # 全池掃描每頁抓幾筆（API 上限 100，超過會回 0 筆）
 DEEP_SWEEP_SEC = 3600         # 全池掃描間隔。它只負責寫 inventory.csv 給人稽核，不影響搶單
 DEEP_SWEEP_MAX_PAGES = 40     # 全池掃描最多翻幾頁，防呆用
@@ -403,8 +411,11 @@ def skip_reason(rec: dict) -> str | None:
     為什麼沒搶」，不用再靠猜（使用者 2026-07-23 要求：每個編號都要有紀錄）。"""
     if rec.get("status") != "Available":
         return f"狀態={rec.get('status')}"
-    if CITIES and rec.get("target_city") not in CITIES:
-        return f"縣市={rec.get('target_city')}"
+    # 縣市欄位空白＝當作高雄市放行（2026-08-03 改：空白常是漏填，不該白白擋掉）；
+    # 用 startswith 而不是相等比對，讓「高雄市左營區」這種縣市+行政區黏在一起的值也算高雄市。
+    city = rec.get("target_city") or ""
+    if city and CITIES and not any(city.startswith(c) for c in CITIES):
+        return f"縣市={city}"
 
     # ---- 品質控管篩選（2026-07-22 加）----
     # 只要手機：市話 / 空號不搶
@@ -701,8 +712,8 @@ INVENTORY_CSV = _LOCAL / "inventory.csv"     # 放本機、不進 OneDrive（怕
 INVENTORY_SAVE_SEC = 120                     # 最快多久寫一次檔（有新單號一定立刻寫）
 MAX_INVENTORY_BAD_LINES = 200                # 壞行超過這個數就當整份總帳失敗，別硬撐著用殘骸
 INVENTORY_MIN_PARSE_RATIO = 0.9              # 讀出來的筆數至少要有檔案行數的九成，否則視為壞掉
-INVENTORY_COLS = ["summary_id", "首次看到", "首次狀態", "來源", "曾冷卻", "最後看到", "最後狀態",
-                  "建檔時間", "縣市", "行政區", "類型", "預算", "電話", "app_time",
+INVENTORY_COLS = ["summary_id", "首次看到", "首次狀態", "首次符合篩選", "來源", "曾冷卻", "最後看到",
+                  "最後狀態", "建檔時間", "縣市", "行政區", "類型", "預算", "電話", "app_time",
                   "符合篩選", "不符原因", "我方動作", "我方帳號"]
 
 
@@ -1045,11 +1056,14 @@ def save_inventory(inv: dict) -> None:
 save_inventory.fail_count = 0
 
 
-def update_inventory(inv: dict, records: list, baseline: bool = False) -> list:
-    """把這一輪看到的名單更新進總帳，回傳「這輪第一次看到的新單號」清單。
+def update_inventory(inv: dict, records: list, baseline: bool = False) -> tuple[list, list]:
+    """把這一輪看到的名單更新進總帳，回傳 (newly, missed)：
+      newly  這輪第一次看到的新單號
+      missed 這輪才發現「符合條件、我方從沒申請過，卻被別人拿走」的單號（見「漏接偵測」說明）
     baseline=True 用在總帳第一次建立時：當下池子裡的全部標成「基準快照」，一律不搶。"""
     now_s = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     newly: list = []
+    missed: list = []
     for r in records:
         sid = r.get("summary_id")
         if sid is None:
@@ -1061,6 +1075,9 @@ def update_inventory(inv: dict, records: list, baseline: bool = False) -> list:
                 "summary_id": sid,
                 "首次看到": now_s,
                 "首次狀態": r.get("status") or "",
+                # 只在建檔當下算一次、之後永遠不再改——跟下面每輪都重算的「符合篩選」不同，
+                # 那個會被後來的狀態變化（CoolingDown）洗掉，沒辦法回答「當初到底合不合格」。
+                "首次符合篩選": "N" if reason else "Y",
                 "來源": "基準快照" if baseline else "新出現",
                 "曾冷卻": "Y" if r.get("status") == "CoolingDown" else "N",
                 "我方動作": "",
@@ -1069,6 +1086,15 @@ def update_inventory(inv: dict, records: list, baseline: bool = False) -> list:
             inv[sid] = row
             if not baseline:
                 newly.append(r)
+        # ---- 漏接偵測（2026-08-03 加，使用者要求：符合條件卻沒搶到別等我手動排查）----
+        # 條件：這是它第一次被觀察到轉成 CoolingDown（曾冷卻 N→Y，只會觸發一次）、
+        # 當初首次看到就符合篩選、而且我方從沒對它出過手（我方動作空白）——
+        # 三個一起成立，才是「明明合格卻不知道為什麼沒搶到」，值得回報去查原因
+        # （可能是窗口排不到、也可能是搶輸手速，log 裡會留建檔時間等細節方便事後判斷）。
+        just_cooled = r.get("status") == "CoolingDown" and row.get("曾冷卻") != "Y"
+        if (just_cooled and not baseline
+                and row.get("首次符合篩選") == "Y" and not row.get("我方動作")):
+            missed.append(dict(row, app_time=r.get("app_time")))
         if r.get("status") == "CoolingDown":
             row["曾冷卻"] = "Y"          # 一旦被別人拿過就永久留記號，回鍋也不搶
         row.update({
@@ -1084,7 +1110,7 @@ def update_inventory(inv: dict, records: list, baseline: bool = False) -> list:
             "符合篩選": "N" if reason else "Y",
             "不符原因": reason or "",
         })
-    return newly
+    return newly, missed
 
 
 def is_truly_new(inv: dict, rec: dict) -> bool:
@@ -2016,7 +2042,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
             # 窗口每輪記；全池掃描每 DEEP_SWEEP_SEC 一次、輪流換帳號，補齊窗口看不到的部分。
             # 這裡「新編號」只是紀錄用的，不會因此去搶——搶什麼一律由下面的窗口候選決定。
             try:
-                newly_seen = update_inventory(inventory, records, baseline=not inventory_ready)
+                newly_seen, missed = update_inventory(inventory, records, baseline=not inventory_ready)
                 # 「今天新進池」只認窗口看到的（窗口＝編號最大的前 WINDOW_SIZE 筆，也正好
                 # 是唯一搶得到的範圍）。全池掃描補到的是排在窗口以下的老案（實測 2026-08-04
                 # 窗口底是 78684，補到的是 77885/67919/42235 這種），本來就搶不到，不算新貨。
@@ -2036,15 +2062,28 @@ def run_watch(clients: list, dry_run: bool) -> int:
                         deep_sweep_turn += 1
                     deep_records = query_any(order, deep=True).get("data", [])
                     last_deep_sweep = time.time()
-                    newly_seen += update_inventory(inventory, deep_records,
-                                                   baseline=not inventory_ready)
+                    deep_new, deep_missed = update_inventory(inventory, deep_records,
+                                                              baseline=not inventory_ready)
+                    newly_seen += deep_new
+                    missed += deep_missed
                     if not inventory_ready:
                         seed_inventory_from_grabbed(inventory)   # 我方歷史搶單的章不能被基準蓋掉
                         inventory_ready = True
                         newly_seen = []
                         new_arrivals = []
+                        missed = []
                         log(f"📒 建立名單總帳 inventory.csv：當下 {len(inventory)} 筆全部標為「基準快照」"
                             f"（搶單只看窗口前 {WINDOW_SIZE} 筆，總帳只是紀錄）")
+                for m in missed:
+                    log(f"⚠ 漏接 id{m['summary_id']}：符合條件、我方沒申請過，但已被拿走"
+                        f"（建檔{m.get('建檔時間', '')}｜{m.get('縣市', '')}{m.get('行政區', '')}"
+                        f"{m.get('類型', '')} {m.get('預算', '')}｜app_time={str(m.get('app_time'))[:16]}）"
+                        f"——可能是窗口排不到或搶輸手速，明細看 {INVENTORY_CSV.name}")
+                    notify({"event": "alert",
+                            "text": f"⚠ KEIS 搶單漏接：id{m['summary_id']} "
+                                    f"{m.get('縣市', '')}{m.get('行政區', '')}{m.get('類型', '')} "
+                                    f"{m.get('預算', '')}（建檔{m.get('建檔時間', '')}）符合條件但我方沒申請，"
+                                    f"已被別人拿走"})
                 if newly_seen or time.time() - last_inventory_save >= INVENTORY_SAVE_SEC:
                     save_inventory(inventory)
                     last_inventory_save = time.time()
