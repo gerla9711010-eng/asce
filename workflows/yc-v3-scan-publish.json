@@ -964,7 +964,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 數字守門員 v2：\n// (1) 文案裡的每個數字都要在官方事實裡找得到\n// (2) 官方沒有的欄位（屋齡/學區），文案裡連提都不准提——擋 AI 自己腦補\nconst j = $input.first().json;\n\nconst facts = new Set();\nconst push = v => {\n  if (v === null || v === undefined || v === '') return;\n  const n = String(v).replace(/,/g, '');\n  facts.add(n);\n  if (/^\\d+\\.\\d+$/.test(n)) { facts.add(String(Math.round(Number(n)))); facts.add(n.split('.')[0]); }\n  if (/^\\d+$/.test(n)) facts.add(String(Number(n)));\n};\n[j['總價萬'], j['單價'], j['主建坪'], j['建物坪'], j['屋齡']].forEach(push);\nconst raw = [j['格局'], j['樓層'], j['地址'], j['案名'], j['社區'], j['車位'], j['學區'],\n  ...(j['賣點'] || []), ...Object.values(j['機能'] || {})].join(' ');\n(raw.match(/\\d+(?:\\.\\d+)?/g) || []).forEach(push);\n['0912877583', '11034791100', '417208', '111'].forEach(push);\n\nconst fb = String(j['粉專文案'] || '');\nconst grp = String(j['社團文案'] || '');\nconst body = fb + '\\n' + grp;\n\n// (1) 數字檢查（先把網址拿掉，LINE 連結的亂碼裡有數字，不是文案在講的數字）\nconst scan = body.replace(/https?:\\/\\/\\S+/g, ' ');\nconst used = [...new Set((scan.match(/\\d+(?:\\.\\d+)?/g) || []))];\nconst badNums = used.filter(n => !facts.has(n) && !facts.has(String(Number(n))));\n\n// (2) 沒資料就不准提\nconst banned = [];\nif (j['屋齡'] === null || j['屋齡'] === undefined || j['屋齡'] === '') {\n  if (/屋齡|年新|新成屋|中古/.test(body)) banned.push('屋齡（官方沒這筆資料）');\n}\nif (!j['學區']) {\n  if (/學區|國小|國中/.test(body)) banned.push('學區（官方沒這筆資料）');\n}\nif (!j['格局'] && /\\d+房\\d+廳/.test(body)) banned.push('格局（官方沒這筆資料）');\nif (!j['樓層'] && /\\d+\\s*\\/\\s*\\d+\\s*樓|樓層/.test(body)) banned.push('樓層（官方沒這筆資料）');\n\nconst ctx = n => {\n  const i = body.indexOf(n);\n  return i < 0 ? '' : body.slice(Math.max(0, i - 12), i + 12).replace(/\\n/g, ' ');\n};\n// (3) 出貨前形狀檢查（2026-08-03 加）：\n// AI 回傳格式壞掉時，整包 JSON 會被當文案發出去。這裡是最後一道，寧可不發也不要貼垃圾。\nconst len = j['_主體長度'] || {};\nconst 殘骸 = [];\nif (/\"粉專主體\"|\"社團主體\"|\\\\n|```/.test(body)) 殘骸.push('文案裡有 JSON／程式殘骸，AI 回傳格式壞掉');\nif (typeof len.fb === 'number' && len.fb < 60) 殘骸.push(`粉專主體只有 ${len.fb} 字，不像正常文案`);\nif (typeof len.grp === 'number' && len.grp < 15) 殘骸.push(`社團主體只有 ${len.grp} 字，不像正常文案`);\n\nconst ok = badNums.length === 0 && banned.length === 0 && 殘骸.length === 0;\nconst msg = ok ? '' :\n  `⚠️ ${j.contract_no} 這篇沒發，文案沒過檢查：\\n` +\n  (badNums.length ? `・查無出處的數字：${badNums.map(n => `${n}（…${ctx(n)}…）`).join('；')}\\n` : '') +\n  (banned.length ? `・不該提的項目：${banned.join('、')}\\n` : '') +\n  (殘骸.length ? `・文案本身壞掉：${殘骸.join('、')}\\n` : '') +\n  `Notion 已建草稿列（狀態=草稿），下一班不會再抓到同一件；要發請手動處理。`;\n\nreturn [{ json: { ...j, _guardOk: ok, _guardBad: badNums, _guardBanned: banned, _guardJunk: 殘骸, _guardMsg: msg } }];\n"
+        "jsCode": "// 數字守門員 v2：\n// (1) 文案裡的每個數字都要在官方事實裡找得到\n// (2) 官方沒有的欄位（屋齡/學區），文案裡連提都不准提——擋 AI 自己腦補\nconst j = $input.first().json;\n\nconst facts = new Set();\nconst push = v => {\n  if (v === null || v === undefined || v === '') return;\n  const n = String(v).replace(/,/g, '');\n  facts.add(n);\n  if (/^\\d+\\.\\d+$/.test(n)) { facts.add(String(Math.round(Number(n)))); facts.add(n.split('.')[0]); }\n  if (/^\\d+$/.test(n)) facts.add(String(Number(n)));\n};\n[j['總價萬'], j['單價'], j['主建坪'], j['建物坪'], j['屋齡']].forEach(push);\nconst raw = [j['格局'], j['樓層'], j['地址'], j['案名'], j['社區'], j['車位'], j['學區'],\n  ...(j['賣點'] || []), ...Object.values(j['機能'] || {})].join(' ');\n(raw.match(/\\d+(?:\\.\\d+)?/g) || []).forEach(push);\n['0912877583', '11034791100', '417208', '111'].forEach(push);\n\nconst fb = String(j['粉專文案'] || '');\nconst grp = String(j['社團文案'] || '');\nconst body = fb + '\\n' + grp;\n\n// (1) 數字檢查（先把網址拿掉，LINE 連結的亂碼裡有數字，不是文案在講的數字）\nconst scan = body.replace(/https?:\\/\\/\\S+/g, ' ');\nconst used = [...new Set((scan.match(/\\d+(?:\\.\\d+)?/g) || []))];\nconst badNums = used.filter(n => !facts.has(n) && !facts.has(String(Number(n))));\n\n// (2) 沒資料就不准提\nconst banned = [];\nif (j['屋齡'] === null || j['屋齡'] === undefined || j['屋齡'] === '') {\n  if (/屋齡|年新|新成屋|中古/.test(body)) banned.push('屋齡（官方沒這筆資料）');\n}\nif (!j['學區']) {\n  if (/學區|國小|國中/.test(body)) banned.push('學區（官方沒這筆資料）');\n}\nif (!j['格局'] && /\\d+房\\d+廳/.test(body)) banned.push('格局（官方沒這筆資料）');\nif (!j['樓層'] && /\\d+\\s*\\/\\s*\\d+\\s*樓|樓層/.test(body)) banned.push('樓層（官方沒這筆資料）');\n\nconst ctx = n => {\n  const i = body.indexOf(n);\n  return i < 0 ? '' : body.slice(Math.max(0, i - 12), i + 12).replace(/\\n/g, ' ');\n};\n// (3) 出貨前形狀檢查（2026-08-03 加）：\n// AI 回傳格式壞掉時，整包 JSON 會被當文案發出去。這裡是最後一道，寧可不發也不要貼垃圾。\nconst len = j['_主體長度'] || {};\nconst 殘骸 = [];\nif (/\"粉專主體\"|\"社團主體\"|\\\\n|```/.test(body)) 殘骸.push('文案裡有 JSON／程式殘骸，AI 回傳格式壞掉');\nif (typeof len.fb === 'number' && len.fb < 60) 殘骸.push(`粉專主體只有 ${len.fb} 字，不像正常文案`);\nif (typeof len.grp === 'number' && len.grp < 15) 殘骸.push(`社團主體只有 ${len.grp} 字，不像正常文案`);\n\n// (4) 交叉審核（2026-08-04 加）：第二個模型當路人看過一遍，抓語意層的問題\n// （混到別間物件、前後矛盾、不像人寫的）。SKIP＝審核員自己壞掉，一律放行。\nconst 審核 = [];\nif (j['_reviewVerdict'] === 'NG') 審核.push(String(j['_reviewReason'] || '審核員未說明原因'));\n\nconst ok = badNums.length === 0 && banned.length === 0 && 殘骸.length === 0 && 審核.length === 0;\nconst msg = ok ? '' :\n  `⚠️ ${j.contract_no} 這篇沒發，文案沒過檢查：\\n` +\n  (badNums.length ? `・查無出處的數字：${badNums.map(n => `${n}（…${ctx(n)}…）`).join('；')}\\n` : '') +\n  (banned.length ? `・不該提的項目：${banned.join('、')}\\n` : '') +\n  (殘骸.length ? `・文案本身壞掉：${殘骸.join('、')}\\n` : '') +\n  (審核.length ? `・交叉審核擋下：${審核.join('、')}\\n` : '') +\n  `Notion 已建草稿列（狀態=草稿），下一班不會再抓到同一件；要發請手動處理。`;\n\nreturn [{ json: { ...j, _guardOk: ok, _guardBad: badNums, _guardBanned: banned, _guardJunk: 殘骸, _guardReview: 審核, _guardMsg: msg } }];\n"
       },
       "id": "v3a-g1",
       "name": "數字守門員",
@@ -1628,6 +1628,62 @@
           "name": "LINE Channel Access Token"
         }
       }
+    },
+    {
+      "id": "v3a-10b-review",
+      "name": "文案交叉審核",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        420
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "zTIA89pDJJs0Ad29",
+          "name": "Gemini API Key"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是房仲公司的廣告審稿人員。下面有一份「官方資料」和一則「已經寫好、即將發到粉專的廣告文案」。\n你不知道這篇文案是怎麼寫出來的，也不需要知道——你的工作只有一件事：用一般人的眼光看，這篇能不能發。\n\n【官方資料】\n案名：${$json['案名']}\n地址：${$json['地址']}\n總價：${$json['總價萬']} 萬\n建物類型：${$json['建物類型']}\n格局：${$json['格局'] || '（官方沒有這筆資料）'}\n樓層：${$json['樓層'] || '（官方沒有這筆資料）'}\n建物坪數：${$json['建物坪']} 坪（主建 ${$json['主建坪']} 坪）\n屋齡：${$json['屋齡'] || '（官方沒有這筆資料）'}\n車位：${$json['車位'] || '（官方沒有這筆資料，不代表沒有車位）'}\n學區：${$json['學區'] || '（官方沒有這筆資料）'}\n\n⚠️ 標「（官方沒有這筆資料）」的欄位＝**系統沒撈到，不是官方否認**。\n文案提到這種欄位時不要當成矛盾（那由另一道機械檢查負責），只有欄位**有明確的值而文案寫成別的值**才算不符。\n\n【官方賣點原文】（文案就是從這幾條改寫的，凡是能對應到這裡的敘述都算有出處，不是編造）\n${($json['賣點'] || []).join('\\n') || '（沒有）'}\n機能：商圈「${($json['機能']||{})['商圈'] || ''}」捷運「${($json['機能']||{})['捷運'] || ''}」公園「${($json['機能']||{})['公園'] || ''}」\n\n【粉專文案】\n${$json['粉專文案']}\n\n【社團文案】\n${$json['社團文案']}\n\n【只抓這五種「寫錯」】\n1. 混到別間房子：地址、案名、價格跟官方資料是不同的東西\n2. 憑空編造：講了一件官方資料**和賣點原文裡都找不到影子**的事\n3. 自己跟自己打架：同一篇裡標題寫三房、內文寫兩房這種\n4. 格式壞掉：出現 JSON、大括號、程式碼、字面上的反斜線 n、亂碼、不自然的重複句\n5. 沒寫完：句子講到一半就斷掉，或還沒收尾就直接接到聯絡資訊／公司字號\n\n【以下一律放行，不准當成問題】\n・**漏寫**：廣告沒寫車位、沒寫屋齡、沒寫坪數、社團版比較短——廣告本來就不必寫滿，漏寫不是錯\n・**改寫**：賣點原文的意思有被保留就算有出處，用字不同、講得更生動都可以\n・**四捨五入**：98.46 對 98.5、89.63 對 89.6 這種小數差異不算不符\n・**車庫≠車位**：官方的「車位」欄位指的是**有產權的登記車位**（大樓那種另計產權的）。\n  透天／店面講「車庫」「庭院可停」「一樓可停車」是在描述空間，那是房子本身的一部分、\n  不會登記成車位。所以「車位：無」＋文案寫「車庫」**不是矛盾**，不准擋。\n・**推測**：不要自己算「這個坪數能不能隔三房」「這個價格合不合理」這類判斷，那不是你的工作\n・語氣、排版、emoji 多寡、字數、你覺得可以寫更好\n\n沒把握就放行。你的預設答案是 OK，只有**明確踩到上面五種寫錯**才回 NG。\n擋一篇的代價是整整一班廣告沒發出去，所以寧可放過也不要誤擋。\n\nreason 要**具體指出是哪一句、哪個字、哪個數字**（例如「內文寫 1288 萬，官方是 980 萬」），\n不要照抄上面的分類名稱。\n只回傳 JSON：{\"verdict\":\"OK 或 NG\",\"reason\":\"NG 時用一句具體的中文說明，OK 時留空\"}` }] }],\n  generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: \"application/json\",\n    // gemini-2.5-flash 是思考型模型，不關掉思考預算的話 output token 會被思考吃光、\n    // 回傳被截斷成半截 JSON（2026-08-04 實測踩過）。審稿是照表打勾的工作，不需要它想。\n    thinkingConfig: { thinkingBudget: 0 } }\n}) }}",
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "notes": "審核員刻意用跟產文案不同的模型（產文案=flash-lite，審核=flash）：\n① 不同模型盲點不同，交叉審核才有意義\n② Gemini 免費方案配額是「每個模型每天分開算」（實測 flash-lite 每天 20 次），共用同一個模型會讓審核吃掉產文案的額度",
+      "notesInFlow": false
+    },
+    {
+      "id": "v3a-10c-review-verdict",
+      "name": "審核判定",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        420
+      ],
+      "parameters": {
+        "jsCode": "// 文案交叉審核判定（2026-08-04 加）\n// 為什麼要有它：數字守門員是機械檢查（數字對不對、有沒有 JSON 殘骸），\n// 抓不到「語意層」的錯——資料混到別間、前後矛盾、整段不像人寫的。\n// 所以在發文前多一段「沒有生成上下文」的 Gemini 對話當第二雙眼睛。\n//\n// 🔴 兩條原則，改之前先想清楚：\n// 1. 審核只用來「擋」，絕不用來「改文案」——讓 AI 改 AI 寫的東西只會多一層不可控。\n// 2. 審核自己壞掉時一律放行（SKIP）。一個輔助檢查不該有能力弄停整條廣告線；\n//    HTTP 節點已設 onError=continueRegularOutput，錯誤會被靜默失敗巡邏抓到，不會沒人知道。\nconst j = $('解析文案+footer').first().json;\nlet verdict = 'SKIP';\nlet reason = '';\ntry {\n  const resp = $input.first().json;\n  const txt = resp.candidates?.[0]?.content?.parts?.[0]?.text || '';\n  const clean = txt.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\n  const r = JSON.parse(clean);\n  const v = String(r.verdict || '').trim().toUpperCase();\n  if (v === 'NG') {\n    verdict = 'NG';\n    reason = String(r.reason || '').trim() || '審核員說有問題但沒說原因';\n  } else if (v === 'OK') {\n    verdict = 'OK';\n  } else {\n    reason = '審核員回了看不懂的 verdict：' + v.slice(0, 40);\n  }\n} catch (e) {\n  reason = '審核回應解析失敗：' + String(e && e.message || e).slice(0, 80);\n}\nreturn [{ json: { ...j, _reviewVerdict: verdict, _reviewReason: reason } }];\n"
+      }
     }
   ],
   "connections": {
@@ -1734,7 +1790,7 @@
       "main": [
         [
           {
-            "node": "數字守門員",
+            "node": "文案交叉審核",
             "type": "main",
             "index": 0
           }
@@ -2289,6 +2345,28 @@
         [
           {
             "node": "LINE 跳過摘要",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "文案交叉審核": {
+      "main": [
+        [
+          {
+            "node": "審核判定",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "審核判定": {
+      "main": [
+        [
+          {
+            "node": "數字守門員",
             "type": "main",
             "index": 0
           }

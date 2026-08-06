@@ -86,8 +86,13 @@ def main():
     target = [x for x in live if x['name'] == '廣告v3 掃描發文線']
     assert len(target) == 1, f'在 n8n 上找到 {len(target)} 支同名 workflow，先確認哪一支在跑'
     wid = target[0]['id']
+    # n8n Public API 不吃 settings 裡的 binaryMode／availableInMCP，整包丟回去會 400
+    # （2026-08-06 踩到；白名單跟 scripts/n8n_sync.py 的 SETTINGS_OK 一致）
+    SETTINGS_OK = {'executionOrder', 'saveDataErrorExecution', 'saveDataSuccessExecution',
+                   'saveManualExecutions', 'saveExecutionProgress', 'timezone',
+                   'errorWorkflow', 'executionTimeout'}
     body = {'name': wf['name'], 'nodes': wf['nodes'], 'connections': wf['connections'],
-            'settings': wf.get('settings', {})}
+            'settings': {k: v for k, v in wf.get('settings', {}).items() if k in SETTINGS_OK}}
     c.put(f'{B}/api/v1/workflows/{wid}', headers=H, json=body).raise_for_status()
     print('已更新 n8n workflow', wid)
     # 🔴 CLAUDE.md 規則：改已啟用的 workflow 後一定要 deactivate + activate，否則排程還在跑舊版
