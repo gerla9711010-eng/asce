@@ -53,6 +53,31 @@ def save(data: dict) -> None:
         print(f"[WARN] manifest.json 寫不進去（{type(e).__name__}），這筆不會出現在網頁看板", file=sys.stderr)
 
 
+def prune_group(group: str, valid_keys: set[str]) -> list[str]:
+    """拿掉這個群組裡，房地現在已經沒有的客戶／客需（使用者把客戶移出房地資料夾後，
+    manifest 跟看板不會自己清掉舊紀錄——之前一直是「只累加、不刪除」，導致移除的客戶
+    在網址上還陰魂不散。跟房地當下名單（valid_keys）比對，多出來的連 output 檔一起砍。"""
+    data = load()
+    bucket = data.get(group)
+    if not bucket:
+        return []
+    removed = []
+    for key in list(bucket.keys()):
+        if key not in valid_keys:
+            entry = bucket.pop(key)
+            removed.append(key)
+            for record in (entry.get("full"), entry.get("latest")):
+                if record:
+                    path = MANIFEST_PATH.parent / record["file"]
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+    if removed:
+        save(data)
+    return removed
+
+
 def record_result(
     group: Optional[str],
     customer: str,

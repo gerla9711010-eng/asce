@@ -97,6 +97,14 @@ async def run_group(
     """
     foundi_page = await foundi_need.get_or_open_foundi_page(ctx)
     customers = await foundi_need.list_group(foundi_page, group)
+
+    # 房地上已經被移走的客戶／客需，manifest 跟看板要跟著清掉，不然舊資料會一直
+    # 陰魂不散地留在網址上（2026-08-06 使用者實測抓到：移出房地後，看板還有她）。
+    valid_keys = {f"{name}／{need}" for name, needs in customers for need in needs}
+    removed = manifest.prune_group(group, valid_keys)
+    if removed:
+        print(f"[INFO] 房地已移除、看板同步清掉 {len(removed)} 筆：{'、'.join(removed)}")
+
     if customer:
         customers = [(name, needs) for name, needs in customers if name == customer]
         if not customers:
