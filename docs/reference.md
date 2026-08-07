@@ -390,6 +390,41 @@ n8n 整台燒掉它照樣會叫。**
 
 ---
 
+## 公開網頁：Cloudflare Pages 發布鏈路（2026-08-05 上線）
+
+三個站共用同一個 Cloudflare Pages 專案 `yc-tools.pages.dev`：`/yc-calc/`、`/kh-market/`、
+`/buyer-match/`。搬家原因是 GitHub 帳號停權**連 GitHub Pages 一起關掉**，`github.io` 底下
+三個站對外全部 404、`git ls-remote` 也 403。當時「情資沒更新」不是 bdinfo 壞掉——每週二
+照樣算好寫檔，是推不上去。
+
+**發布鏈路**
+1. 週二 09:55 bdinfo 產完 `dist/data/intel/latest.json` → **當場叫 `update.py --deploy-only`**
+   （不用等 13:37）
+2. 每天 13:37 `KH-Market-AutoUpdate` 再發一次保底
+3. 發完**真的去線上抓一次比對**，不符或 404 就推 LINE。同故障 3 天只吵一次，
+   狀態存 `publish_state.json`
+4. `buyer-match` 的 `daily_run.py` 跑完也會自動呼叫 `kh-market-tool/update.py --deploy-only`
+
+GitHub 仍是次要通道，帳號恢復當天會自動補推積著的 commit。
+手動重發：`python update.py --deploy-only`
+
+### 買方配案看板機制（2026-08-05～08-06 定案）
+
+- **三個入口版面統一在 `build_static_view.py`**（localhost:5001／桌面 `配案看板.html`／
+  手機網址）。**不要在 `webview_server.py` 裡寫 HTML。**
+- **看板資料以排程現查結果為準**：排程現查完直接覆蓋看板的「完整清單」，物件下架／全部歸零
+  都會同步反映。（舊行為是只有人工點「完整查詢」才刷新，排程只存「新增/降價」差異，
+  所以物件下架後看板一直顯示舊連結。）
+- 客戶被移出房地資料夾後，manifest／看板自動清掉舊資料（`manifest.prune_group`）
+- **資料瘦身**：`output/` 歷史查詢檔由排程自動清（一次性清過 926K→238K），
+  `daily_run.log` 只留最近 7 天
+- 電腦端「點連結原地預覽」在 5001 和桌面單檔都有；手機網址是獨立網頁（不在 iframe 裡），
+  連結會直接原生開新分頁
+- 手機看板含客戶姓名/需求，`robots.txt` 擋 `/buyer-match/` 被搜尋引擎收錄，
+  但網址本身沒有帳密保護（使用者已確認接受）。舊的 Claude Artifact `c30bd39a-…` 已棄用
+
+---
+
 ## 廣告系統 v2（已被 v3 取代，只留兩件還有效的事）
 
 - **FB 永久權杖**：粉專「買房不費力,賣房好給力」，App `kaixuan-ad-bot`、系統使用者 `n8n-bot`，
