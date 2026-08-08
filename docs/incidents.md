@@ -17,6 +17,31 @@
 
 ---
 
+## 2026-08-08 ─ 買方配案：房地改版拿掉 CSS class，選擇器讀成 0 筆，整批排程空跑一天（已修）
+
+**症狀**：使用者發現昨天新增進 A買的 6 位客戶完全沒出現在看板上，一路追問下去發現不只
+這 6 位——manifest 裡舊客戶的「完整清單」時間戳全部停在 8/7，今天 07:46 排程跑完卻沒有
+任何一筆更新到 8/8。**整個排程當天等於沒真的查過**，「新 0 戶」是假的。
+
+**成因**：房地（agent.foundi.info）把候選卡片外層 class 從 `panel-heading-container
+hover-property-summary` 改成只剩 `panel-heading-container`，`foundi_need.py` 的
+`_EXTRACT_FOUNDI_CARDS_JS` 選擇器鎖死兩個 class 一起比對，讀到 0 張卡片 → `areas` 是空的
+→ `run_group_match.py` 判斷「這個子條件沒有任何候選物件」直接跳過，根本沒去查 i智慧。
+截圖比對確認：房地畫面明明有 30 筆候選（紹偉哥／紹偉哥大樓那筆）。
+
+**怎麼修**（`scripts/buyer-match/foundi_need.py`，PR #176）：
+選擇器只留 `div.panel-heading-container`（卡片內部 `.title`／`.subtitle`／`.anchor-minor`
+沒有跟著改版跑掉，只有外層多餘的 class 被拿掉）。改完用 `daily_run.py --force` 補跑當天，
+26 個客戶/客需、248 筆全部補回來。
+
+**學到什麼**：DOM 選擇器鎖多個 class 一起比對，改版只要拿掉其中一個就整條選擇器失效、
+而且是**靜靜失效**——不噴錯、`areas` 空清單被當成「這個客需真的沒候選」處理，跟真正
+「查了但沒新東西」的 `新 0 戶` 長得一模一樣，光看 log 分不出來。判斷「排程有沒有真的
+跑」不能只看有沒有報錯，要抽查 manifest 的 `full.timestamp` 是不是真的每天在動。
+[[buyer-match-tool-pointer]]
+
+---
+
 ## 2026-08-08 ─ KEIS 公買搶單：Notion 補寫路徑會把備註清空，靜靜漏了至少 5 筆（已修）
 
 **症狀**：使用者發現 79968（KEIS 有備註「問專員電話」）Notion 頁面備註是空的。跑修復機制
