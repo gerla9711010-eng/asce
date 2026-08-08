@@ -59,11 +59,16 @@ TAG_ORDER = {"new": 0, "repriced": 1, None: 2}
 
 
 def collect() -> dict:
-    """把 manifest + 每個結果檔的內容，全部讀成一包可以嵌進 HTML 的資料。"""
+    """把 manifest + 每個結果檔的內容，全部讀成一包可以嵌進 HTML 的資料。
+
+    同一個客戶名下常常掛好幾個客需（manifest key 是 customer／need），以前
+    每個客需各自一張卡，客戶名字在清單上就會重複出現兩三次。改成先照
+    customer 分組，清單只給一張「客戶卡」，卡片裡的客需數 >1 才多一層
+    選單讓使用者挑要看哪個客需；只有一個客需就直接跳進去，不多一次點擊。"""
     data = manifest.load()
     groups: dict[str, list] = {}
     for group, bucket in data.items():
-        rows = []
+        by_customer: dict[str, list] = {}
         for entry in bucket.values():
             record = entry.get("full") or entry.get("latest")
             if not record:
@@ -79,9 +84,8 @@ def collect() -> dict:
             blocks.sort(key=lambda b: TAG_ORDER.get(b["tag"], 9))
             new_n = sum(1 for b in blocks if b["tag"] == "new")
             repriced_n = sum(1 for b in blocks if b["tag"] == "repriced")
-            rows.append(
+            by_customer.setdefault(entry["customer"], []).append(
                 {
-                    "customer": entry["customer"],
                     "need": entry["need"],
                     "timestamp": record["timestamp"],
                     "hits": record["hits"],
@@ -91,9 +95,23 @@ def collect() -> dict:
                     "blocks": blocks,
                 }
             )
-        rows.sort(key=lambda r: r["customer"])
-        if rows:
-            groups[group] = rows
+        customers = []
+        for customer, needs in by_customer.items():
+            # 客需選單：最近查過的排前面
+            needs.sort(key=lambda n: n["timestamp"], reverse=True)
+            customers.append(
+                {
+                    "customer": customer,
+                    "needs": needs,
+                    "hits": sum(n["hits"] for n in needs),
+                    "new_n": sum(n["new_n"] for n in needs),
+                    "repriced_n": sum(n["repriced_n"] for n in needs),
+                    "latest_ts": max(n["timestamp"] for n in needs),
+                }
+            )
+        customers.sort(key=lambda c: c["customer"])
+        if customers:
+            groups[group] = customers
     return groups
 
 
@@ -169,8 +187,8 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
 
 /* 客戶/客需清單：跟物件卡片同款固定兩欄矩形卡片——客戶一多，長長一條直向列表
    最容易看到疲勞，改成卡片格才會跟後面翻進去的物件卡片視覺一致、掃視省力。 */
-#needlist { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-#needlist .blank { grid-column: 1 / -1; }
+#needlist, #needslist { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#needlist .blank, #needslist .blank { grid-column: 1 / -1; }
 .needcard {
   position: relative; width: 100%; text-align: left; font-family: inherit; color: inherit;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
@@ -274,7 +292,7 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   .masthead h1 { font-size: 19px; }
   .built { font-size: 12.5px; }
   .grouppill { font-size: 15.5px; padding: 7px 17px; }
-  #needlist { gap: 14px; }
+  #needlist, #needslist { gap: 14px; }
   .needcard { padding: 19px 17px 54px; min-height: 152px; }
   .needcard-cust { font-size: 22px; }
   .needcard-need { font-size: 18px; }
@@ -294,7 +312,7 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
   .propcard { padding: 18px 30px 48px 12px; }
   .textline { font-size: 14.5px; }
   .textline-title { font-size: 15.5px; }
-  #needlist { gap: 8px; }
+  #needlist, #needslist { gap: 8px; }
   .needcard { padding: 13px 12px 44px; min-height: 122px; }
   .needcard-cust { font-size: 17.5px; }
   .needcard-need { font-size: 14.5px; }
@@ -347,8 +365,8 @@ main { padding: 14px 16px; max-width: 940px; margin: 0 auto; }
 .toast[data-show="1"] { opacity: .96; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } .needrow:active { transform: none; } }
 
-#screen-list, #screen-cards { display: none; }
-#screen-list[data-on="1"], #screen-cards[data-on="1"] { display: block; }
+#screen-list, #screen-needs, #screen-cards { display: none; }
+#screen-list[data-on="1"], #screen-needs[data-on="1"], #screen-cards[data-on="1"] { display: block; }
 
 .fallback { position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 90;
   display: none; align-items: center; justify-content: center; padding: 20px; }
@@ -372,6 +390,14 @@ BODY = r"""
 <main>
   <div id="screen-list" data-on="1">
     <div id="needlist"></div>
+  </div>
+
+  <div id="screen-needs">
+    <div class="actionbar">
+      <button class="btn" id="btn-needs-back">← 返回</button>
+    </div>
+    <div class="drill-meta" id="needsmeta"></div>
+    <div id="needslist"></div>
   </div>
 
   <div id="screen-cards">
@@ -413,7 +439,7 @@ BODY = r"""
 
 SCRIPT = r"""
 const DATA = __DATA_JSON__;
-let group = null, row = null;
+let group = null, customer = null, row = null;
 
 // Claude Artifact 本身就跑在一層 iframe 裡（沙盒沒開 allow-popups），JS 呼叫
 // window.open() 會被整個吃掉、按了沒反應；只有「使用者真的點到一個 <a target=_blank>」
@@ -456,7 +482,7 @@ async function copyText(text) {
   return false;
 }
 
-const keyOf = r => 'x:' + group + '|' + r.customer + '|' + r.need;
+const keyOf = r => 'x:' + group + '|' + customer.customer + '|' + r.need;
 const getX = r => { try { return new Set(JSON.parse(localStorage.getItem(keyOf(r)) || '[]')); } catch (e) { return new Set(); } };
 const setX = (r, s) => { try { localStorage.setItem(keyOf(r), JSON.stringify([...s])); } catch (e) {} };
 
@@ -483,37 +509,75 @@ function renderList() {
   const el = $('needlist'), rows = DATA[group] || [];
   el.innerHTML = '';
   if (!rows.length) { el.innerHTML = '<div class="blank">這組還沒有結果</div>'; return; }
-  rows.forEach(r => {
+  rows.forEach(c => {
     const b = document.createElement('button');
     b.className = 'needcard';
     // 有新上架就在客戶卡上直接標出來，不用一個一個點進去才知道誰有新東西
     const flags =
-      (r.new_n ? '<span class="chip-new">新 ' + r.new_n + '</span>' : '') +
-      (r.repriced_n ? '<span class="chip-drop">降 ' + r.repriced_n + '</span>' : '');
+      (c.new_n ? '<span class="chip-new">新 ' + c.new_n + '</span>' : '') +
+      (c.repriced_n ? '<span class="chip-drop">降 ' + c.repriced_n + '</span>' : '');
+    // 一個客戶只有一個客需就直接顯示客需名稱；兩個以上就顯示「N 個客需」，
+    // 點進去才選要看哪一個——同一個客戶名字不會在清單上重複出現。
+    const subtitle = c.needs.length > 1 ? c.needs.length + ' 個客需' : c.needs[0].need;
     b.innerHTML =
-      '<span class="needcard-flags">' + flags +
-      (r.is_full ? '' : '<span class="chip-partial">僅新案</span>') + '</span>' +
-      '<span class="needcard-cust">' + esc(r.customer) + '</span>' +
-      '<span class="needcard-need">' + esc(r.need) + '</span>' +
-      '<span class="needcard-meta">' + esc((r.timestamp || '').replace('T', ' ').slice(0, 16)) + '</span>' +
-      '<span class="needcard-count"><b>' + r.hits + '</b>筆</span>';
-    b.onclick = () => openRow(r);
+      '<span class="needcard-flags">' + flags + '</span>' +
+      '<span class="needcard-cust">' + esc(c.customer) + '</span>' +
+      '<span class="needcard-need">' + esc(subtitle) + '</span>' +
+      '<span class="needcard-meta">' + esc((c.latest_ts || '').replace('T', ' ').slice(0, 16)) + '</span>' +
+      '<span class="needcard-count"><b>' + c.hits + '</b>筆</span>';
+    b.onclick = () => openCustomer(c);
     el.appendChild(b);
   });
 }
 
 function showList() {
   $('screen-list').dataset.on = '1';
+  $('screen-needs').dataset.on = '0';
   $('screen-cards').dataset.on = '0';
   scrollTo(0, 0);
+}
+
+function openCustomer(c) {
+  customer = c;
+  if (c.needs.length === 1) {
+    openRow(c.needs[0]);
+    return;
+  }
+  renderNeeds();
+  $('screen-list').dataset.on = '0';
+  $('screen-needs').dataset.on = '1';
+  $('screen-cards').dataset.on = '0';
+  scrollTo(0, 0);
+}
+
+function renderNeeds() {
+  $('needsmeta').textContent = customer.customer + '　共 ' + customer.needs.length + ' 個客需';
+  const el = $('needslist');
+  el.innerHTML = '';
+  customer.needs.forEach(n => {
+    const b = document.createElement('button');
+    b.className = 'needcard';
+    const flags =
+      (n.new_n ? '<span class="chip-new">新 ' + n.new_n + '</span>' : '') +
+      (n.repriced_n ? '<span class="chip-drop">降 ' + n.repriced_n + '</span>' : '');
+    b.innerHTML =
+      '<span class="needcard-flags">' + flags +
+      (n.is_full ? '' : '<span class="chip-partial">僅新案</span>') + '</span>' +
+      '<span class="needcard-cust">' + esc(n.need) + '</span>' +
+      '<span class="needcard-meta">' + esc((n.timestamp || '').replace('T', ' ').slice(0, 16)) + '</span>' +
+      '<span class="needcard-count"><b>' + n.hits + '</b>筆</span>';
+    b.onclick = () => openRow(n);
+    el.appendChild(b);
+  });
 }
 
 function openRow(r) {
   row = r;
   $('drillmeta').textContent =
-    r.customer + '　' + r.need + '　共 ' + r.hits + ' 筆' + (r.is_full ? '' : '（僅新案）');
+    customer.customer + '　' + r.need + '　共 ' + r.hits + ' 筆' + (r.is_full ? '' : '（僅新案）');
   renderCards();
   $('screen-list').dataset.on = '0';
+  $('screen-needs').dataset.on = '0';
   $('screen-cards').dataset.on = '1';
   scrollTo(0, 0);
 }
@@ -637,7 +701,18 @@ function closeLink() {
   clearTimeout(linkTimer);
 }
 
-$('btn-back').onclick = showList;
+$('btn-back').onclick = () => {
+  // 客戶只有一個客需時是直接跳進卡片畫面，返回要回客戶清單；
+  // 有兩個以上客需才是從「選客需」畫面點進來的，返回要回那一層。
+  if (customer && customer.needs.length > 1) {
+    $('screen-cards').dataset.on = '0';
+    $('screen-needs').dataset.on = '1';
+    scrollTo(0, 0);
+  } else {
+    showList();
+  }
+};
+$('btn-needs-back').onclick = showList;
 $('btn-restore').onclick = () => { setX(row, new Set()); renderCards(); toast('已復原'); };
 $('btn-copyall').onclick = async () => {
   const hidden = getX(row);
