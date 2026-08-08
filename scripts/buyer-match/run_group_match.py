@@ -161,6 +161,7 @@ async def run_group(
                     price_max=fneed.price_max,
                     rooms_min=fneed.rooms_min,
                     usage_any=fneed.usage_words or None,
+                    type_any=fneed.type_words or None,
                     age_min=fneed.age_min,
                     age_max=fneed.age_max,
                     main_area_ping_min=fneed.main_area_ping_min,

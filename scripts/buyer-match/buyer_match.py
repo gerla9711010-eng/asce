@@ -722,6 +722,7 @@ def passes_filters(
     usage_keyword: Optional[str],
     area_keyword: str,
     usage_any: Optional[list[str]] = None,
+    type_any: Optional[list[str]] = None,
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
     area_ping_min: Optional[float] = None,
@@ -748,6 +749,12 @@ def passes_filters(
     if usage_keyword and usage_keyword not in c.usage:
         return False
     if usage_any and not any(w in c.usage for w in usage_any):
+        return False
+    # 類型（大樓/透天/公寓...）跟用途（店面/住宅/辦公）是分開的兩群條件，各自群組內 OR，
+    # 群組之間 AND——「類型=大樓+透天、用途=店面」要的是「(大樓 or 透天) 且 店面」，
+    # 不能跟 usage_any 併成同一包 OR（併起來的話物件只要類型命中大樓就會通過，
+    # 即使它的用途是住宅不是店面，2026-08-08 麗華左營臨路寬透天樓店案踩過）。
+    if type_any and not any(w in c.usage for w in type_any):
         return False
     if age_min is not None and (c.age_years is None or c.age_years < age_min):
         return False
@@ -955,6 +962,7 @@ async def match_areas(
     rooms_min: Optional[int] = None,
     usage: Optional[str] = None,
     usage_any: Optional[list[str]] = None,
+    type_any: Optional[list[str]] = None,
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
     area_ping_min: Optional[float] = None,
@@ -1008,7 +1016,7 @@ async def match_areas(
                 card = _parse_card(r)
                 if not passes_filters(
                     card, price_min, price_max, rooms_min, usage, keyword,
-                    usage_any=usage_any, age_min=age_min, age_max=age_max,
+                    usage_any=usage_any, type_any=type_any, age_min=age_min, age_max=age_max,
                     area_ping_min=area_ping_min, area_ping_max=area_ping_max,
                     main_area_ping_min=main_area_ping_min,
                     main_area_ping_max=main_area_ping_max,
