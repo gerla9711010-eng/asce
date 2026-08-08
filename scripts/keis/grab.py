@@ -1459,6 +1459,80 @@ def audit_notion(days: int = AUDIT_DAYS, alert: bool = True) -> tuple[int, int, 
     return (len(rows), len(missing), fixed)
 
 
+# ---------- 備註保險：跟 KEIS『我的申請』對帳，KEIS 有備註但 Notion 是空的就自動補 ----------
+# 2026-08-08 加。動機：79968 這筆備註在補寫路徑被清空（見 load_grabbed_row 的說明），
+# 是使用者自己發現才補回來的。CSV 加欄位只堵住「這一種」漏法，往後只要再冒出新的漏法
+# （或客戶備註是 KEIS 那邊事後才補上的，我們搶單當下根本還沒有），一樣會靜靜漏掉沒人知道。
+# 這裡改用「跟 KEIS 現況對帳」而不是信任本機任何快照：KEIS 現在有備註、Notion 現在沒有，
+# 不管是什麼原因造成的都直接修好，不必等人翻 log 才發現。
+
+def _patch_remarks_if_missing(sid: str, remarks: str) -> bool:
+    """查 Notion 這個 summary_id 的頁面，備註是空的才補上（有內容的一律不動，不覆蓋人工註記）。
+    回傳有沒有真的補寫。查不到頁面/查詢失敗都當作跳過，不吵人（跟 notion_exists 同一套保守原則）。"""
+    try:
+        r = httpx.post(
+            f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query",
+            headers=_notion_headers(),
+            json={"filter": {"property": "summary_id", "rich_text": {"equals": str(sid)}}, "page_size": 1},
+            timeout=15,
+        )
+        if r.status_code >= 300:
+            return False
+        results = r.json().get("results", [])
+        if not results:
+            return False
+        page = results[0]
+        existing = page["properties"].get("備註", {}).get("rich_text", [])
+        if "".join(t.get("plain_text", "") for t in existing).strip():
+            return False          # 已經有內容，不覆蓋
+        patch = httpx.patch(
+            f"https://api.notion.com/v1/pages/{page['id']}",
+            headers=_notion_headers(),
+            json={"properties": {"備註": {"rich_text": [{"text": {"content": remarks[:2000]}}]}}},
+            timeout=15,
+        )
+        return patch.status_code < 300
+    except Exception:
+        return False
+
+
+def audit_remarks(clients: list, days: int = 3) -> int:
+    """跟各帳號『我的申請』對帳備註欄（滾動窗口，只看得到最近申請的，所以要每天固定跑，
+    別事後才補）。KEIS 現在有備註、Notion 現在是空的，直接補上；回傳補了幾筆。
+    全程 best-effort，單一帳號或單一筆查詢失敗只記 log，不影響其他帳號/其他筆。"""
+    if not (NOTION_TOKEN and NOTION_DB_ID):
+        return 0
+    cutoff = datetime.now() - timedelta(days=days)
+    fixed = 0
+    for cl in clients:
+        try:
+            apps = cl.my_applications()
+        except Exception as e:
+            log(f"   ⚠ [{cl.label}] 備註對帳回查失敗，略過：{type(e).__name__}")
+            continue
+        for app in apps:
+            sid = app.get("summary_id")
+            remarks = (app.get("remarks") or "").strip()
+            if sid is None or not remarks or not is_our_application(app):
+                continue
+            app_time = str(app.get("app_time") or "")[:19]
+            if len(app_time) == 19:
+                try:
+                    if datetime.fromisoformat(app_time) < cutoff:
+                        continue           # 太舊的不查，省 API 呼叫（超出窗口也查不到新資訊）
+                except ValueError:
+                    pass
+            try:
+                if _patch_remarks_if_missing(str(sid), remarks):
+                    fixed += 1
+                    log(f"   ↩ [備註對帳] {sid} 補上備註")
+            except Exception as e:
+                log(f"   ⚠ 備註對帳補寫失敗 {sid}：{type(e).__name__}")
+    if fixed:
+        log(f"🧾 備註對帳：補回 {fixed} 筆")
+    return fixed
+
+
 def _notion_headers() -> dict:
     return {"Authorization": f"Bearer {NOTION_TOKEN}",
             "Notion-Version": "2022-06-28",
@@ -2001,6 +2075,8 @@ def run_watch(clients: list, dry_run: bool) -> int:
                     # 保險：不只補「已知失敗」的，直接拿 grabbed.csv 跟 Notion 對帳，
                     # 任何原因造成的缺漏都抓得到（見 audit_notion 說明）
                     audit_notion()
+                    # 備註保險：跟 KEIS 現況對帳，備註被漏寫（不管什麼原因）都自動補（見 audit_remarks 說明）
+                    audit_remarks(clients)
                     write_daily_summary(seen_day.isoformat(), day_seen, day_match,
                                         day_grabbed + len(rec), recovered=len(rec))  # 結算的是「昨天」
                 except Exception as e:
@@ -2240,6 +2316,8 @@ def main() -> int:
                         help="只跑 Notion 對帳：grabbed.csv 有、Notion 沒有的就補寫（不搶單）")
     parser.add_argument("--audit-days", type=int, default=AUDIT_DAYS,
                         help=f"對帳往回查幾天，0=全部（預設 {AUDIT_DAYS}）")
+    parser.add_argument("--audit-remarks", action="store_true",
+                        help="只跑備註對帳：跟 KEIS『我的申請』比對，KEIS 有備註但 Notion 是空的就補（不搶單，要登入 KEIS）")
     args = parser.parse_args()
 
     if args.audit_notion:
@@ -2255,6 +2333,12 @@ def main() -> int:
     dry_run = DRY_RUN and not args.apply
     clients = [Keis(u, p) for u, p in accts]
     print(f"👤 登入 KEIS：{'、'.join(c.label for c in clients)}（{len(clients)} 帳號）")
+
+    if args.audit_remarks:
+        fixed = audit_remarks(clients, days=args.audit_days if args.audit_days > 0 else 7)
+        print(f"🧾 備註對帳完成：補回 {fixed} 筆")
+        return 0
+
     if args.watch:
         return run_watch(clients, dry_run)
     return run_once(clients, dry_run)
