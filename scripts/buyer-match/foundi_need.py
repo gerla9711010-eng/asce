@@ -71,8 +71,10 @@ class FoundiNeed:
 
 _EXTRACT_FOUNDI_CARDS_JS = r"""
 () => {
-  const cards = [...document.querySelectorAll(
-    'div.panel-heading-container.hover-property-summary')];
+  // 2026-08-08 房地改版拿掉了卡片外層的 .hover-property-summary class，只鎖
+  // .panel-heading-container 原本抓 0 筆（實測撞過：紹偉哥大樓明明有 30 筆候選卻
+  // 讀成空的、manifest 完全沒寫入，看起來像新客戶被漏掉）。子節點 class 沒變。
+  const cards = [...document.querySelectorAll('div.panel-heading-container')];
   return cards.map(c => ({
     title: c.querySelector('.title')?.textContent?.trim() || '',
     subtitle: c.querySelector('.subtitle')?.textContent?.trim() || '',
