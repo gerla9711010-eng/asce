@@ -34,6 +34,14 @@ _MAX_DISTRICTS = 3
 
 _BUILDING_TYPE_WORDS = ["住宅", "店面", "透天", "華廈", "大樓", "店住", "辦公"]
 
+# 2026-08-08 拆開「類型」跟「用途」：房地客需摘要把兩層條件寫在一起（例："大樓,透天、店面"），
+# 舊版全部塞進同一個 usage_words 只做 OR，會讓「類型=大樓+透天、用途=店面」這種設定
+# 漏篩——物件只要類型命中「大樓」就通過，即使它的用途是「住宅」不是「店面」。
+# 現在類型跟用途分開抓，比對時類型群組內 OR、用途群組內 OR，兩群組之間 AND
+# （buyer_match.passes_filters 的 type_any / usage_any 兩個獨立參數）。
+_TYPE_WORDS = ["公寓", "大樓", "廠房", "透天", "土地", "車位"]
+_USAGE_WORDS = ["辦公", "住宅", "店面"]
+
 
 @dataclass
 class FoundiNeed:
@@ -52,6 +60,7 @@ class FoundiNeed:
     price_max: Optional[int] = None
     rooms_min: Optional[int] = None
     usage_words: list[str] = field(default_factory=list)
+    type_words: list[str] = field(default_factory=list)
     age_min: Optional[int] = None
     age_max: Optional[int] = None
     # 房地的「主建物坪數」對應 i智慧卡片的「主建」欄位（不是含公設的「建物」）
@@ -394,7 +403,8 @@ def _parse_filter_summary(summary: str) -> dict:
         if m:
             rooms_min = int(m.group(1))
 
-    usage_words = [w for w in _BUILDING_TYPE_WORDS if w in summary]
+    usage_words = [w for w in _USAGE_WORDS if w in summary]
+    type_words = [w for w in _TYPE_WORDS if w in summary]
 
     # 「地址」模式摘要會直接列區名（例：高雄市 鳳山區,三民區,...、），框選模式只給
     # 「高雄市(3區)」這種數量、沒有區名可解析——後者要靠候選清單反推（見 load_customer_need）。
@@ -408,6 +418,7 @@ def _parse_filter_summary(summary: str) -> dict:
         "price_max": int(price_max) if price_max is not None else None,
         "rooms_min": rooms_min,
         "usage_words": usage_words,
+        "type_words": type_words,
         "age_min": int(age_f_min) if age_f_min is not None else None,
         "age_max": int(age_f_max) if age_f_max is not None else None,
         "main_area_ping_min": main_ping_min,
@@ -527,6 +538,7 @@ async def load_customer_need(ctx, customer: str, need: Optional[str] = None) -> 
         price_max=parsed["price_max"],
         rooms_min=parsed["rooms_min"],
         usage_words=parsed["usage_words"],
+        type_words=parsed["type_words"],
         age_min=parsed["age_min"],
         age_max=parsed["age_max"],
         main_area_ping_min=parsed["main_area_ping_min"],

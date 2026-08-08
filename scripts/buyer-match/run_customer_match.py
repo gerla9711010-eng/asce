@@ -64,12 +64,14 @@ async def run(args) -> None:
         price_max = args.price_max if args.price_max is not None else need.price_max
         rooms_min = args.rooms_min if args.rooms_min is not None else need.rooms_min
         usage_any = [args.usage] if args.usage is not None else (need.usage_words or None)
+        type_any = need.type_words or None
 
         print(f"[INFO] 帶去 i智慧 查的關鍵字：{'、'.join(areas)}")
         print(f"[INFO] 行政區：{'、'.join(need.districts) or '不限'}")
         print(
             f"[INFO] 篩選條件：總價 {price_min or '不限'}~{price_max or '不限'}萬、"
-            f"{rooms_min or '不限'}房以上、{need.baths_min or '不限'}衛以上、用途 {usage_any or ['不限']}、"
+            f"{rooms_min or '不限'}房以上、{need.baths_min or '不限'}衛以上、"
+            f"類型 {type_any or ['不限']}、用途 {usage_any or ['不限']}、"
             f"屋齡 {need.age_min or '不限'}~{need.age_max or '不限'}年、"
             f"主建物 {need.main_area_ping_min or '不限'}~{need.main_area_ping_max or '不限'}坪、"
             f"土地 {need.land_ping_min or '不限'}~{need.land_ping_max or '不限'}坪、"
@@ -92,6 +94,7 @@ async def run(args) -> None:
             price_max=price_max,
             rooms_min=rooms_min,
             usage_any=usage_any,
+            type_any=type_any,
             age_min=need.age_min,
             age_max=need.age_max,
             main_area_ping_min=need.main_area_ping_min,
