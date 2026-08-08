@@ -570,10 +570,11 @@ def append_csv(grabbed: list[dict]) -> None:
         with GRABBED_CSV.open("a", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f)
             if new:
-                w.writerow(["搶到時間", "帳號", "summary_id", "姓名", "電話", "縣市", "類型", "預算", "建檔時間", "行政區"])
+                w.writerow(["搶到時間", "帳號", "summary_id", "姓名", "電話", "縣市", "類型", "預算", "建檔時間", "行政區", "備註"])
             for g in grabbed:
                 w.writerow([g["grabbed_at"], g.get("account", ""), g["summary_id"], g["name"], g["phone"],
-                            g["city"], g["category"], g["budget"], g["start_time"], g.get("district", "")])
+                            g["city"], g["category"], g["budget"], g["start_time"], g.get("district", ""),
+                            g.get("remarks", "")])
     except Exception as e:
         detail = "；".join(f"{g['summary_id']} {g['name']}/{g['phone']}" for g in grabbed)
         log(f"⚠ 寫 grabbed.csv 失敗！已搶到但本機沒落地，請手動補回：{detail}（{type(e).__name__}: {e}）")
@@ -1355,7 +1356,7 @@ def load_grabbed_row(sid) -> dict | None:
                              "name": row[3], "phone": row[4], "city": row[5],
                              "category": row[6], "budget": row[7], "start_time": row[8],
                              "district": row[9] if len(row) >= 10 else "",
-                             "remarks": ""}
+                             "remarks": row[10] if len(row) >= 11 else ""}
     except Exception as e:
         log(f"⚠ 讀 grabbed.csv 撈補寫資料失敗：{type(e).__name__}")
     return None
@@ -1419,7 +1420,7 @@ def _grabbed_rows_since(days: int) -> list[dict]:
                              "name": row[3], "phone": row[4], "city": row[5],
                              "category": row[6], "budget": row[7], "start_time": row[8],
                              "district": row[9] if len(row) >= 10 else "",
-                             "remarks": ""})
+                             "remarks": row[10] if len(row) >= 11 else ""})
     except Exception as e:
         log(f"⚠ 讀 grabbed.csv 對帳失敗：{type(e).__name__}")
     return rows
