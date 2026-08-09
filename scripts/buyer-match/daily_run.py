@@ -51,22 +51,31 @@ LOG_PATH = BASE_DIR / "daily_run.log"
 DEFAULT_GROUPS = ("A買", "B買", "C買")
 
 
-class _NullStream:
+class _LogFileStream:
     """排程跑的是 pythonw.exe，沒有 console → sys.stdout/stderr 是 None。
-    print() 遇到 None 會安靜跳過，但第三方套件（traceback、playwright）不見得都有防呆，
-    一個 AttributeError 就會讓整支死在推 LINE 之前——那正是最不能沉默的時刻。"""
+    print() 遇到 None 會安靜跳過，第三方套件（traceback、playwright）也不會炸——
+    但代價是 buyer_match.py／run_group_match.py 內部一路的 [WARN]/[INFO]（例如
+    「取分享連結失敗」）全部有去無回，出事只能現場開瀏覽器重現才查得到原因
+    （2026-08-09 分享連結斷兩天就是這樣，daily_run.log 完全空白）。
+    改寫進同一份 daily_run.log，跟 log() 共用檔案，一起看得到。"""
 
     def write(self, s):
-        pass
+        if not s:
+            return
+        try:
+            with LOG_PATH.open("a", encoding="utf-8") as f:
+                f.write(s)
+        except OSError:
+            pass  # OneDrive 偶爾鎖檔，寫不進去不該讓整批中止
 
     def flush(self):
         pass
 
 
 if sys.stdout is None:
-    sys.stdout = _NullStream()
+    sys.stdout = _LogFileStream()
 if sys.stderr is None:
-    sys.stderr = _NullStream()
+    sys.stderr = _LogFileStream()
 
 try:
     from dotenv import load_dotenv
