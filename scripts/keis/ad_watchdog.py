@@ -50,6 +50,8 @@ load_dotenv(Path(__file__).parent / ".env")
 STUCK_MINUTES = 30        # 「待發」卡超過幾分鐘算異常（煞車窗口是 10 分鐘，留足緩衝）
 NO_PUBLISH_HOUR = 14      # 幾點之後還沒有任何「今天已發布」就告警（09/11/13 三班跑完了）
 NO_PUBLISH_UNTIL = 23     # 保底檢查只在這個鐘點前做，深夜不吵
+DB_WARN_PCT = 70          # Postgres 佔 volume 幾成就告警（2026-08-09 撐爆過一次，見 incidents.md）
+DB_VOLUME_BYTES = int(4.4 * 1024 ** 3)   # volume 實際可用量（5GB 標稱、df 看到 4.4GiB）
 # =====================
 
 TPE = timezone(timedelta(hours=8))
@@ -63,6 +65,8 @@ AD_DB_ID = os.environ.get("YC_AD_NOTION_DB_ID", "07ee845168b64f8a9b5682e5069c733
 LINE_DIRECT_TOKEN = os.environ.get("KEIS_LINE_DIRECT_TOKEN", "").strip()
 LINE_PUSH_USERID = os.environ.get("KEIS_LINE_PUSH_USERID",
                                   "Ufab42c56b2eb9b9a9ff18c367b85a6dd").strip()
+# Railway Postgres 的公開連線字串（Variables 裡的 DATABASE_PUBLIC_URL）。沒設就跳過磁碟檢查。
+N8N_PG_DSN = os.environ.get("N8N_PG_DSN", "").strip()
 
 # Windows 主控台是 cp950，印到 emoji 會整支炸掉
 if hasattr(sys.stdout, "reconfigure"):
@@ -299,6 +303,62 @@ def check_junk_copy(state: dict, now: datetime, dry: bool) -> None:
         log(f"🚨 已告警：{len(bad)} 篇文案壞掉（{', '.join(b['no'] for b in bad)}）")
 
 
+def check_db_disk(state: dict, now: datetime, dry: bool) -> None:
+    """判斷四：Postgres 快把 volume 塞爆了沒（2026-08-09 加）。
+
+    2026-08-09 磁碟從 18% 一路長到 100%，Postgres 直接停機、n8n 全掛。當時沒有任何東西會叫，
+    是人工去看 Railway 才發現的。這裡在還有救的時候先喊。
+
+    只讀 pg_database_size，不寫任何東西。連不上就跳過（門市每晚固定斷網，叫了也沒用）。
+    每天最多告警一次。
+    """
+    if not N8N_PG_DSN:
+        log("磁碟檢查：沒設 N8N_PG_DSN，跳過")
+        return
+    try:
+        import psycopg
+    except ImportError:
+        log("磁碟檢查：沒裝 psycopg（pip install 'psycopg[binary]'），跳過")
+        return
+
+    try:
+        with psycopg.connect(N8N_PG_DSN, connect_timeout=15) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_database_size(current_database());")
+                size = int(cur.fetchone()[0])
+                cur.execute("""SELECT relname, pg_total_relation_size(c.oid)
+                                 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                                WHERE n.nspname = 'public' AND c.relkind = 'r'
+                                ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 3;""")
+                top = cur.fetchall()
+    except Exception as e:
+        # 斷網、Postgres 正在重啟都會走到這。不告警——真的掛掉時判斷二（14:00 沒發文）會接手
+        log(f"磁碟檢查：連不上 Postgres，這輪跳過（斷網時屬正常）：{str(e).splitlines()[0][:80]}")
+        return
+
+    pct = size / DB_VOLUME_BYTES * 100
+    gb = size / 1024 ** 3
+    log(f"磁碟檢查：Postgres {gb:.2f} GB／{pct:.0f}%（門檻 {DB_WARN_PCT}%）")
+    if pct < DB_WARN_PCT:
+        return
+
+    today = now.strftime("%Y-%m-%d")
+    if state.get("db_disk_alerted") == today:
+        return
+
+    lines = [f"・{name}：{b / 1024 ** 2:.0f} MB" for name, b in top]
+    text = (f"🔴 n8n 資料庫快撐爆了：{gb:.2f} GB／{pct:.0f}%\n\n"
+            "最肥的三張表：\n" + "\n".join(lines) + "\n\n"
+            "＝撐到 100% 會讓 Postgres 停機、n8n 整台掛掉（2026-08-09 發生過）。\n"
+            "處理：找出是哪支 workflow 在灌執行紀錄，把它的\n"
+            "『儲存成功執行紀錄』關掉（設 saveDataSuccessExecution=none）。\n"
+            "⚠️ 絕對不要用 API 批次 DELETE 執行紀錄——刪除會先寫交易日誌，\n"
+            "在快滿的磁碟上會當場把它撐爆。要清一律用 TRUNCATE。")
+    if push_line(text, dry):
+        state["db_disk_alerted"] = today
+        log(f"🚨 已告警：資料庫 {pct:.0f}%")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="廣告發文看門狗（不依賴 n8n）")
     ap.add_argument("--dry", action="store_true", help="只印不推 LINE")
@@ -316,6 +376,8 @@ def main() -> int:
             check_no_publish(state, now, args.dry)
         # 這則講的是別件事（發出去了但內容是壞的），一定要獨立跑
         check_junk_copy(state, now, args.dry)
+        # 這則跟前面三則都無關：問的是「n8n 這台機器還撐得住嗎」，一定要獨立跑
+        check_db_disk(state, now, args.dry)
     except httpx.HTTPError as e:
         # 門市每晚 00:00~約 07:22 固定斷網，那段時間查不到 Notion 是正常的，不告警
         # （而且真的斷網時 LINE 也推不出去，叫了也沒用）

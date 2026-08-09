@@ -17,6 +17,59 @@
 
 ---
 
+## 2026-08-09 ─ Postgres volume 撐到 100%，n8n 全停約 1.5 小時（已修）
+
+### 🔴 結論先寫：清 n8n 執行紀錄一律用 TRUNCATE，**絕對不要用 API 批次 DELETE**
+
+Postgres 的 DELETE 會先寫交易日誌（WAL）才釋放空間。在一個已經 86% 滿的磁碟上批次刪
+519 筆大檔紀錄，等於一邊要空間一邊先灌資料進去——**當場把剩下的 14% 吃光**，
+Postgres 連啟動時寫 WAL 的空間都沒有，直接停機。
+
+**症狀**：n8n API 全部 503；Railway 上 Postgres `Crashed`；volume 顯示 100%。
+Deploy Logs 裡的關鍵句是
+`FATAL: could not write to file "pg_wal/xlogtemp.26": No space left on device`
+——每次重啟都跑完 32 秒資料復原、在最後寫入那步自殺，**全程不開放連線**，
+所以「等它起來的瞬間搶進去清」這招不可能成功。
+
+### 真正的成因（跟停機是兩件事，要分開看）
+
+`靜默失敗巡邏` 每 30 分鐘抓一批執行紀錄的**完整內容**（`?includeData=true`，含廣告照片），
+而全域 `SAVE_ON_SUCCESS=all` 又把它抓回來的這包大資料原封不動存回它自己的執行紀錄裡。
+**等於每 30 分鐘把別人已經存過的照片再複製一份**，單次執行紀錄約 50 MB。
+
+- 2026-08-02 量測：volume 914 MB（18%）
+- 2026-08-09 量測：4.3 GB（86%），`execution_data` 單表 3510 MB
+- 7 天漲 3.4 GB ≒ 每天 480 MB，**跟業務量、廣告則數完全無關**
+
+修法是把**這一支** workflow 的 `saveDataSuccessExecution` 設成 `none`
+（workflow 層級，不是全域——全域那條紅線沒動）。它本來就不需要回看自己的執行紀錄，
+也沒有 Wait 節點，關掉零副作用。
+
+### 怎麼救回來的（Hobby 方案，volume 加不了、備份是 Pro 限定）
+
+1. Railway → Postgres → Settings → Custom Start Command 暫時改 `sleep infinity`
+   （原值 `/bin/sh -c "unset PGPORT; docker-entrypoint.sh postgres --port=5432"`），
+   容器才會停止自殺迴圈、SSH 進得去
+2. `railway ssh --service Postgres`，把整個 `pg_wal`（721 MB）搬到容器暫存碟
+   （`/` 有 523 GB 可用），原位置放符號連結接回去。
+   **Postgres 官方支援 pg_wal 是 symlink**（`initdb --waldir` 就是這樣），不刪任何檔案、可逆
+3. 用 **5433 埠**啟動（`pg_ctl -o '-p 5433'`）——避開 n8n Primary/Worker 一連上就開始寫
+4. `TRUNCATE TABLE public.execution_entity CASCADE;` + `CHECKPOINT`
+   → volume 100% → 5%，**資料一筆沒少**（redo 完整跑完）
+5. 乾淨關閉 → **把 pg_wal 搬回 volume** → 最後才還原 Custom Start Command
+   ⚠️ 順序不可顛倒：還原啟動指令會重建容器、暫存碟全毀，pg_wal 還在那邊就完蛋
+
+### 學到什麼
+
+- **不要在快滿的磁碟上做任何「先寫後放」的操作**。DELETE、VACUUM FULL、REINDEX 都是。
+  TRUNCATE 是直接 unlink 檔案，才是對的工具
+- **Hobby 方案沒有安全網**：volume 鎖死 5 GB 加不了，備份與還原是 Pro 限定。
+  唯一的那份備份（495 MB，7/31 resize 時自動產生）點下去是鎖頭
+- **當時完全沒有東西會叫**，是人工看 Railway 帳單才順手發現的。已補
+  `ad_watchdog.py` 判斷四：Postgres 佔 volume 超過 70% 就繞過 n8n 直推 LINE
+- 帳單本身不是問題：$7.14 裡 $7 是四個容器 24 小時開機的記憶體底薪，
+  跟跑幾次 workflow 無關（vCPU 只花 $0.10）
+
 ## 2026-08-08 ─ 買方配案：類型/用途混成同一包 OR，透店客需跑出純住宅大樓（已修）
 
 **症狀**：使用者查「77515麗華／左營臨路寬透天樓店」（要店面），結果配對名單裡混進
