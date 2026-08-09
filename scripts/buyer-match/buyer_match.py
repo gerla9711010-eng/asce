@@ -899,8 +899,21 @@ async def open_detail_and_fetch(
             async with detail_page.context.expect_page(timeout=10000) as share_info:
                 await confirm_btn.click()
             share_page = await share_info.value
-            await share_page.wait_for_load_state("domcontentloaded")
-            share_url = share_page.url
+            # 2026-08-08 前後 i智慧改版：分頁一開始是空的（.url == ''），過約 1 秒
+            # 才靠前端 JS 導到真正的分享網址——domcontentloaded 在那個空白瞬間就
+            # 觸發了，讀 .url 抓到的永遠是空字串，害這幾天所有配案結果都沒有連結。
+            # 改成輪詢等 .url 變成真的網址，最多等 8 秒。
+            for _ in range(32):
+                if share_page.url.startswith("http"):
+                    break
+                await share_page.wait_for_timeout(250)
+            if share_page.url.startswith("http"):
+                share_url = share_page.url
+            else:
+                print(
+                    f"[WARN] 取分享連結逾時（分頁一直是空的，不影響其他資訊）",
+                    file=sys.stderr,
+                )
             await share_page.close()
         except Exception as e:
             print(f"[WARN] 取分享連結失敗（不影響其他資訊）：{e}", file=sys.stderr)
