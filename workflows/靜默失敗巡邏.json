@@ -242,6 +242,7 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Asia/Taipei",
-    "errorWorkflow": "eTHhmrZVmllk1aUZ"
+    "errorWorkflow": "eTHhmrZVmllk1aUZ",
+    "saveDataSuccessExecution": "none"
   }
 }

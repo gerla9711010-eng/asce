@@ -26,9 +26,22 @@
 
 ### Railway 環境變數（動之前先看 incidents.md）
 
-`EXECUTIONS_DATA_PRUNE=true` / `MAX_AGE=336`（14 天自動清）/ volume 5GB。
+`EXECUTIONS_DATA_PRUNE=true` / `MAX_AGE=336`（14 天自動清）/ volume 5GB（Hobby **鎖死加不了**）。
 🔴 **`EXECUTIONS_DATA_SAVE_ON_SUCCESS` 一律保持 `all`**，改 `none` 會讓所有 Wait 節點無聲死掉。
 空間真的不夠時正確做法是調降 `MAX_AGE`（336 → 168），絕不是關掉紀錄。
+
+**單支 workflow 太肥時**：改它自己的 `saveDataSuccessExecution: none`（workflow 層級，
+不動全域）。`靜默失敗巡邏` 已經這樣設——它會抓別人的完整執行資料，不關掉會每 30 分鐘
+把 50MB 複製一份進資料庫（2026-08-09 就是這樣撐爆的）。
+
+🔴 **清執行紀錄一律 `TRUNCATE`，絕不用 API 批次 DELETE**。DELETE 會先寫 WAL 才釋放空間，
+在快滿的磁碟上會當場撐爆、Postgres 停機。
+
+**Postgres 撐爆了怎麼救**（完整步驟見 `incidents.md` 2026-08-09）：
+Custom Start Command 暫改 `sleep infinity` → `railway ssh --service Postgres` →
+`pg_wal` 搬到容器暫存碟 + symlink → 用 5433 埠啟動 → TRUNCATE → 搬回 → 才還原啟動指令。
+原始啟動指令：`/bin/sh -c "unset PGPORT; docker-entrypoint.sh postgres --port=5432"`
+⚠️ Hobby 方案**備份與還原是 Pro 限定**，沒有安全網，別指望 Backups 分頁。
 
 ---
 
