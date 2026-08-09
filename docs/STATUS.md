@@ -6,7 +6,7 @@
 > 線上真正在跑什麼 → `n8n-live.md`（n8n_sync.py 產的，**兩邊打架信這份**）
 > 外部 AI 工具情報（評估過的／已排除的，不用重評）→ `ai-toolbox.md`
 
-最後更新：2026-08-08 晚上 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
+最後更新：2026-08-09 晚上 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
 
@@ -45,17 +45,12 @@
 
 ## ▶ 下次開工從這裡接
 
-### 0. ★ 08-09 Postgres 撐爆停機已修完，**剩兩件收尾要做**
+### ✅ 08-09 Postgres 撐爆停機，已完全修完（不用再看）
 
-magnitude：volume 100% → n8n 全停 ~1.5 小時，資料沒掉。完整經過見 `incidents.md` 2026-08-09。
-根因是 `靜默失敗巡邏` 每 30 分鐘把抓回來的完整執行資料又存回自己的紀錄（50MB/次，7 天灌 3.4GB），
-已把該 workflow 的 `saveDataSuccessExecution` 設 `none`（**全域那條紅線沒動**）。
-
-**還沒做的兩件**：
-1. **輪換 Postgres 密碼**——救援時明文貼過。Railway → Postgres → Variables 重設，
-   同步更新 `scripts/keis/.env` 和桌面 `keis\.env` 的 `N8N_PG_DSN`
-2. **填 `N8N_PG_DSN` 進兩份 .env**，磁碟告警才會生效（值＝`DATABASE_PUBLIC_URL`，
-   另需 `pip install "psycopg[binary]"`）。沒填只是跳過這項，其他三項照跑
+volume 100% → n8n 全停 ~1.5 小時，資料沒掉，22 支 workflow 全部復原。完整經過見 `incidents.md`。
+根因（`靜默失敗巡邏` 每 30 分鐘複製 50MB 進自己的執行紀錄）已修：該 workflow 的
+`saveDataSuccessExecution` 設 `none`（全域那條紅線沒動）。磁碟告警已上線且實測過
+（`N8N_PG_DSN` 已填進兩份 `.env`，超過 70% 會直推 LINE）。**密碼輪換使用者已確認不換**。
 
 ⚠️ 新紅線：**清 n8n 執行紀錄一律 TRUNCATE，絕不用 API 批次 DELETE**——這次停機就是這樣造成的。
 
