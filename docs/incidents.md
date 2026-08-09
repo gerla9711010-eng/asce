@@ -17,6 +17,55 @@
 
 ---
 
+## 2026-08-09 ─ 買方配案物件連結消失兩天，是讀 URL 讀太早（已修）
+
+### 症狀
+
+08-08 20:14 那班排程開始，所有配案結果的物件卡片都不再帶分享連結，之後每一班
+（含 08-09 整天）都一樣，看板上物件卡片全部沒有「看詳情／分享頁」按鈕。
+
+### 診斷過程（先講排除掉什麼，別重查）
+
+- 昨天（08-08）改的三個 commit（類型/用途拆開比對、房地選擇器修復、看板同客戶多客需
+  歸類）逐一比對 diff，**都沒碰到**抓分享連結那段程式碼（`buyer_match.py` 的
+  `open_detail_and_fetch`），桌面版跟 GitHub 版程式碼當時也完全一致——排除是自己改壞的。
+- `daily_run.log` 完全查不到失敗原因：`daily_run.py` 是直接 `await run_group_match.run_group()`
+  （沒開子行程），排程用 `pythonw.exe`（沒有終端機、不接 stdout/stderr），所以
+  `buyer_match.py` 內部印的 `[WARN]` 訊息全部有去無回，**失敗了也沒地方看得到**。
+  這件事本身是另一個要補的洞（log 全盲），先記著，還沒修。
+- 兩份 buyer-match 用的 Chrome（claude-in-chrome 擴充功能那個、跟 buyer-match 自己專用的
+  `%LOCALAPPDATA%\buyer-match-chrome`）不是同一個身份，前者沒登 i智慧，不能拿來測。
+
+### 真正原因（現場開瀏覽器、直接呼叫 `open_detail_and_fetch` 逐步印出來抓到的）
+
+點「分享」→「確定」後開出來的新分頁，**一開始 `.url` 是空字串**，約 1 秒後才靠前端 JS
+導到真正的分享網址（`https://www.ycut.com.tw/case-info/...`）。舊code在
+`wait_for_load_state("domcontentloaded")` 後就馬上讀 `.url`——這個等待在那個空白瞬間
+就已經觸發，讀到的永遠是空字串。`format_block` 對空字串跟 `None` 都不印連結，所以每筆
+都悄悄少一行，不會噴錯、也不會被任何檢查抓到。
+
+只觀察到「分頁變空白→約1秒後才導航」這個行為，**不確定是不是 i智慧改版**——沒去看
+他們的更新紀錄，只能講觀察到的現象。
+
+### 怎麼修
+
+`open_detail_and_fetch` 改成輪詢等 `share_page.url` 變成真的 `http` 開頭網址（最多等 8 秒，
+每 250ms 檢查一次），逾時才真的放棄並印 WARN。已用診斷腳本重跑驗證：`share_url` 正確抓到
+`https://www.ycut.com.tw/case-info/327a8e14-de9e-4e5f-8575-0bf096f4582b` 這類真網址。
+
+⚠️ **08-09 當天已經跑完的 `_full.txt` 結果檔沒有連結，且看板 `entry.get("full") or
+entry.get("latest")` full 優先**——今天的看板要到下一班排程（重新抓過一輪）才會補回連結，
+不會自動補之前那幾天的舊結果。
+
+### 學到什麼
+
+CDP 開新分頁後馬上讀 `.url` 是不安全的——分頁可能先以空白狀態存在、真正的網址是之後才
+靠前端 JS 導過去的，`domcontentloaded` 保證不了「這已經是最終網址」。凡是「開新分頁→讀
+它的網址」這種模式，都該輪詢等網址變成看起來像真的（`http` 開頭），不能只等一次
+load state 就信。
+
+---
+
 ## 2026-08-09 ─ Postgres volume 撐到 100%，n8n 全停約 1.5 小時（已修）
 
 ### 🔴 結論先寫：清 n8n 執行紀錄一律用 TRUNCATE，**絕對不要用 API 批次 DELETE**
