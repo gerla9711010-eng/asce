@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-08-09 20:53 自動產生）
+# n8n 線上現況（2026-08-10 16:54 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -7,23 +7,23 @@
 
 | 狀態 | 名稱 | 檔案 | 節點 | 最近執行 |
 |---|---|---|---|---|
-| 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | — |
-| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-09T12:52 success |
+| 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-08-10T01:00 success |
+| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-10T08:53 success |
 | 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | — |
 | 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | — |
-| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | — |
+| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | 2026-08-10T01:38 success |
 | 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 15 | — |
 | 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | — |
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | — |
-| 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 26 | — |
-| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 61 | 2026-08-09T11:00 success |
+| 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 26 | 2026-08-10T01:30 success |
+| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 61 | 2026-08-10T07:00 success |
 | 🟢 | 廣告v3 煞車（停） | `yc-v3-stop.json` | 9 | — |
-| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 28 | 2026-08-09T11:30 success |
-| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-09T11:00 success |
-| 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 3 | — |
+| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 28 | 2026-08-10T07:30 success |
+| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-10T07:00 success |
+| 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 3 | 2026-08-10T03:50 success |
 | 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | — |
 | 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | — |
-| 🟢 | 靜默失敗巡邏 | `靜默失敗巡邏.json` | 7 | — |
+| 🟢 | 靜默失敗巡邏 | `靜默失敗巡邏.json` | 7 | 2026-08-10T03:30 error |
 | ⚪ | LINE 新聞推播 | `line-news-push.json` | 6 | — |
 | ⚪ | YC 建檔器 v2（抓真物編productID） | `yc-property-create.json` | 13 | — |
 | ⚪ | YC 建檔器 v3（鎖物編+總價） | `yc-property-create-v3.json` | 13 | — |
