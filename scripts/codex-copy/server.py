@@ -217,6 +217,98 @@ class Handler(BaseHTTPRequestHandler):
             self._send(502, {"error": f"codex 與 Gemini 都失敗：{e}"})
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Cloudflare 快速通道 + 自動把網址寫回 n8n
+#
+# 使用者的 Cloudflare 帳號裡沒有自己的網域（只有 pages.dev），所以開不了「具名通道」那種
+# 固定網址。改用不需要網域也不需要登入的「快速通道」——代價是每次重開網址都會變，
+# 所以這裡自己把新網址 PATCH 回 n8n 的產文案節點，使用者不用管。
+#
+# ⚠️ 收工／關機時會**自動把 n8n 改回 Gemini**，這樣電腦沒開的時段廣告線照樣發得出去。
+#    只有「斷電」這種來不及善後的狀況會讓 n8n 指著死掉的通道，那一班會失敗並告警。
+# ────────────────────────────────────────────────────────────────────────────
+GEMINI_NODE = "Gemini 產文案"
+SCAN_WF = "ooctMtxcaHtGThuV"          # 廣告v3 掃描發文線
+REPO_ENV = HERE.parent.parent / ".env"  # n8n 金鑰跟 n8n_sync.py 共用同一份
+# n8n 的 PUT schema 只吃這些 settings（多送 binaryMode/availableInMCP 會 400）
+_WF_SETTINGS_OK = {"executionOrder", "errorWorkflow", "saveDataSuccessExecution",
+                   "saveDataErrorExecution", "saveManualExecutions",
+                   "saveExecutionProgress", "timezone", "executionTimeout", "callerPolicy"}
+
+
+def _n8n():
+    import httpx
+    from dotenv import dotenv_values
+    v = dotenv_values(REPO_ENV)
+    url, key = (v.get("N8N_URL") or "").rstrip("/"), v.get("N8N_API_KEY")
+    if not url or not key:
+        raise RuntimeError(f"{REPO_ENV} 裡沒有 N8N_URL / N8N_API_KEY")
+    return httpx, url, {"X-N8N-API-KEY": key, "Content-Type": "application/json"}
+
+
+def point_n8n_at(target_url: str | None) -> None:
+    """把產文案節點指到 target_url；傳 None 代表改回 Gemini。
+
+    改完一定要 deactivate + activate，否則排程觸發器還在跑舊版（2026-07-25 踩過）。
+    """
+    httpx, base, h = _n8n()
+    w = httpx.get(f"{base}/api/v1/workflows/{SCAN_WF}", headers=h, timeout=30).json()
+    for n in w["nodes"]:
+        if n["name"] != GEMINI_NODE:
+            continue
+        opts = n["parameters"].setdefault("options", {})
+        hdrs = n["parameters"].setdefault("headerParameters", {}).setdefault("parameters", [])
+        hdrs[:] = [x for x in hdrs if x.get("name") != "X-Codex-Token"]
+        if target_url:
+            n["parameters"]["url"] = target_url
+            opts["timeout"] = 120000          # codex 比 Gemini 慢，60 秒不夠
+            if TOKEN:
+                hdrs.append({"name": "X-Codex-Token", "value": TOKEN})
+        else:
+            n["parameters"]["url"] = GEMINI_URL
+            opts["timeout"] = 60000
+        break
+    else:
+        raise RuntimeError(f"找不到節點「{GEMINI_NODE}」")
+
+    payload = {"name": w["name"], "nodes": w["nodes"], "connections": w["connections"],
+               "settings": {k: v for k, v in (w.get("settings") or {}).items()
+                            if k in _WF_SETTINGS_OK}}
+    r = httpx.put(f"{base}/api/v1/workflows/{SCAN_WF}", headers=h, json=payload, timeout=60)
+    r.raise_for_status()
+    for act in ("deactivate", "activate"):
+        httpx.post(f"{base}/api/v1/workflows/{SCAN_WF}/{act}", headers=h, timeout=60).raise_for_status()
+        time.sleep(1)
+    log(f"已把 n8n 產文案指向：{target_url or 'Gemini（原廠）'}")
+
+
+def start_tunnel(port: int) -> tuple[subprocess.Popen, str]:
+    """開一條 Cloudflare 快速通道，回傳 (行程, 對外網址)。"""
+    exe = "cloudflared"
+    for cand in (r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+                 r"C:\Program Files\cloudflared\cloudflared.exe"):
+        if Path(cand).exists():
+            exe = cand
+            break
+    proc = subprocess.Popen(
+        [exe, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace", bufsize=1,
+    )
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        line = proc.stdout.readline()
+        if not line:
+            if proc.poll() is not None:
+                raise RuntimeError("cloudflared 自己結束了，通道沒開起來")
+            continue
+        m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
+        if m:
+            return proc, m.group(0)
+    proc.kill()
+    raise RuntimeError("等了 60 秒還拿不到通道網址")
+
+
 def self_test() -> int:
     log("自我測試：跑一次 codex…")
     try:
@@ -234,19 +326,83 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=8787)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--tunnel", action="store_true",
+                    help="順便開 Cloudflare 通道並自動把網址寫回 n8n（正式跑就用這個）")
+    ap.add_argument("--revert", action="store_true",
+                    help="不開服務，只把 n8n 產文案改回 Gemini")
     args = ap.parse_args()
 
     if args.self_test:
         return self_test()
+    if args.revert:
+        point_n8n_at(None)
+        return 0
 
     if not TOKEN:
         log("⚠️ 沒設 CODEX_COPY_TOKEN，任何人打得到這個網址就能燒你的訂閱額度")
-    log(f"啟動：http://{args.host}:{args.port}　（Ctrl+C 停止）")
+
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    import threading
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    log(f"服務已啟動：http://{args.host}:{args.port}")
+
+    tunnel = None
+    if args.tunnel:
+        # pythonw 沒有主控台，關機時 finally 不一定跑得到。多掛一層 atexit 與 SIGTERM，
+        # 盡量讓 n8n 在這台電腦離線前改回 Gemini。真的來不及（斷電）就靠開機後重新註冊，
+        # 急著救的話跑 `python server.py --revert`。
+        import atexit
+        import signal
+        _done = {"v": False}
+
+        def _restore(*_a):
+            if _done["v"]:
+                return
+            _done["v"] = True
+            try:
+                point_n8n_at(None)
+            except Exception as e:      # noqa: BLE001
+                log(f"⚠️ 沒能把 n8n 改回 Gemini，請手動跑 `python server.py --revert`：{e}")
+
+        atexit.register(_restore)
+        for _sig in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGBREAK", None)):
+            if _sig is not None:
+                try:
+                    signal.signal(_sig, lambda *a: (_restore(), sys.exit(0)))
+                except (ValueError, OSError):
+                    pass
+
     try:
-        srv.serve_forever()
+        if args.tunnel:
+            tunnel, public = start_tunnel(args.port)
+            log(f"通道已開：{public}")
+            point_n8n_at(public)
+        log("運作中（Ctrl+C 停止）")
+        backoff = 10
+        while True:
+            time.sleep(5)
+            if not (tunnel and tunnel.poll() is not None):
+                continue
+            # 門市每晚 00:00~07:22 固定斷網，通道一定會掉。這裡不能讓重連失敗把服務帶走——
+            # 廣告線 09:00 才開始跑，睡一下重試就好，等網路回來自然接上。
+            log("⚠️ 通道掉了，重開並重新註冊")
+            try:
+                tunnel, public = start_tunnel(args.port)
+                log(f"通道已開：{public}")
+                point_n8n_at(public)
+                backoff = 10
+            except Exception as e:      # noqa: BLE001
+                tunnel = None
+                log(f"⚠️ 重開失敗（{e}），{backoff} 秒後再試")
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 300)
     except KeyboardInterrupt:
-        log("收到中斷，關閉")
+        log("收到中斷，收工")
+    finally:
+        if args.tunnel:
+            _restore()          # 已做過就不會重複做（_done 旗標）
+        if tunnel:
+            tunnel.terminate()
     return 0
 
 

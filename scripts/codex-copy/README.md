@@ -44,47 +44,28 @@ python server.py --self-test
 
 看到 `✅ codex 正常` 才往下走。失敗的話先確認 `codex --version` 有反應、而且已登入 ChatGPT 訂閱。
 
-### 3. 裝 cloudflared 並開通道
+### 3. 裝 cloudflared
 
 ```
 winget install --source winget --id Cloudflare.cloudflared
-cloudflared tunnel login                          # 會開瀏覽器，選你的網域
-cloudflared tunnel create codex-copy
-cloudflared tunnel route dns codex-copy codex.<你的網域>
 ```
 
-然後把設定寫進 `%USERPROFILE%\.cloudflared\config.yml`：
+**不用登入、不用網域。** 這個帳號的 Cloudflare 裡沒有自己的網域（查過，0 個 zone），
+開不了「具名通道」那種固定網址，所以走**快速通道**：不需登入，但每次重開網址都會變。
 
-```yaml
-tunnel: codex-copy
-credentials-file: C:\Users\user\.cloudflared\<通道ID>.json
-ingress:
-  - hostname: codex.<你的網域>
-    service: http://127.0.0.1:8787
-  - service: http_status:404
-```
+網址會變沒關係——`--tunnel` 模式會**自己把新網址 PATCH 回 n8n**，並自動 deactivate + activate。
+你完全不用碰 n8n。
 
-裝成開機服務：
-
-```
-cloudflared service install
-```
-
-### 4. 開機自動啟動這支服務
+### 4. 開機自動啟動
 
 `Win+R` → 貼 `shell:startup` → Enter → 把 `啟動.vbs` 的捷徑丟進去。
 
-### 5. 改 n8n
+`啟動.vbs` 跑的是 `--tunnel` 模式，開機後會自動：開服務 → 開通道 → 把網址寫回 n8n。
 
-`廣告v3 掃描發文線` → `Gemini 產文案` 節點：
+### 5. n8n 不用手動改
 
-| 欄位 | 改成 |
-|---|---|
-| URL | `https://codex.<你的網域>` |
-| Timeout | `120000`（原本 60000，codex 比 Gemini 慢）|
-| Header | 加一個 `X-Codex-Token` = 你的 `CODEX_COPY_TOKEN` |
-
-⚠️ **改完一定要 deactivate + activate 一次**，否則排程觸發器還在跑舊版（2026-07-25 踩過）。
+`--tunnel` 模式全包了。要自己確認的話，看 `廣告v3 掃描發文線` → `Gemini 產文案` 節點，
+URL 應該長得像 `https://xxxx-xxxx.trycloudflare.com`。
 
 ## 日常
 
@@ -102,8 +83,15 @@ python server.py --self-test     # 只測 codex，不開服務
 |---|---|
 | codex 逾時／吐不出 JSON | 自動改打 Gemini，n8n 無感 |
 | codex 和 Gemini 都掛 | 回 502 → 那班失敗 → 觸發「系統錯誤 LINE 告警」 |
-| **電腦沒開／店裡斷網** | 那班失敗並告警，兩小時後下一班會再試 |
+| 通道自己斷掉 | 每 5 秒偵測，自動重開並重新註冊新網址 |
+| **正常關機／Ctrl+C** | **自動把 n8n 改回 Gemini**，電腦沒開的時段廣告線照樣發得出去 |
+| **斷電（來不及善後）** | n8n 指著死掉的通道，那一班失敗並告警。開機後服務會自己接回來；
+急著救就跑 `python server.py --revert` |
 | 訂閱額度用完 | codex 會失敗 → 自動走 Gemini 退路 |
+
+⚠️ **不要在整點～整點過 10 分之間手動改 n8n**（09/11/13/15/17/19 的 :00～:10）。
+那是掃描發文線的煞車窗口，執行還在跑，deactivate + activate 有可能把它打斷。
+2026-08-10 收工時差 7 秒就撞到。`--tunnel` 模式開機時註冊（約 07:30）不會撞到這個窗口。
 
 ⚠️ 這支**不做任何內容檢查**。產出的文案照樣要過 `數字守門員`，
 寧可讓守門員擋下，也不要在這裡自作聰明修文案。
