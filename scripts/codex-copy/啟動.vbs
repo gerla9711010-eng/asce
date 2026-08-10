@@ -9,4 +9,5 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 here = fso.GetParentFolderName(WScript.ScriptFullName)
 sh.CurrentDirectory = here
 ' 0 = 不顯示視窗，False = 不等它結束
-sh.Run "pythonw """ & here & "\server.py"" --port 8787", 0, False
+' --tunnel：順便開 Cloudflare 快速通道，並自動把網址寫回 n8n（網址每次重開都會變，所以要自動註冊）
+sh.Run "pythonw """ & here & "\server.py"" --tunnel --port 8787", 0, False
