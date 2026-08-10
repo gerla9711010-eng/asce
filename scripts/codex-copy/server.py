@@ -172,6 +172,16 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # 關掉 stdlib 每次請求的預設噪音，我們自己 log
 
+    def handle_expect_100(self):
+        """吃掉 `Expect: 100-continue`，不要回那個中繼的 100 回應。
+
+        2026-08-10 實測：curl 對超過 1KB 的 body 會送這個 header，而 Python 預設回的
+        「100 Continue」中繼回應穿過 Cloudflare 通道之後會變成 501，請求根本進不到處理函式。
+        n8n（Node）預設不送這個 header，所以正式跑不受影響——但拿 curl 手測時會被雷到，
+        直接吃掉最省事，客戶端等一下就會把 body 送上來。
+        """
+        return True
+
     def do_GET(self):
         if self.path.rstrip("/") in ("", "/health"):
             self._send(200, {"ok": True, "service": "codex-copy"})
