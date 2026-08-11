@@ -1,3 +1,4 @@
 # .bat 必須是 cp950(Big5)，cmd 讀 UTF-8 會把中文當成指令跑出一堆錯誤。
 # 標成 binary，避免 git 的換行/編碼轉換動到它。
 *.bat binary
+*.vbs binary

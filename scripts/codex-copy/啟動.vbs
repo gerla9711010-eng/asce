@@ -1,13 +1,34 @@
-' èƒŒæ™¯å•Ÿå‹• Codex æ–‡æ¡ˆæœå‹™ï¼ˆä¸è·³é»‘çª—ï¼‰ã€‚
-' æ”¾æ·å¾‘åˆ°ã€Œé–‹æ©Ÿè‡ªå‹•å•Ÿå‹•ã€è³‡æ–™å¤¾ï¼Œé–‹æ©Ÿå°±æœƒè·‘èµ·ä¾†ï¼š
-'   Win+R â†’ è²¼ shell:startup â†’ Enter â†’ æŠŠé€™æ”¯çš„æ·å¾‘ä¸Ÿé€²å»
+' ­I´º±Ò°Ê Codex ¤å®×ªA°È¡]¤£¸õ¶Âµ¡¡^¡C
 '
-' æƒ³çœ‹å®ƒæœ‰æ²’æœ‰åœ¨è·‘ï¼šç€è¦½å™¨é–‹ http://127.0.0.1:8787/health
-' æƒ³çœ‹ç´€éŒ„ï¼šåŒè³‡æ–™å¤¾ logs\codex-copy.log
+' ©ñªk¡G§â³o¤äªº¡u±¶®|¡v¥á¶i¶}¾÷¦Û°Ê±Ò°Ê¸ê®Æ§¨
+'   Win+R -> ¶K shell:startup -> Enter -> ¦b³o¸Ì«ö¥kÁä¡u¶K¤W±¶®|¡v
+'
+' ª`·N 2026-08-10 ½ò¹L¨â­Ó§|¡G
+'   1) ¨Ï¥ÎªÌ§â¡uÀÉ®×¥»Åé¡v·h¶i¶}¾÷¸ê®Æ§¨¡A¦ÓÂÂª©¬O¥Î¡u¦Û¤v©Ò¦bªº¸ê®Æ§¨¡v¥h§ä server.py¡A
+'      ·h¨«¤§«á¨º¸Ì¨S¦³ server.py¡A¶}¾÷®É¦wÀR¤°»ò³£¤£°µ¡A¤]¨S¦³¿ù»~°T®§¡C
+'      ²{¦b§ï¦¨¥ı»{¼g¦ºªº±M®×¸ô®|¡A§ä¤£¨ì¤~°h¦^¦Û¤v©Ò¦bªº¸ê®Æ§¨¡A©Ò¥H·h¨ì­ş¸Ì³£¯à¥Î¡C
+'   2) ³o¤äÀÉ®×¦s¦¨ UTF-8 ¨S¦³ BOM ®É¡AWindows Script Host ·|¥Î¨t²Î ANSI ½X­¶(Big5)¥hÅª¡A
+'      ¤¤¤å¦r³QÅª¦¨¶Ã¦ì¤¸²Õ¡A¸õ¥X¡u¥²¶·´£¨Ñ³¯­z¦¡¡v³oºØ»yªk¿ù»~¡C¤w§ï¦s¦¨ Big5(cp950)¡C
+Const REPO = "C:\Users\user\asce\scripts\codex-copy"
+
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
-here = fso.GetParentFolderName(WScript.ScriptFullName)
-sh.CurrentDirectory = here
-' 0 = ä¸é¡¯ç¤ºè¦–çª—ï¼ŒFalse = ä¸ç­‰å®ƒçµæŸ
-' --tunnelï¼šé †ä¾¿é–‹ Cloudflare å¿«é€Ÿé€šé“ï¼Œä¸¦è‡ªå‹•æŠŠç¶²å€å¯«å› n8nï¼ˆç¶²å€æ¯æ¬¡é‡é–‹éƒ½æœƒè®Šï¼Œæ‰€ä»¥è¦è‡ªå‹•è¨»å†Šï¼‰
-sh.Run "pythonw """ & here & "\server.py"" --tunnel --port 8787", 0, False
+
+If fso.FileExists(REPO & "\server.py") Then
+  base = REPO
+Else
+  base = fso.GetParentFolderName(WScript.ScriptFullName)
+End If
+
+If Not fso.FileExists(base & "\server.py") Then
+  ' ³oºØ±¡ªp¤UÀRÀR¥¢±Ñ³ÌÁV¡A¹ç¥i¸õ¤@¦¸µ¡§i¶D¨Ï¥ÎªÌ
+  MsgBox "§ä¤£¨ì server.py¡C" & vbCrLf & vbCrLf & _
+         "§ä¹L¡G" & vbCrLf & REPO & vbCrLf & base, vbExclamation, "Codex ¤å®×ªA°È"
+  WScript.Quit 1
+End If
+
+sh.CurrentDirectory = base
+' --tunnel¡G¶¶«K¶} Cloudflare §Ö³t³q¹D¡A¨Ã¦Û°Ê§âºô§}¼g¦^ n8n
+' ¡]§Ö³t³q¹Dªººô§}¨C¦¸­«¶}³£·|ÅÜ¡A©Ò¥H­n¦Û°Êµù¥U¡^
+' 0 = ¤£Åã¥Üµøµ¡¡AFalse = ¤£µ¥¥¦µ²§ô
+sh.Run "pythonw """ & base & "\server.py"" --tunnel --port 8787", 0, False
