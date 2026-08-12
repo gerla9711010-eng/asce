@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+        "url": "https://distant-paintball-impressed-moscow.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -215,6 +215,10 @@
             {
               "name": "content-type",
               "value": "application/json"
+            },
+            {
+              "name": "X-Codex-Token",
+              "value": "Zfy_R1Gvw_xSJjVrJUPs1Sl_r7MfPziA"
             }
           ]
         },
@@ -222,7 +226,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: `你是台灣資深房仲文案寫手。以下為官方結構化事實，全部是鐵律，禁止更改任何數字、禁止新增未提供的資訊（廣告不實有法律責任，寧可少講不可亂編）。\n\n【鐵律事實】\n案名：${$json['案名']}\n總價：${$json['總價萬']} 萬（文案只能出現這個價格數字，禁止任何其他價格）\n建物類型：${$json['建物類型']}\n${$json['格局'] ? '格局：' + $json['格局'] + '\\n' : ''}建物坪數：${$json['建物坪']} 坪（主建 ${$json['主建坪']} 坪）\n${$json['樓層'] ? '樓層：' + $json['樓層'] + '\\n' : ''}${$json['屋齡'] ? '屋齡：' + $json['屋齡'] + ' 年\\n' : ''}地址：${$json['地址']}\n車位：${$json['車位'] || '無'}\n\n【唯一可用的賣點素材】（只能改寫下列文字，不得自行補學區/捷運/建材/商圈等未列資訊）\n${($json['賣點']||[]).join('\\n')}\n機能（僅在有值時可提，空的不得杜撰）：學區「${$json['學區']||''}」商圈「${$json['機能']['商圈']}」捷運「${$json['機能']['捷運']}」公園「${$json['機能']['公園']}」\n\n【數字寫法】賣點素材裡的數字一律照原文寫法照抄，不得換算或改寫表示法——原文寫「十分鐘」就照寫「十分鐘」，不可改成「10分鐘」；原文寫「７-ELEVEN」就照抄，不可改成「7-11」；「元」不可自行換算成「萬」；全形數字不可改半形。\n【粉專主體】150-260 字，**只能有這四塊，不准多寫任何自由描述段落**：①第一行【】標題（地段+房型+賣點+價格）；②規格區每行一 emoji（📍地址 🏠格局 📐坪數 🏢樓層 💰開價，沒給的直接省略整行）；③空行；④✨亮點 3-5 條「・」開頭，**每一條都必須是上面賣點素材的改寫，不得新增素材裡沒有的事物**（例如不准自己加陽台、格局方正、採光通風、學區、屋齡）。結尾不要加行動呼籲段落。台灣房仲真實口吻，禁官腔。⚠️上面【鐵律事實】沒列出來的規格一律不得出現，包含屋齡、學區、車位數量——沒給就代表官方沒有這筆資料，連推測、連「全新」「新成屋」「X年新」這種年份暗示都不准寫。學區欄位是空的時候，文案全文（含標題）不准出現「學區」兩個字，就算案名或社區名稱本身帶「學區」字樣也要避開，不要照抄、不要用其他說法暗示，不放編號 hashtag、不放連結、不加電話公司字號（系統自動補）。\n【社團主體】50-80 字：一行 emoji 標題（地段+房型+關鍵賣點）；1-2 行賣點；結尾「詳情看留言」或「私訊索取」；不寫具體價格（可用概略如二字頭）、不放連結、不加電話公司字號。\n\n只回傳 JSON：{\\\"粉專主體\\\":\\\"\\\",\\\"社團主體\\\":\\\"\\\"}，不要 markdown、不要多餘說明。` }] }],\n  generationConfig: { temperature: 0.7, maxOutputTokens: 2048, responseMimeType: \"application/json\" }\n}) }}",
         "options": {
-          "timeout": 60000
+          "timeout": 120000
         }
       },
       "id": "v3a-10-gemini",
