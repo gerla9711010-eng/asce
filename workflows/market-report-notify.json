@@ -15,7 +15,8 @@
         0,
         0
       ],
-      "webhookId": "market-report"
+      "webhookId": "market-report",
+      "disabled": true
     },
     {
       "parameters": {
