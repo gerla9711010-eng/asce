@@ -72,9 +72,11 @@ Custom Start Command 暫改 `sleep infinity` → `railway ssh --service Postgres
 - 撞到時 n8n 顯示的訊息是 `The service is receiving too many requests from you`，
   看起來像「打太快」，其實是「今天的份用完了」——**不要傻等一分鐘再重試**
 
-**現在的用量**：線 A 每天 6 班、線 C 最多 6 班、LINE 的行事曆/客戶/圖片分流器隨叫隨用，
-合計本來就在 20 的邊緣。要加任何一個新的 Gemini 呼叫之前先算這筆帳，
-或是**分散到不同模型**（配額分開算），再不然就去 Google Cloud 開帳單轉付費方案。
+**現在的用量（2026-08-14 起）**：線 A「產文案」已改走 `scripts/codex-copy`（ChatGPT 訂閱額度，
+不吃這桶配額），只剩線 C 最多 6 班 + LINE 的行事曆/客戶/圖片分流器隨叫隨用，壓力比之前小很多。
+要加任何一個新的 Gemini 呼叫之前還是先算這筆帳，或是**分散到不同模型**，再不然就去 Google Cloud
+開帳單轉付費方案。codex-copy 的機制、cloudflared 不穩定的已知問題見 `scripts/codex-copy/README.md`
+和 `incidents.md` 2026-08-12～13 那則。
 
 ⚠️ 用臨時 workflow 試跑 Gemini 相關的東西**會吃掉正式線的額度**
 （2026-08-04 就因此弄掛一班廣告，見 `incidents.md`）。要測就挑非整點、控制次數。
@@ -111,6 +113,7 @@ n8n 2.x 把登入綁瀏覽器指紋，**用瀏覽器做寫入會 401 並把使�
 | （純圖片，無前綴） | Gemini Vision 自動分類 → 轉發到行事曆或客戶 | `line-image-dispatcher` |
 | `戰果` / `今日戰果` | 查 Notion 搶單名單今天的紀錄 → 回筆數＋名單（reply 不吃 push 額度） | `keis-battle-report` |
 | `情資` | 回本週 KEIS 內部成交週報（快取；桌面 `bdinfo.py` 每週二 09:55 寫入） | `market-report-notify.json` |
+| `工作回報` | 查「系統日誌」DB 今天的事件＋廣告 DB 今天異動，組一則文字回覆（2026-08-14 新增，取代原本 11 個主動 push） | `yc-work-report.json`（n8n 內部名「工作回報查詢」）|
 | `天氣` | router 認得但沒接下游（佔位） | — |
 
 `行事曆`/`客戶` 也接受傳圖片（手寫便條、會議截圖、名片）→ 下游過 Gemini Vision 抽欄位。
@@ -133,6 +136,7 @@ LINE 指令分流 (Switch by command / message type)
    ├── calendar → 行事曆建立器     (/line-calendar-create)
    ├── customer → 客戶建檔器       (/line-customer-create)
    ├── battle   → KEIS 戰果查詢    (/keis-battle-report)
+   ├── workreport → 工作回報查詢   (/yc-work-report)    ← 2026-08-14 新增
    └── image    → 圖片分流器       (/line-image-dispatcher)
                        └─ Gemini Vision 分類 → calendar 或 customer
 
@@ -269,6 +273,29 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 
 正常日子**一則都不推**。只有「粉專貼文刪除失敗」（附連結讓你手刪）和「KEIS 撈不到資料」才推。
 社團是用粉專分享出去的，粉專文一刪分享自動失效，所以下架成功不需要通知。
+
+### 推播 → 系統日誌（2026-08-14）
+
+線 A/B/C 原本共 11 個 LINE push 節點，全部拔掉（額度考量，改用「工作回報」關鍵字查詢，見上方
+LINE 指令一覽）。Notion 本來就查得到的（守門員擋下的草稿列、已發布狀態、重發完成、被停確認）
+直接刪節點；完全沒地方存的（API 體檢告警、跳過摘要、線 A 發文失敗、線 B 刪文失敗／KEIS 故障、
+線 C 守門員擋下、系統錯誤告警）改寫進新 DB **系統日誌**（`0df73bdfe72b4451bb841ebc151aecc9`，
+`永慶博愛凱璿` 首頁下）：
+
+| 欄位 | 型別 |
+|---|---|
+| 標題 | title |
+| 內容 | rich_text |
+| 來源 | select：`線A`/`線B`/`線C`/`系統錯誤` |
+
+⚠️ 這個 DB 是用 Claude 的 Notion 連接器建的，**跟 n8n 自己的 Notion integration（叫「n8n 廣告系統」）
+是兩個不同的存取權限**，要手動到 Notion 該頁 `Connections` 加一次才會通。以後要幫 n8n 建新 Notion
+資料庫，改用 n8n 自己的憑證跑一次臨時 workflow（見下方「試跑手法」），不要用 Claude 自己的連接器建，
+省得又要手動分享一次。
+
+線 A 的「10 分鐘煞車預告」push 也拔了，`煞車 10 分鐘` 那個 Wait 節點沒動，「停」指令的 reply
+本來就不吃 push 額度。系統錯誤 LINE 告警（`eTHhmrZVmllk1aUZ`）保持 active，只是輸出從 push
+改成寫系統日誌。
 
 ### 重試策略
 

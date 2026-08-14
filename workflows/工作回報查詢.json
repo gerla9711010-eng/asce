@@ -1,0 +1,227 @@
+{
+  "name": "工作回報查詢",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "yc-work-report",
+        "options": {}
+      },
+      "id": "wr-01-webhook",
+      "name": "Webhook 收查詢",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1024,
+        -144
+      ],
+      "webhookId": "yc-work-report-fixed-id"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 從 router 轉發過來的 LINE 原始 body 取 replyToken\nconst body = $input.first().json.body || $input.first().json || {};\nconst events = body.events || [];\nconst replyToken = events.length ? (events[0].replyToken || null) : null;\nreturn [{ json: { replyToken } }];"
+      },
+      "id": "wr-02-token",
+      "name": "取 replyToken",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/0df73bdfe72b4451bb841ebc151aecc9/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { timestamp: 'created_time', created_time: { on_or_after: $now.setZone('Asia/Taipei').toFormat('yyyy-MM-dd') + 'T00:00:00+08:00' } }, sorts: [{ timestamp: 'created_time', direction: 'descending' }], page_size: 50 }) }}",
+        "options": {}
+      },
+      "id": "wr-03-logquery",
+      "name": "查系統日誌",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -592,
+        -144
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/07ee845168b64f8a9b5682e5069c733b/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { timestamp: 'last_edited_time', last_edited_time: { on_or_after: $now.setZone('Asia/Taipei').toFormat('yyyy-MM-dd') + 'T00:00:00+08:00' } }, page_size: 100 }) }}",
+        "options": {}
+      },
+      "id": "wr-04-adquery",
+      "name": "查廣告異動",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -368,
+        -144
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// 組工作回報訊息：系統日誌（原本 10 個 LINE 推播全部改記在這）＋ 廣告資料庫今天異動\nconst replyToken = $('取 replyToken').first().json.replyToken;\nconst today = $now.setZone('Asia/Taipei').toFormat('yyyy-MM-dd');\n\nconst pick = (p, kind) => {\n  if (!p) return '';\n  if (kind === 'title') return (p.title || []).map(t => t.plain_text).join('');\n  if (kind === 'rich') return (p.rich_text || []).map(t => t.plain_text).join('');\n  if (kind === 'select') return p.select ? p.select.name : '';\n  if (kind === 'url') return p.url || '';\n  return '';\n};\n\nconst logResults = ($('查系統日誌').first().json.results) || [];\nconst logLines = logResults.map(r => {\n  const p = r.properties || {};\n  const src = pick(p['來源'], 'select') || '?';\n  const title = pick(p['標題'], 'title') || '(無標題)';\n  return `・[${src}] ${title}`;\n}).join('\\n');\n\nconst adResults = ($('查廣告異動').first().json.results) || [];\nconst byStatus = {};\nconst pubList = [];\nfor (const r of adResults) {\n  const p = r.properties || {};\n  const status = pick(p['狀態'], 'select') || '(無狀態)';\n  byStatus[status] = (byStatus[status] || 0) + 1;\n  if (status === '已發布') {\n    const name = pick(p['案名'], 'title');\n    const link = pick(p['粉專貼文連結'], 'url');\n    pubList.push(`・${name}${link ? '\\n　' + link : ''}`);\n  }\n}\nconst statusSummary = Object.entries(byStatus).map(([k, v]) => `${k} ${v}`).join('、') || '沒有異動';\n\nlet text = `📋 工作回報 ${today}\\n\\n`;\ntext += `【廣告動態】${statusSummary}\\n`;\nif (pubList.length) text += pubList.join('\\n') + '\\n';\ntext += `\\n【系統事件】${logResults.length ? '（' + logResults.length + ' 筆，含守門員擋下／發文失敗／API 異常等）' : '（今天沒有異常事件）'}`;\nif (logResults.length) text += '\\n' + logLines;\n\nreturn [{ json: { replyToken, text: text.slice(0, 4900) } }];"
+      },
+      "id": "wr-05-format",
+      "name": "組回報訊息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ replyToken: $json.replyToken, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "options": {}
+      },
+      "id": "wr-06-reply",
+      "name": "LINE Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        80,
+        -144
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OmFzUGgZ1xIpAAP5",
+          "name": "LINE Channel Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook 收查詢": {
+      "main": [
+        [
+          {
+            "node": "取 replyToken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取 replyToken": {
+      "main": [
+        [
+          {
+            "node": "查系統日誌",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查系統日誌": {
+      "main": [
+        [
+          {
+            "node": "查廣告異動",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查廣告異動": {
+      "main": [
+        [
+          {
+            "node": "組回報訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組回報訊息": {
+      "main": [
+        [
+          {
+            "node": "LINE Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "eTHhmrZVmllk1aUZ"
+  }
+}

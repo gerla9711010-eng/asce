@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://distant-paintball-impressed-moscow.trycloudflare.com",
+        "url": "https://playstation-ian-licensed-outdoors.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -314,45 +314,6 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: $json.pushText }] }) }}",
-        "options": {}
-      },
-      "id": "v3a-14-linepre",
-      "name": "LINE 預告",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        730,
-        200
-      ],
-      "onError": "continueRegularOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "parameters": {
         "amount": 10,
         "unit": "minutes"
       },
@@ -452,45 +413,6 @@
         1570,
         200
       ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `🛑 已攔截 ${$json.contract_no}，這件不發。` }] }) }}",
-        "options": {}
-      },
-      "id": "v3a-19-lineblocked",
-      "name": "LINE 已攔截",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1780,
-        80
-      ],
-      "onError": "continueRegularOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -636,45 +558,6 @@
         "httpHeaderAuth": {
           "id": "edOz4T0LC6EP41Ug",
           "name": "Notion API Token"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `✅ 已發布 ${$('取貼文結果').first().json.contract_no}\\n${$('取貼文結果').first().json.permalink || '（連結未取得，請到粉專確認）'}\\n\\n━ 社團版（複製貼原生文）━\\n${$('取貼文結果').first().json['社團文案'] || ''}\\n\\n撒網社團按這篇的「分享」即可。\\n\\n📊 KEIS 廣告追蹤：${$('取 KEIS 廣告ID').first().json.keisNote || '未執行'}${$('取 KEIS 廣告ID').first().json.skipNote || ''}` }] }) }}",
-        "options": {}
-      },
-      "id": "v3a-26-linedone",
-      "name": "LINE 發布通知",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        3830,
-        320
-      ],
-      "onError": "continueRegularOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
         }
       },
       "retryOnFail": true,
@@ -903,12 +786,16 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
+        "url": "https://api.notion.com/v1/pages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -917,11 +804,11 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: `🚨 廣告線停跑：KEIS 列表少了欄位 ${($json._missing||[]).join('、')}（撈到 ${$json._count} 筆）。這輪沒發，要修程式。` }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ parent: { database_id: '0df73bdfe72b4451bb841ebc151aecc9' }, properties: { '標題': { title: [{ text: { content: '🚨 API 體檢告警' } }] }, '內容': { rich_text: [{ text: { content: `KEIS 列表少了欄位 ${($json._missing||[]).join('、')}（撈到 ${$json._count} 筆）。這輪沒發，要修程式。`.slice(0,1900) } }] }, '來源': { select: { name: '線A' } } } }) }}",
         "options": {}
       },
       "id": "v3a-h3",
-      "name": "LINE 體檢告警",
+      "name": "記錄體檢告警",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -931,8 +818,8 @@
       "onError": "continueRegularOutput",
       "credentials": {
         "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
         }
       },
       "retryOnFail": true,
@@ -1012,45 +899,6 @@
         1250,
         0
       ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: $('數字守門員').first().json._guardMsg || '⚠️ 守門員擋下一件，但訊息組不出來' }] }) }}",
-        "options": {}
-      },
-      "id": "v3a-g3",
-      "name": "LINE 守門員告警",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1620,
-        220
-      ],
-      "onError": "continueRegularOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1261,12 +1109,16 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -1275,7 +1127,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ parent: { database_id: '0df73bdfe72b4451bb841ebc151aecc9' }, properties: { '標題': { title: [{ text: { content: '❌ 發文失敗' } }] }, '內容': { rich_text: [{ text: { content: String($json.text||'').slice(0,1900) } }] }, '來源': { select: { name: '線A' } } } }) }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -1285,11 +1137,11 @@
         860
       ],
       "id": "v3a-26-failpush",
-      "name": "LINE 發文失敗",
+      "name": "記錄發文失敗",
       "credentials": {
         "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
         }
       },
       "retryOnFail": true,
@@ -1601,12 +1453,16 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
+        "url": "https://api.notion.com/v1/pages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -1615,11 +1471,11 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: $json.text }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ parent: { database_id: '0df73bdfe72b4451bb841ebc151aecc9' }, properties: { '標題': { title: [{ text: { content: '⏭ 跳過摘要' } }] }, '內容': { rich_text: [{ text: { content: String($json.text||'').slice(0,1900) } }] }, '來源': { select: { name: '線A' } } } }) }}",
         "options": {}
       },
       "id": "a1f0c3d2-8b41-4f77-9c22-6d5e1a90b004",
-      "name": "LINE 跳過摘要",
+      "name": "記錄跳過摘要",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -1628,8 +1484,8 @@
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
         }
       }
     },
@@ -1816,17 +1672,6 @@
       "main": [
         [
           {
-            "node": "LINE 預告",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "LINE 預告": {
-      "main": [
-        [
-          {
             "node": "煞車 10 分鐘",
             "type": "main",
             "index": 0
@@ -1869,13 +1714,7 @@
     },
     "被停?": {
       "main": [
-        [
-          {
-            "node": "LINE 已攔截",
-            "type": "main",
-            "index": 0
-          }
-        ],
+        [],
         [
           {
             "node": "KEIS 下載照片zip",
@@ -1980,17 +1819,6 @@
         ]
       ]
     },
-    "Notion 記 KEIS 廣告ID": {
-      "main": [
-        [
-          {
-            "node": "LINE 發布通知",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "KEIS 登入": {
       "main": [
         [
@@ -2024,7 +1852,7 @@
         ],
         [
           {
-            "node": "LINE 體檢告警",
+            "node": "記錄體檢告警",
             "type": "main",
             "index": 0
           }
@@ -2159,17 +1987,6 @@
       "main": [
         [
           {
-            "node": "LINE 守門員告警",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "LINE 守門員告警": {
-      "main": [
-        [
-          {
             "node": "逐件嘗試",
             "type": "main",
             "index": 0
@@ -2192,7 +2009,7 @@
       "main": [
         [
           {
-            "node": "LINE 發文失敗",
+            "node": "記錄發文失敗",
             "type": "main",
             "index": 0
           }
@@ -2348,7 +2165,7 @@
       "main": [
         [
           {
-            "node": "LINE 跳過摘要",
+            "node": "記錄跳過摘要",
             "type": "main",
             "index": 0
           }
