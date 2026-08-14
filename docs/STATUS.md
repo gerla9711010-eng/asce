@@ -112,12 +112,12 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
 - 查詢/配對/看板整批（含GUI/排程安裝腳本/桌面捷徑）已刪除，不是搬去別的資料夾——
   想找回來看 `git log -p -- scripts/buyer-match/`；只留 `foundi_need.py`
   （讀房地客需，跟 i智慧 無關）給之後接新資料源用
-- 排程 `buyer-match-daily` 已停用；`buyer-match-webview`（看板）**待手動停用**——
-  這次改動用 `Disable-ScheduledTask` 被拒（Access is denied），要在門市電腦手動停
+- 排程 `buyer-match-daily`／`buyer-match-webview` 都已停用（08-14 使用者在門市電腦手動確認）
+- 桌面 `桌面\買方配案\` 已同步清乾淨：i智慧 相關檔案/含真帳密的 `.env` 都刪了，
+  只留 `foundi_need.py`／`requirements.txt`／`README.md`（跟 repo 一致）
+- `C:\Users\user\_待刪_20260804_買方配案舊登入態\`（4.8 GB 舊 Chrome 登入態）已刪除
 - 手機看板 https://yc-tools.pages.dev/buyer-match/ 資料不會再更新（最後一次排程的舊資料），
   之後可以下架或等接新資料源再重部署
-- **⏰ 2026-08-11 後刪掉 `C:\Users\user\_待刪_20260804_買方配案舊登入態\`（4.72 GB）**
-  兩份停用的 Chrome 登入態，觀察一週沒問題。刪前看 `daily_run.log` 有沒有正常跑（08-07 09:52 有跑）
 - **待辦**：找替代的即時案源資料，找到後照 `scripts/buyer-match/README.md` 的「之後要怎麼接新資料源」重建查詢那一段
 
 ### 4. 公開網頁在 Cloudflare Pages（2026-08-05 上線，發布鏈路見 `reference.md`）
