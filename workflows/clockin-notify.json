@@ -33,12 +33,16 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -47,11 +51,11 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ parent: { database_id: '0df73bdfe72b4451bb841ebc151aecc9' }, properties: { '標題': { title: [{ text: { content: String($json.text||'').split('\\n')[0] || 'houseol簽到' } }] }, '內容': { rich_text: [{ text: { content: String($json.text||'').slice(0,1900) } }] }, '來源': { select: { name: 'houseol簽到' } } } }) }}",
         "options": {}
       },
       "id": "1ecd92c6-7924-4853-87a5-064b90364100",
-      "name": "LINE Push",
+      "name": "寫入系統日誌",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -60,13 +64,13 @@
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
         }
       },
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 5000
+      "waitBetweenTries": 3000
     }
   ],
   "connections": {
@@ -85,7 +89,7 @@
       "main": [
         [
           {
-            "node": "LINE Push",
+            "node": "寫入系統日誌",
             "type": "main",
             "index": 0
           }
