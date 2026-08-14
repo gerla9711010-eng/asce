@@ -62,6 +62,9 @@ CITIES = ["高雄市"]           # 只搶這些縣市；空 list [] = 不限縣�
                                # 用 startswith 比對（見 skip_reason），縣市欄位空白一律當高雄市放行，
                                # 只有明確填了「不是高雄市開頭」的才排除（08-03 改，之前空白會被誤擋）
 PROPERTY_TYPES: list[str] = []  # 物件類型(中文)白名單，例 ["透天", "大樓"]；空 = 全收
+EXCLUDE_DISTRICTS = [          # 需求區域含這些行政區不搶（2026-08-14 加，偏遠區）
+    "美濃區", "六龜區", "岡山區", "路竹區", "大寮區", "橋頭區", "杉林區", "燕巢區", "林園區", "梓官區",
+]
 MIN_BUDGET = None            # 預算下限(萬)，None=不限。只比對有填預算的(budget_start>0)
 MAX_BUDGET = None            # 預算上限(萬)，None=不限
 MAX_APPLY_PER_RUN = None     # 單次執行最多搶幾筆；None = 搶到當日配額用完為止
@@ -416,6 +419,13 @@ def skip_reason(rec: dict) -> str | None:
     city = rec.get("target_city") or ""
     if city and CITIES and not any(city.startswith(c) for c in CITIES):
         return f"縣市={city}"
+    # 需求區域命中排除清單就不搶（多區只要中一個就擋）
+    hit_district = next(
+        (a for a in (rec.get("target_areas") or []) if any(d in a for d in EXCLUDE_DISTRICTS)),
+        None,
+    )
+    if hit_district:
+        return f"排除行政區={hit_district}"
 
     # ---- 品質控管篩選（2026-07-22 加）----
     # 只要手機：市話 / 空號不搶
@@ -1935,6 +1945,55 @@ def run_once(clients: list, dry_run: bool) -> int:
     return 0
 
 
+# ---------- 只記錄總帳、不搶單（撐空窗用，2026-08-14 加）----------
+
+def run_record(clients: list) -> int:
+    """全池掃描一次，只把結果寫進 inventory.csv，完全不申請、不動配額。
+    給沒辦法全天盯著看的空窗天用：只要間隔別超過 7 天(CoolingDown 期滿時間)，
+    is_truly_new() 的判斷就不會被「完整躲過一輪冷卻回鍋」污染，回來開 --watch 不用補救。"""
+    info = clients[0].check_ip()
+    if not info.get("allowed"):
+        print(f"⛔ 這台機器 IP {info.get('ip')} 不在門市網路，KEIS 公買功能被擋。請放到店裡、連門市網路的電腦上跑。")
+        return 1
+    print(f"✅ IP {info.get('ip')} 在門市網路，可用")
+
+    inventory = load_inventory()
+    inventory_ready = bool(inventory) and not load_inventory.failed
+    if load_inventory.failed:
+        backup_broken_inventory()
+        print("🔁 總帳不可信 → 重新建立基準快照：當下池子全部標「來歷不明」，之後真正新進池的才算新單")
+    before = len(inventory)
+
+    print("🔎 全池掃描中（比較貴，只有這個模式才值得跑）…")
+    records = query_any(clients, deep=True).get("data", [])
+    newly, missed = update_inventory(inventory, records, baseline=not inventory_ready)
+    if not inventory_ready:
+        seed_inventory_from_grabbed(inventory)
+        newly, missed = [], []
+        print(f"📒 建立名單總帳：當下 {len(inventory)} 筆全部標為「基準快照」")
+    save_inventory(inventory)
+
+    print(f"📒 總帳 {before} → {len(inventory)} 筆（+{len(inventory) - before}）")
+    if newly:
+        ids = "、".join(str(r.get("summary_id")) for r in newly[:20])
+        more = f"（僅列前20）" if len(newly) > 20 else ""
+        print(f"🆕 這次新記錄 {len(newly)} 筆{more}：{ids}")
+    else:
+        print("🆕 這次沒有新編號")
+    if missed:
+        print(f"⚠ 漏接 {len(missed)} 筆（符合條件、我方沒申請過，但已被拿走）：")
+        for m in missed:
+            print(f"   id{m['summary_id']}｜建檔{m.get('建檔時間', '')}｜"
+                  f"{m.get('縣市', '')}{m.get('行政區', '')}{m.get('類型', '')} {m.get('預算', '')}")
+            notify({"event": "alert",
+                    "text": f"⚠ KEIS 搶單漏接：id{m['summary_id']} "
+                            f"{m.get('縣市', '')}{m.get('行政區', '')}{m.get('類型', '')} "
+                            f"{m.get('預算', '')}（建檔{m.get('建檔時間', '')}）符合條件但我方沒申請，"
+                            f"已被別人拿走"})
+    print("✅ 只記錄，沒有申請任何名單。")
+    return 0
+
+
 # ---------- 常駐監控模式 ----------
 
 def run_watch(clients: list, dry_run: bool) -> int:
@@ -2312,6 +2371,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="KEIS 公買搶單（無瀏覽器版）")
     parser.add_argument("--apply", action="store_true", help="實際送出申請（不加只 dry-run）")
     parser.add_argument("--watch", action="store_true", help="常駐監控模式（早上時段高頻掃）")
+    parser.add_argument("--record", action="store_true",
+                        help="只全池掃描記錄總帳，不申請（空窗天用，撐過7天冷卻期就不用補救）")
     parser.add_argument("--audit-notion", action="store_true",
                         help="只跑 Notion 對帳：grabbed.csv 有、Notion 沒有的就補寫（不搶單）")
     parser.add_argument("--audit-days", type=int, default=AUDIT_DAYS,
@@ -2339,6 +2400,8 @@ def main() -> int:
         print(f"🧾 備註對帳完成：補回 {fixed} 筆")
         return 0
 
+    if args.record:
+        return run_record(clients)
     if args.watch:
         return run_watch(clients, dry_run)
     return run_once(clients, dry_run)
