@@ -299,12 +299,16 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
+        "url": "https://api.notion.com/v1/pages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -313,11 +317,11 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.summaryText }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ parent: { database_id: '0df73bdfe72b4451bb841ebc151aecc9' }, properties: { '標題': { title: [{ text: { content: String($json.summaryText||'').split('\\n')[0].slice(0,80) } }] }, '內容': { rich_text: [{ text: { content: String($json.summaryText||'').slice(0,1900) } }] }, '來源': { select: { name: '線B' } } } }) }}",
         "options": {}
       },
       "id": "v3b-13-push",
-      "name": "LINE Push 摘要",
+      "name": "記錄摘要",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -327,8 +331,8 @@
       "onError": "continueRegularOutput",
       "credentials": {
         "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
         }
       },
       "retryOnFail": true,
@@ -992,7 +996,7 @@
       "main": [
         [
           {
-            "node": "LINE Push 摘要",
+            "node": "記錄摘要",
             "type": "main",
             "index": 0
           }
@@ -1014,7 +1018,7 @@
       "main": [
         [
           {
-            "node": "LINE Push 摘要",
+            "node": "記錄摘要",
             "type": "main",
             "index": 0
           }
