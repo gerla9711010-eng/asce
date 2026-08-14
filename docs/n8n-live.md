@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-08-14 12:39 自動產生）
+# n8n 線上現況（2026-08-14 14:43 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -9,16 +9,16 @@
 |---|---|---|---|---|
 | 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | 2026-08-11T01:55 success |
 | 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | — |
-| 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 16 | 2026-08-14T04:36 success |
+| 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 16 | 2026-08-14T06:42 success |
 | 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | — |
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | — |
-| 🟢 | 工作回報查詢 | `工作回報查詢.json` | 6 | 2026-08-14T04:36 error |
+| 🟢 | 工作回報查詢 | `工作回報查詢.json` | 6 | 2026-08-14T06:42 success |
 | 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 26 | 2026-08-12T01:30 success |
-| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 57 | 2026-08-13T07:00 error |
+| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 57 | 2026-08-14T05:00 success |
 | 🟢 | 廣告v3 煞車（停） | `yc-v3-stop.json` | 9 | — |
-| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 27 | 2026-08-12T09:30 success |
-| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-11T11:00 success |
-| 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 3 | 2026-08-14T04:36 error |
+| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 27 | 2026-08-14T05:30 success |
+| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-14T05:00 success |
+| 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 3 | 2026-08-14T06:35 success |
 | 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | — |
 | ⚪ | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-08-12T01:00 success |
 | ⚪ | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-12T10:00 success |
@@ -68,5 +68,5 @@
 
 ## 分岔檢查
 
-- ⚠️ **git 有但 n8n 沒有**（n8n 上被刪了？）：yc-work-report.json
+- git 與 n8n 檔案一致
 - Notion 欄位都有對應的寫入來源
