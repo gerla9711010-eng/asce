@@ -32,6 +32,19 @@
     },
     {
       "parameters": {
+        "jsCode": "// 讀「上次查詢時間」當篩選起點；沒有就預設今天 00:00（第一次執行或剛部署時的安全預設）\nconst staticData = $getWorkflowStaticData('global');\nconst replyToken = $('取 replyToken').first().json.replyToken;\nconst todayStart = $now.setZone('Asia/Taipei').toFormat('yyyy-MM-dd') + 'T00:00:00+08:00';\nconst cursor = staticData.lastQueryTime || todayStart;\nreturn [{ json: { replyToken, cursor } }];"
+      },
+      "id": "wr-02b-cursor-read",
+      "name": "讀取查詢游標",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        -144
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://api.notion.com/v1/databases/0df73bdfe72b4451bb841ebc151aecc9/query",
         "authentication": "genericCredentialType",
@@ -51,7 +64,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ filter: { timestamp: 'created_time', created_time: { on_or_after: $now.setZone('Asia/Taipei').toFormat('yyyy-MM-dd') + 'T00:00:00+08:00' } }, sorts: [{ timestamp: 'created_time', direction: 'descending' }], page_size: 50 }) }}",
+        "jsonBody": "={{ JSON.stringify({ filter: { timestamp: 'created_time', created_time: { on_or_after: $('讀取查詢游標').first().json.cursor } }, sorts: [{ timestamp: 'created_time', direction: 'descending' }], page_size: 50 }) }}",
         "options": {}
       },
       "id": "wr-03-logquery",
@@ -93,7 +106,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ filter: { timestamp: 'last_edited_time', last_edited_time: { on_or_after: $now.setZone('Asia/Taipei').toFormat('yyyy-MM-dd') + 'T00:00:00+08:00' } }, page_size: 100 }) }}",
+        "jsonBody": "={{ JSON.stringify({ filter: { timestamp: 'last_edited_time', last_edited_time: { on_or_after: $('讀取查詢游標').first().json.cursor } }, page_size: 100 }) }}",
         "options": {}
       },
       "id": "wr-04-adquery",
@@ -161,6 +174,19 @@
           "name": "LINE Channel Access Token"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// LINE 回覆成功才推進游標；失敗的話下次查詢還是會抓到這批，不會漏掉\nconst staticData = $getWorkflowStaticData('global');\nstaticData.lastQueryTime = $now.toISO();\nreturn $input.all();"
+      },
+      "id": "wr-07-cursor-write",
+      "name": "更新查詢游標",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        -144
+      ]
     }
   ],
   "connections": {
@@ -179,7 +205,7 @@
       "main": [
         [
           {
-            "node": "查系統日誌",
+            "node": "讀取查詢游標",
             "type": "main",
             "index": 0
           }
@@ -213,6 +239,28 @@
         [
           {
             "node": "LINE Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "讀取查詢游標": {
+      "main": [
+        [
+          {
+            "node": "查系統日誌",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LINE Reply": {
+      "main": [
+        [
+          {
+            "node": "更新查詢游標",
             "type": "main",
             "index": 0
           }
