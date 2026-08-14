@@ -73,11 +73,10 @@ LINE 打關鍵字 **「工作回報」** 才查、才回（reply 不吃 push 額
 
 `scripts/codex-copy/`——用 ChatGPT 訂閱額度取代 Gemini 免費配額，線 A「產文案」節點已指向它。
 ⚠️ **不穩**：cloudflared 快速通道每次重開網址都會變，8/12~8/13 曾連續斷線好幾次、
-5 班線 A 因此空跑失敗（見 `incidents.md`）。08-14 已用 `python server.py --tunnel --port 8787`
-重新啟動（背景執行中），但**開機自動啟動的捷徑還沒放回 `shell:startup`**（08-12/13 全停時移出的）
-——這台電腦重開機或這次 session 結束後，服務可能停掉，n8n 會抓不到通道、線 A 那一班失敗。
-要恢復自動啟動：把 `scripts\codex-copy\啟動.vbs` 的捷徑丟回 `shell:startup`。
-`codex` 掛掉時服務自己會退回 Gemini（見 README），但**通道本身斷掉沒有退路**，這是純網路層問題。
+5 班線 A 因此空跑失敗（見 `incidents.md`）。08-14 已重新啟動＋把開機捷徑放回
+`shell:startup`（`Codex文案服務 - 捷徑.lnk`，08-12/13 全停時移出的），重開機會自動接通道回寫 n8n。
+`codex` 掛掉時服務自己會退回 Gemini（見 README），但**通道本身斷掉沒有退路**，這是純網路層問題，
+斷線頻率還要觀察。
 
 **已決定不做**：煞車縮短、文案純套版、Google Cloud 開帳單、交叉審核換 Codex（理由見 `reference.md`）。
 
