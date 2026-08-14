@@ -21,11 +21,17 @@ STATUS_FILE="$ROOT/docs/STATUS.md"
 [ -f "$STATUS_FILE" ] || exit 0
 
 LINES=$(wc -l < "$STATUS_FILE" | tr -d ' ')
-[ "$LINES" -gt 150 ] || exit 0
 
 MARKER_DIR="${TMPDIR:-/tmp}/claude-stop-status-check"
 mkdir -p "$MARKER_DIR" 2>/dev/null
 MARKER="$MARKER_DIR/${SESSION_ID}.done"
+
+if [ "$LINES" -le 150 ]; then
+  # 瘦身完成、回到安全區間：清掉 marker，之後同 session 若再度超線要能重新擋
+  rm -f "$MARKER" 2>/dev/null
+  exit 0
+fi
+
 [ -f "$MARKER" ] && exit 0
 touch "$MARKER" 2>/dev/null
 
