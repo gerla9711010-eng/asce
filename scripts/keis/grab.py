@@ -69,7 +69,7 @@ DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 
 # ====== 品質控管篩選（2026-07-22 加）======
 ONLY_MOBILE = True            # True=只搶號碼是手機的，市話/空號一律不搶
-EXCLUDE_TYPES = ["公寓"]      # 這些類型不搶；類型空白 / "-" 不受影響照收
+EXCLUDE_TYPES = ["公寓", "土地"]      # 這些類型不搶；類型空白 / "-" 不受影響照收
 MIN_BUDGET_CEILING = 1000     # 預算「上限」低於這個(萬)不搶；預算空白不受影響照收
 
 # ====== 可視範圍（2026-07-23 定案）======
@@ -890,7 +890,7 @@ CRITICAL_RECORD_FIELDS = {
     "app_time",                     # 申請時間 → 對帳、判斷誰幾點拿走
     "phone_number",                 # 只搶手機
     "target_city",                  # 只搶高雄
-    "property_category",            # 排除公寓
+    "property_category",            # 排除公寓/土地
     "budget_start", "budget_end",   # 預算上限門檻
     "display_name",                 # 客戶姓名
     "target_areas",                 # 行政區
