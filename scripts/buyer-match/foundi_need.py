@@ -1,8 +1,9 @@
 """房地（agent.foundi.info）客需條件讀取：給一個客戶名字（+可選的子條件名），
-把他存好的圈選範圍/篩選條件讀出來，轉成 buyer_match.py 能吃的關鍵字清單＋篩選參數。
+把他存好的圈選範圍/篩選條件讀出來，轉成關鍵字清單＋篩選參數，給下游查詢用。
 
-房地只負責「範圍從哪裡來」，物件新不新完全不管——真正即時的案源永遠是回頭去
-i智慧現查現撈（見 buyer_match.py 的 match_areas）。
+⚠️ 2026-08-14 拿掉 i智慧：這支只負責「範圍/條件從房地讀出來」，本身不查任何案源。
+下游要接去哪個資料源現查現撈還沒定案（原本接的是 i智慧，見 `archive_ismart/`），
+在新資料源接上之前這支沒有呼叫端在用，先留著當「讀房地客需」這塊可重用的基礎。
 
 DOM 選擇器是 2026-07-29 用瀏覽器實測房地頁面挖出來的（見對話紀錄），不是用猜的：
 - 客需條件側欄：`div.nav-rail-item` 文字「客需條件」
@@ -24,12 +25,10 @@ from typing import Optional
 
 from playwright.async_api import Page
 
-import buyer_match
-
 FOUNDI_BASE_URL = "https://agent.foundi.info/tool/property/map"
 
-# i智慧「縣市區域」下拉最多勾 3 個區（buyer_match._select_districts 的網站限制），
-# 框選模式沒有明確區名可以解析、只能從候選清單反推涵蓋哪些區，所以也用同一個上限。
+# 原本的資料源（i智慧）「縣市區域」下拉最多勾 3 個區，框選模式沒有明確區名可以解析、
+# 只能從候選清單反推涵蓋哪些區，所以沿用同一個上限。新資料源接上後要照它的限制調整。
 _MAX_DISTRICTS = 3
 
 _BUILDING_TYPE_WORDS = ["住宅", "店面", "透天", "華廈", "大樓", "店住", "辦公"]
@@ -37,8 +36,8 @@ _BUILDING_TYPE_WORDS = ["住宅", "店面", "透天", "華廈", "大樓", "店�
 # 2026-08-08 拆開「類型」跟「用途」：房地客需摘要把兩層條件寫在一起（例："大樓,透天、店面"），
 # 舊版全部塞進同一個 usage_words 只做 OR，會讓「類型=大樓+透天、用途=店面」這種設定
 # 漏篩——物件只要類型命中「大樓」就通過，即使它的用途是「住宅」不是「店面」。
-# 現在類型跟用途分開抓，比對時類型群組內 OR、用途群組內 OR，兩群組之間 AND
-# （buyer_match.passes_filters 的 type_any / usage_any 兩個獨立參數）。
+# 現在類型跟用途分開抓，下游比對時類型群組內 OR、用途群組內 OR、兩群組之間 AND
+# （原本接的資料源用 type_any / usage_any 兩個獨立參數實作，見 archive_ismart/buyer_match.py）。
 _TYPE_WORDS = ["公寓", "大樓", "廠房", "透天", "土地", "車位"]
 _USAGE_WORDS = ["辦公", "住宅", "店面"]
 
@@ -49,8 +48,8 @@ class FoundiNeed:
     need_name: str
     areas: list[str] = field(default_factory=list)
     # 社區關鍵字 -> [(路名, 這戶自己的樓層, 這戶自己的主建坪數), ...]。
-    # 只有「主關鍵字是社區名」的候選才會有 entry——社區名在 i智慧 搜 0 筆時，
-    # match_areas 會改搜路名，但額外要求樓層+主建坪數對得上（大樓保險機制，2026-08-01）。
+    # 只有「主關鍵字是社區名」的候選才會有 entry——社區名在資料源搜 0 筆時，
+    # 下游可以改搜路名，但額外要求樓層+主建坪數對得上（大樓保險機制，2026-08-01）。
     fallback_hints: dict[str, list[tuple[str, Optional[int], Optional[float]]]] = field(
         default_factory=dict
     )
@@ -63,7 +62,8 @@ class FoundiNeed:
     type_words: list[str] = field(default_factory=list)
     age_min: Optional[int] = None
     age_max: Optional[int] = None
-    # 房地的「主建物坪數」對應 i智慧卡片的「主建」欄位（不是含公設的「建物」）
+    # 房地的「主建物坪數」＝主建物本身（不是含公設的「總坪」）——下游資料源如果卡片
+    # 也分好幾種坪數欄位，要對應到跟這個同義的那個
     main_area_ping_min: Optional[float] = None
     main_area_ping_max: Optional[float] = None
     land_ping_min: Optional[float] = None
@@ -110,7 +110,7 @@ class FoundiNotLoggedIn(RuntimeError):
 async def ensure_logged_in(page: Page) -> None:
     """確認房地是登入狀態，不是就丟 FoundiNotLoggedIn。
 
-    ⚠️ 房地沒有 .env 帳密可以自動重登（i智慧 有），所以這裡只能「偵測 + 明講」。
+    ⚠️ 房地沒有 .env 帳密可以自動重登，所以這裡只能「偵測 + 明講」。
     非做不可的原因：登入態掉了的時候，客需清單會是空的，整支腳本會一路跑完然後
     回報「0 筆」——看起來像今天沒新案，其實是根本沒登入。這個 repo 一再踩到
     「流程回報成功≠事情做到了」，寧可整批中止也不要靜靜撈到 0 筆。"""
@@ -436,15 +436,25 @@ def _parse_filter_summary(summary: str) -> dict:
     }
 
 
+def _parse_floors(floor_raw: str) -> tuple[Optional[int], Optional[int], Optional[int]]:
+    """floor_raw 例：「12樓/共17樓」、「9~10樓/共24樓」。回傳 (最低樓, 最高樓, 總樓層)；
+    抓不到格式就三個 None（地下室 B1、純土地案沒有樓層時視為『不知道』，不當成不符合）。"""
+    m = re.search(r"(\d+)(?:\s*[~\-]\s*(\d+))?\s*樓\s*/\s*共\s*(\d+)\s*樓", floor_raw or "")
+    if not m:
+        return None, None, None
+    f1 = int(m.group(1))
+    f2 = int(m.group(2)) if m.group(2) else f1
+    return min(f1, f2), max(f1, f2), int(m.group(3))
+
+
 def _parse_candidate_specs(text: str) -> tuple[Optional[int], Optional[float]]:
     """從候選卡片自己的 text 抓「這一戶自己的」樓層＋主建坪數，給大樓保險機制比對用
     （不是客需的範圍條件，是這一筆候選實際的值）。
 
     2026-08-01 實測卡片 text 長相：
     「...4樓/共20樓 總 56.26坪 主 40.44坪 地 4.64坪 36.6年 約1989 4房2廳2衛 大樓,住宅」
-    樓層格式跟 i智慧 的「樓層」欄位一樣，直接沿用 `buyer_match._parse_floors`。
     抓不到就回 None——不確定的候選不參與保險比對（呼叫端只在至少一項有值時才建 hint）。"""
-    lo, _hi, _total = buyer_match._parse_floors(text)
+    lo, _hi, _total = _parse_floors(text)
     m = re.search(r"主\s*([\d.]+)\s*坪", text)
     main_ping = float(m.group(1)) if m else None
     return lo, main_ping
@@ -453,7 +463,7 @@ def _parse_candidate_specs(text: str) -> tuple[Optional[int], Optional[float]]:
 def _derive_districts_from_candidates(raw_cards: list[dict]) -> list[str]:
     """框選模式的摘要沒有區名可解析，改從候選清單的 subtitle（例："高雄市 苓雅區 林泉街"）
     反推這個多邊形實際涵蓋哪些行政區——出現次數最多的前 `_MAX_DISTRICTS` 個區，
-    這樣 i智慧 那邊才能加掛跟房地一樣的地理範圍限制，不是只靠社區/路名關鍵字間接narrow down。"""
+    這樣下游查詢才能加掛跟房地一樣的地理範圍限制，不是只靠社區/路名關鍵字間接narrow down。"""
     counter: Counter[str] = Counter()
     for c in raw_cards:
         subtitle = (c.get("subtitle") or "").strip()
@@ -464,8 +474,8 @@ def _derive_districts_from_candidates(raw_cards: list[dict]) -> list[str]:
 
 
 async def load_customer_need(ctx, customer: str, need: Optional[str] = None) -> FoundiNeed:
-    """主入口：給客戶名字（+可選子條件名），回傳可以直接餵給 buyer_match.match_areas 的
-    FoundiNeed（社區/路名關鍵字清單 + 價格/房數/用途篩選）。"""
+    """主入口：給客戶名字（+可選子條件名），回傳 FoundiNeed（社區/路名關鍵字清單 +
+    價格/房數/用途篩選），給下游資料源查詢用（下游還沒定案，見檔案開頭說明）。"""
     page = await get_or_open_foundi_page(ctx)
     await _open_customer_need_sidebar(page)
     picked_need = await _select_customer_need(page, customer, need)
@@ -495,7 +505,7 @@ async def load_customer_need(ctx, customer: str, need: Optional[str] = None) -> 
             seen.add(name)
             areas.append(name)
         # 主關鍵字是社區名、而且路名抓得到又跟社區名不同 → 記一筆保險 hint
-        # （社區名在 i智慧 搜 0 筆時，改搜路名 + 這一戶自己的樓層/坪數去對，見 match_areas）
+        # （社區名在資料源搜 0 筆時，下游可以改搜路名 + 這一戶自己的樓層/坪數去對）
         if community and road and road != community:
             floor, main_ping = _parse_candidate_specs(c.get("text") or "")
             if floor is not None or main_ping is not None:
@@ -508,13 +518,13 @@ async def load_customer_need(ctx, customer: str, need: Optional[str] = None) -> 
         # 框選（多邊形）模式摘要沒有區名可解析，從候選清單反推涵蓋哪些區
         districts = _derive_districts_from_candidates(raw_cards)
 
-    # i智慧 的「縣市區域」下拉最多勾 3 個，房地那邊卻可以設更多（賴秀真那筆設了 6 個區）。
+    # 原資料源的「縣市區域」下拉最多勾 3 個，房地那邊卻可以設更多（賴秀真那筆設了 6 個區）。
     # 硬截斷會靜靜漏掉一半範圍，寧可整個不篩行政區、退回只靠社區/路名關鍵字narrow down
     # ——關鍵字本來就是從候選清單抽的，範圍不會超出房地圈的那塊，只是少一層保險。
     if len(districts) > _MAX_DISTRICTS:
         print(
             f"[WARN] 房地設了 {len(districts)} 個行政區（{'、'.join(districts)}），"
-            f"超過 i智慧 下拉上限 {_MAX_DISTRICTS} 個 → 這次不篩行政區，"
+            f"超過下拉上限 {_MAX_DISTRICTS} 個 → 這次不篩行政區，"
             "改為只靠社區/路名關鍵字限制範圍",
             file=sys.stderr,
         )

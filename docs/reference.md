@@ -425,7 +425,7 @@ n8n 整台燒掉它照樣會叫。**
 | **自動簽到** `scripts/clockin/` | 🟢 上線（2026-07-14 首跑）。jitter 0-60 分為常態分佈（中心 30 分）| `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-20 第 4 輪修完。**實際執行的是桌面 `工具\不動產售屋表工具_v3.4\zipinspect\`**（資料夾名是舊版號、內容才是新的），改完兩邊要同步。`template/*.xltx` 兩個 Excel 範本非它不可。⚠️ 待門市拿真實案件實測；塗銷防護只用模擬文字驗過 | `scripts/sale-form/README.md`、桌面 `售屋表v3.6實測清單.md` |
 | **租屋廣告文案** `scripts/rent-ad/` | 🟢 使用中（社宅／包租代管）。**桌面檔名是 `工具\國城\國城廣告文生產器.py`**，別只找「租屋」| `scripts/rent-ad/README.md` |
-| **房地/i智慧配案** `scripts/buyer-match/` | 🟢 2026-07-29 大改完成、真實資料驗過。房地存客需（含畫多邊形）→ 讀出範圍與篩選條件 → 回頭去 i智慧 現查即時案源 → 去重 → 輸出。日常入口雙擊桌面 **`房地i智慧配案.vbs`**；整組批次 `run_group_match.py A買 --newest`。**第一次要在同一個 CDP Chrome 手動登入房地一次** | `scripts/buyer-match/README.md` |
+| **買方配案** `scripts/buyer-match/` | 🟡 2026-08-14 刪掉 i智慧：查詢/配對/看板整批（含GUI/排程安裝腳本/桌面捷徑）已刪除（`git log -p` 找回來），排程 `buyer-match-daily` 已停用（`buyer-match-webview` 待手動停用）。只留 `foundi_need.py`（讀房地客需條件，跟 i智慧 無關）等新資料源 | `scripts/buyer-match/README.md` |
 | ~~**KEIS 廣告上架** `scripts/keis/publish.py`~~ | ⚫ 已作廢（2026-07-23），線 D 直接打 API 取代 | — |
 
 ---
@@ -448,7 +448,11 @@ n8n 整台燒掉它照樣會叫。**
 GitHub 仍是次要通道，帳號恢復當天會自動補推積著的 commit。
 手動重發：`python update.py --deploy-only`
 
-### 買方配案看板機制（2026-08-05～08-06 定案）
+### 買方配案看板機制（2026-08-05～08-06 定案，2026-08-14 隨 i智慧 一起刪除）
+
+⚠️ 以下是舊機制的存檔紀錄，**現在沒有東西在跑、程式碼也刪了**（見上面表格）。之後接
+新資料源重建看板時可以照抄這套設計，用 `git log -p -- scripts/buyer-match/build_static_view.py`
+（換成對應檔名）把舊程式碼找回來參考。
 
 - **三個入口版面統一在 `build_static_view.py`**（localhost:5001／桌面 `配案看板.html`／
   手機網址）。**不要在 `webview_server.py` 裡寫 HTML。**

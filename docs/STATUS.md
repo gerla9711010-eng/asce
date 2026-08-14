@@ -107,13 +107,18 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
   看到 KEIS 掛「降價」標籤就自動勾 `要重發`，線 C 沿用舊文案只換價＋插一行「🔻 降價 X 萬」，
   發完回寫 Notion 總價與 KEIS `adcase_price`／FB 連結。**首件 EG0506900（1298→1180）等點頭才勾**
 
-### 3. 買方配案（機制細節、修復經過見 `reference.md`／`incidents.md`）
+### 3. 買方配案（2026-08-14 刪掉 i智慧，機制細節/修復經過見 `reference.md`／`incidents.md`）
 
+- 查詢/配對/看板整批（含GUI/排程安裝腳本/桌面捷徑）已刪除，不是搬去別的資料夾——
+  想找回來看 `git log -p -- scripts/buyer-match/`；只留 `foundi_need.py`
+  （讀房地客需，跟 i智慧 無關）給之後接新資料源用
+- 排程 `buyer-match-daily` 已停用；`buyer-match-webview`（看板）**待手動停用**——
+  這次改動用 `Disable-ScheduledTask` 被拒（Access is denied），要在門市電腦手動停
+- 手機看板 https://yc-tools.pages.dev/buyer-match/ 資料不會再更新（最後一次排程的舊資料），
+  之後可以下架或等接新資料源再重部署
 - **⏰ 2026-08-11 後刪掉 `C:\Users\user\_待刪_20260804_買方配案舊登入態\`（4.72 GB）**
   兩份停用的 Chrome 登入態，觀察一週沒問題。刪前看 `daily_run.log` 有沒有正常跑（08-07 09:52 有跑）
-- 排程用 `pythonw.exe` 沒接 stdout/stderr，失敗了 log 看不到——這個洞還沒補
-- **待補**：車位型態（平面式/機械式）還沒對應，目前只做到「有/無車位」
-- 手機看板 https://yc-tools.pages.dev/buyer-match/ （排程跑完自動部署）
+- **待辦**：找替代的即時案源資料，找到後照 `scripts/buyer-match/README.md` 的「之後要怎麼接新資料源」重建查詢那一段
 
 ### 4. 公開網頁在 Cloudflare Pages（2026-08-05 上線，發布鏈路見 `reference.md`）
 
