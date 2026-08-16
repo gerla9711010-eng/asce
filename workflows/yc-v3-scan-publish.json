@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://playstation-ian-licensed-outdoors.trycloudflare.com",
+        "url": "https://copies-founder-current-resolve.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
