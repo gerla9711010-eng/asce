@@ -8,8 +8,6 @@
 
 最後更新：2026-08-17 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
-⚠️ n8n_sync 連不到 n8n（timeout，cloudflared 通道問題）：`yc-v3-scan-publish.json` 還有 1 支沒同步，下次先重跑 `--check`
-
 ---
 
 ## 🟢 2026-08-14：FB 廣告工作鏈（線 A/B/C）重新開啟，全面拔掉主動 LINE 推播
