@@ -51,13 +51,16 @@ def _section_html(cust: str, need: str, candidates: list[dict]) -> tuple[str, li
             link_esc = _esc(link)
             price = _esc(c.get("price", ""))
             price_html = f'<span class="price">開價 {price}</span>' if price else ""
+            posted = _esc(c.get("posted_text", ""))
+            posted_html = f'<span class="posted">{posted}</span>' if posted else ""
             new_badge = '<span class="badge-new">🆕 新</span>' if c.get("is_new") else ""
             item_copy = _esc(_item_copy_text(c))
+            extra_bits = " ｜ ".join(b for b in (price_html, posted_html) if b)
             rows.append(f"""
       <div class="row row-found">
         <div class="row-main">
           {new_badge}<a href="{link_esc}" target="_blank" rel="noopener">{display_title}</a>
-          <span class="subtitle">{subtitle}{(' ｜ ' + price_html) if price_html else ''}</span>
+          <span class="subtitle">{subtitle}{(' ｜ ' + extra_bits) if extra_bits else ''}</span>
         </div>
         <button class="copy-btn" data-copy="{item_copy}">複製</button>
       </div>""")
@@ -210,6 +213,7 @@ def build() -> Path:
   .title-empty {{ color: var(--muted); }}
   .subtitle {{ color: var(--muted); font-size: 0.8rem; }}
   .price {{ color: var(--muted); font-size: 0.8rem; }}
+  .posted {{ color: var(--muted); font-size: 0.8rem; }}
   .note {{ color: var(--empty); font-size: 0.8rem; white-space: nowrap; }}
   .empty {{ color: var(--muted); }}
   #fallback {{

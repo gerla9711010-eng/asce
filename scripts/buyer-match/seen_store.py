@@ -1,12 +1,18 @@
-"""記住「這位客戶的這個子條件，上次已經看過哪些永慶連結」，重跑時能標出新出現的案子。
+"""記住「這個客需子條件，上次已經看過哪些永慶連結」，重跑時能標出新出現的案子。
 
 跟舊版（i智慧 時代的 seen_store.py，08-14 隨 i智慧 一起刪除）比，資料簡單很多：
 舊資料源有結構化的價格/坪數/樓層可以比對「降價」，這支新資料源只有 title/subtitle
 （截斷的字串，不能拿來算價格）跟 `yc_link`——但 `yc_link` 本身就是天生唯一的房源
 URL，直接拿來當指紋剛好，不用像舊版那樣猜 unit_key、處理同戶多店開價。
 
-只做「這個連結對這個客戶/子條件是不是第一次看到」，不追蹤降價/漲價——沒有結構化
+只做「這個連結對這個客需子條件是不是第一次看到」，不追蹤降價/漲價——沒有結構化
 價格資料做不了那個，需要再另外討論。
+
+⚠️ 2026-08-17：scope 索引原本用「客戶名稱／子條件名稱」文字組字串，房地那邊子條件
+一改名就整個索引對不上、記憶等於歸零，全部重標成新案（誤判）。改用房地 DOM 上
+每個子條件自帶的穩定 id（`foundi_need.FoundiNeed.need_id`）當 scope，不受改名影響。
+呼叫端（`run_yc_links.py`）沒有 id 時（DOM 結構變了、抓失敗）才退回舊的名稱字串，
+當保底，不要整支炸掉。
 """
 
 from __future__ import annotations
@@ -21,8 +27,10 @@ STATE_PATH = BASE_DIR / "state" / "seen.json"
 RETAIN_DAYS = 30
 
 
-def scope_key(customer: str, need: str) -> str:
-    return f"{customer}／{need}"
+def fallback_scope_key(customer: str, need: str) -> str:
+    """DOM 抓不到穩定 id 時的保底 scope（見檔案開頭說明）——會怕改名，只在拿不到
+    id 時才用。"""
+    return f"name:{customer}／{need}"
 
 
 def load() -> dict:
@@ -68,10 +76,10 @@ def prune(data: dict, today: date | None = None, retain_days: int = RETAIN_DAYS)
 
 
 def mark_seen(
-    data: dict, customer: str, need: str, yc_links: list[str], today: date | None = None
+    data: dict, scope: str, yc_links: list[str], today: date | None = None
 ) -> set[str]:
-    """回報這輪這個客需看到的所有連結，更新記憶，回傳其中「第一次出現」的那些連結。"""
-    scope = scope_key(customer, need)
+    """回報這輪這個客需子條件（`scope` 見 `fallback_scope_key` 或直接傳 need_id）
+    看到的所有連結，更新記憶，回傳其中「第一次出現」的那些連結。"""
     today_str = (today or date.today()).isoformat()
     links = data.setdefault(scope, {})
     new_links: set[str] = set()
