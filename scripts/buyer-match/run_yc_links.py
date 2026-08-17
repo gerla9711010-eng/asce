@@ -17,9 +17,10 @@
 
 跑完會存成 output/ 底下的文字檔，也會把整輪結果寫成 output/latest_run.json、
 呼叫 `build_static_view.py` 重產看板 HTML、預設自動部署到 Cloudflare Pages
-（`--no-publish` 關掉最後這步，只留本機檔案）。不做去重記憶／LINE 推播——
-單純是抓永慶連結＋出看板，排程/通知（`seen_store.py`／`manifest.py`／
-`daily_run.py`）之後真的要接再另外討論、另外做。
+（`--no-publish` 關掉最後這步，只留本機檔案）。會用 `seen_store.py` 記住每個
+客戶/子條件之前看過哪些連結，重跑只標「這次新出現」的（🆕），不會漏掉已看過的
+舊案子（只是不特別標新）。不做 LINE 推播、不排程——手動跑一次是一次，排程/通知
+之後真的要接再另外討論、另外做。
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from playwright.async_api import async_playwright
 import build_static_view
 import chrome_cdp
 import foundi_need
+import seen_store
 import yc_link
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -61,12 +63,22 @@ def _sanitize(name: str) -> str:
     )[:60]
 
 
-def _format_report(customer: str, need: str, results: list[yc_link.YcLinkResult]) -> str:
+def _format_report(
+    customer: str, need: str, results: list[yc_link.YcLinkResult], new_links: set[str]
+) -> str:
     found = [r for r in results if r.yc_link]
-    lines = [f"客戶：{customer}／子條件：{need}", f"查了 {len(results)} 筆候選，找到 {len(found)} 筆永慶連結", ""]
+    new_count = sum(1 for r in found if r.yc_link in new_links)
+    lines = [
+        f"客戶：{customer}／子條件：{need}",
+        f"查了 {len(results)} 筆候選，找到 {len(found)} 筆永慶連結（其中 {new_count} 筆是新出現的）",
+        "",
+    ]
     for r in results:
         if r.yc_link:
-            lines.append(f"✅ {r.title}（{r.subtitle}）\n   {r.yc_link}")
+            mark = "🆕 " if r.yc_link in new_links else ""
+            display_title = r.full_title or r.title
+            price_line = f"\n   開價 {r.price}" if r.price else ""
+            lines.append(f"✅ {mark}{display_title}（{r.subtitle}）{price_line}\n   {r.yc_link}\n")
         else:
             lines.append(f"・{r.title}（{r.subtitle}）→ {r.note or '沒有永慶連結'}")
     return "\n".join(lines)
@@ -100,7 +112,7 @@ async def run_customer_need(ctx, customer: str, need: str, limit: int) -> list[y
 
 
 async def run_group(
-    ctx, group: str, customer: str | None, need: str | None, limit: int
+    ctx, group: str, customer: str | None, need: str | None, limit: int, seen_data: dict
 ) -> list[dict]:
     """跑完一組，回傳這組每個客需子條件的結構化結果（給看板 JSON 用）。"""
     foundi_page = await foundi_need.get_or_open_foundi_page(ctx)
@@ -135,7 +147,11 @@ async def run_group(
             if not results:
                 continue
 
-            report = _format_report(cust, n, results)
+            new_links = seen_store.mark_seen(
+                seen_data, cust, n, [r.yc_link for r in results if r.yc_link]
+            )
+
+            report = _format_report(cust, n, results, new_links)
             print(report)
 
             found = sum(1 for r in results if r.yc_link)
@@ -144,18 +160,20 @@ async def run_group(
                 / f"{datetime.now():%Y%m%d_%H%M%S}_{_sanitize(cust)}_{_sanitize(n)}_yc.txt"
             )
             out_path.write_text(report, encoding="utf-8")
-            print(f"[INFO] 已存檔：{out_path}（找到 {found} 筆永慶連結）")
+            print(f"[INFO] 已存檔：{out_path}（找到 {found} 筆永慶連結，{len(new_links)} 筆新出現）")
 
-            group_result.append({
-                "customer": cust,
-                "need": n,
-                "candidates": [asdict(r) for r in results],
-            })
+            candidates = []
+            for r in results:
+                d = asdict(r)
+                d["is_new"] = bool(r.yc_link) and r.yc_link in new_links
+                candidates.append(d)
+            group_result.append({"customer": cust, "need": n, "candidates": candidates})
     return group_result
 
 
 async def main_async(args) -> None:
     all_groups: list[dict] = []
+    seen_data = seen_store.load()
     async with async_playwright() as p:
         ctx = await _connect_ctx(p)
 
@@ -171,11 +189,16 @@ async def main_async(args) -> None:
             print("\n" + "=" * 40)
             print(f"[INFO] 開始跑群組「{group}」")
             try:
-                jobs = await run_group(ctx, group, args.customer, args.need, args.limit)
+                jobs = await run_group(ctx, group, args.customer, args.need, args.limit, seen_data)
             except RuntimeError as e:
                 print(f"[WARN] 群組「{group}」整組失敗，跳過：{e}", file=sys.stderr)
                 continue
             all_groups.append({"group": group, "customers": jobs})
+
+    removed = seen_store.prune(seen_data)
+    seen_store.save(seen_data)
+    if removed:
+        print(f"[INFO] 去重記憶清掉 {removed} 筆超過 {seen_store.RETAIN_DAYS} 天沒再出現的連結")
 
     OUTPUT_DIR.mkdir(exist_ok=True)
     RUN_JSON_PATH.write_text(

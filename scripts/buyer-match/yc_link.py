@@ -20,6 +20,10 @@ DOM 結構是 2026-08-16 用瀏覽器實測 agent.foundi.info/tool/property/list
 - 每筆刊登項目是一個 `<a href>`，判斷是不是永慶用 host 是不是 `buy.yungching.com.tw`
   （比認中文徽章「永慶」穩：徽章文字之後改版可能換位置/換 class，host 不會變，而且
   同一個徽章「591」底下可能混著永慶加盟店刊登在 591、不是永慶官網直連，容易誤判）
+- 每筆刊登項目是一個 `fd-listing-info` 元素（連結就在裡面），完整標題在
+  `.list-title-text`、開價在 `.list-price-title .highlight-text`——這兩個從候選卡片
+  的 `.title`（會截斷）拿不到，但反正要點開卡片才找得到連結，順便一起抓，不用多打
+  一次網路請求（2026-08-17 加，給看板複製用）
 - 清單本身會分頁（`mat-paginator`），永慶那筆不一定在第一頁，翻頁上限見
   `MAX_PAGES_PER_CANDIDATE`（試過這個分頁沒有「每頁顯示數量」下拉可以加大，
   只能翻頁）
@@ -49,6 +53,8 @@ class YcLinkResult:
     subtitle: str
     yc_link: Optional[str]
     note: str = ""  # 抓不到的原因，成功就是空字串
+    full_title: str = ""  # 完整（不截斷）標題，只有 yc_link 有值時才有
+    price: str = ""  # 開價，例："3,700萬"，只有 yc_link 有值時才有
 
 
 _FIND_YC_LINK_JS = """
@@ -100,7 +106,12 @@ async (cardEl, maxPages) => {
   for (let page = 0; page < maxPages; page++) {
     const found = [...section.querySelectorAll('a[href]')]
       .find(a => a.href.includes('yungching.com.tw'));
-    if (found) return finish({status: 'ok', href: found.href});
+    if (found) {
+      const row = found.closest('fd-listing-info');
+      const fullTitle = row?.querySelector('.list-title-text')?.textContent.trim() || '';
+      const price = row?.querySelector('.list-price-title .highlight-text')?.textContent.trim() || '';
+      return finish({status: 'ok', href: found.href, fullTitle, price});
+    }
 
     const nextBtn = section.querySelector(
       'mat-paginator button.mat-mdc-paginator-navigation-next'
@@ -143,7 +154,10 @@ async def collect_yc_links(
             outcome = await card.evaluate(_FIND_YC_LINK_JS, MAX_PAGES_PER_CANDIDATE)
             status = outcome.get("status")
             if status == "ok":
-                results.append(YcLinkResult(i, title, subtitle, outcome["href"]))
+                results.append(YcLinkResult(
+                    i, title, subtitle, outcome["href"],
+                    full_title=outcome.get("fullTitle", ""), price=outcome.get("price", ""),
+                ))
             elif status == "no_section":
                 results.append(YcLinkResult(i, title, subtitle, None, "沒有刊登清單"))
             elif status == "no_panel":
