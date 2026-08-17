@@ -1,50 +1,55 @@
 # 買方配案
 
-## ⚠️ 2026-08-14：i智慧 那條主流程已刪除
+## 現況（2026-08-17）
 
-原本這裡是「房地存客需（含畫多邊形）→ 回頭去 i智慧 現查即時案源 → 去重 → 輸出/看板」，
-i智慧 查詢/配對/看板整批（連同帳密設定範例、GUI、排程安裝腳本、桌面捷徑）**已刪除**，
-不是搬去別的資料夾。**目前查詢功能是空的**，等找到替代資料源再重建。
+從 foundi（`agent.foundi.info`）的「客需條件」候選卡片，逐筆展開查「本次銷售刊登」清單，
+抓 host 是 `buy.yungching.com.tw` 的永慶官網連結。沒有公開 JSON API 可以直接查（試過
+`/dataapi/property/get/<id>/`，前端帶的 authorization token 不在 cookie/localStorage
+裡，重放會 403），只能逐筆點卡片展開，細節見 `yc_link.py` 開頭註解。
 
-舊實作想找回來查參考：`git log --diff-filter=D --summary -- scripts/buyer-match/`
-（或直接 `git log -p -- scripts/buyer-match/buyer_match.py` 看某一支的完整歷史），
-git 歷史都還在，只是工作目錄不留著。
+跑完會：
+1. 存成 `output/*.txt`（單一子條件一份）
+2. 整輪結果寫成 `output/latest_run.json`
+3. 呼叫 `build_static_view.py` 重產 `output/配案看板.html`
+4. 預設自動部署到 Cloudflare Pages（`https://yc-tools.pages.dev/buyer-match/`，
+   `robots.txt` 擋收錄但沒有帳密保護）——`--no-publish` 可以只留本機檔案不部署
 
-已經一併處理的：
-- Windows 排程 `buyer-match-daily`（每天早上跑整組配對）：已停用
-- Windows 排程 `buyer-match-webview`（localhost:5001 看板）：**待手動停用**——這次改動
-  嘗試用 `Disable-ScheduledTask` 停用被拒（Access is denied），要在門市電腦手動跑
-  `Disable-ScheduledTask -TaskName 'buyer-match-webview'`（或工作排程器 GUI 右鍵停用）
-- 手機看板 `yc-tools.pages.dev/buyer-match/`：資料不會再更新，是最後一次排程留下的舊資料，
-  之後可以直接下架這個頁面或等接新資料源再重新部署
+看板支援單筆／整批一鍵複製連結（`navigator.clipboard`，失敗會退回長按選字框）。
 
-## 現在留著的東西
+⚠️ **刻意沒做**：去重記憶、LINE 推播、排程自動跑。現在是手動跑指令，要接排程/通知
+是另一輪的事。
 
-只剩 `foundi_need.py`：讀房地（agent.foundi.info）客需條件（客戶存好的圈選範圍/篩選
-條件），轉成關鍵字清單＋篩選參數。這支**跟 i智慧 無關**，只是單純的「房地讀取」——
-現在沒有任何東西在呼叫它（下游查詢還沒接新資料源），留著是因為這塊邏輯之後接新資料源
-時大機率還用得到（DOM 選擇器、條件解析、大樓保險機制等，見檔案內註解）。
+## 用法
 
 ```powershell
 cd scripts/buyer-match
-py -m pip install -r requirements.txt   # 目前只需要 playwright
+py -m pip install -r requirements.txt
+
+# 第一次用之前：雙擊桌面「買方配案」開真 Chrome 的捷徑（沒有就讓腳本自己開一個），
+# 登入 agent.foundi.info 一次——CDP port 9223 專屬 profile，跟平常用的 Chrome 是分開的
+
+python run_yc_links.py A買                          # 整組全部跑，跑完自動部署
+python run_yc_links.py A買 --customer 采儒            # 只跑這組裡的某個客戶
+python run_yc_links.py A買 --customer 采儒 --need 美術館   # 只跑單一子條件
+python run_yc_links.py A買 --limit 10                # 每個子條件最多查前 10 筆候選（預設 15）
+python run_yc_links.py A買 --no-publish              # 只重產看板 HTML，不部署
 ```
 
-## 之後要怎麼接新資料源
+## 部署機制
 
-1. 找到替代的即時案源（能查、能篩、有專員聯絡方式/分享連結，或至少有其中幾項）
-2. 用 `git log -p -- scripts/buyer-match/buyer_match.py` 找回舊版介面設計
-   （`match_areas()` 吃關鍵字清單+篩選參數、回傳 `Card` 清單）當參考，寫一支新的查詢腳本
-3. `foundi_need.py` 的輸出（`FoundiNeed`）不用大改，本來就是設計成跟資料源無關的
-   「條件」中介格式
-4. 看板/去重/排程那幾支（`manifest.py`／`build_static_view.py`／`webview_server.py`／
-   `seen_store.py`／`daily_run.py`）架構可以照抄舊版（同樣用 `git log -p` 找回來看），
-   換掉呼叫查詢那一行就好，不用重新設計
+`update.py`（`~/kh-market-tool/`）統一管 `yc-tools.pages.dev` 這個 Cloudflare Pages
+專案的三個站（`/yc-calc/`／`/kh-market/`／`/buyer-match/`），細節見
+`docs/reference.md`「公開網頁：Cloudflare Pages 發布鏈路」。`update.py` 的
+`BUYER_MATCH_HTML` 常數指到這支 repo 的 `output/配案看板.html`（2026-08-17 改的，
+原本指桌面工具，08-14 隨 i智慧 一起刪掉了）。
 
 ## 檔案
 
 | 檔 | 用途 |
 |---|---|
-| `foundi_need.py` | 讀房地客需條件（唯一還在用的模組，見上面說明） |
-| `requirements.txt` | 目前只需要 playwright（給 `foundi_need.py`） |
-| `output/`／`state/` | 舊排程留下的查詢結果/去重記憶（已 gitignore），保留給之後對照參考 |
+| `chrome_cdp.py` | CDP port 9223 登入態基礎設施（開/偵測專屬 Chrome） |
+| `foundi_need.py` | 讀房地客需條件（客戶存好的圈選範圍/篩選條件），轉成關鍵字+篩選參數 |
+| `yc_link.py` | 逐筆展開候選卡片、抓永慶連結的核心邏輯 |
+| `run_yc_links.py` | 批次入口：跑群組/客戶/子條件、存檔、產看板、部署 |
+| `build_static_view.py` | 把 `output/latest_run.json` 轉成看板 HTML |
+| `output/`／`state/` | 查詢結果／去重記憶（已 gitignore） |

@@ -439,7 +439,7 @@ n8n 整台燒掉它照樣會叫。**
 | **自動簽到** `scripts/clockin/` | 🟢 上線（2026-07-14 首跑）。jitter 0-60 分為常態分佈（中心 30 分）| `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-20 第 4 輪修完。**實際執行的是桌面 `工具\不動產售屋表工具_v3.4\zipinspect\`**（資料夾名是舊版號、內容才是新的），改完兩邊要同步。`template/*.xltx` 兩個 Excel 範本非它不可。⚠️ 待門市拿真實案件實測；塗銷防護只用模擬文字驗過 | `scripts/sale-form/README.md`、桌面 `售屋表v3.6實測清單.md` |
 | **租屋廣告文案** `scripts/rent-ad/` | 🟢 使用中（社宅／包租代管）。**桌面檔名是 `工具\國城\國城廣告文生產器.py`**，別只找「租屋」| `scripts/rent-ad/README.md` |
-| **買方配案** `scripts/buyer-match/` | 🟡 2026-08-14 刪掉 i智慧：查詢/配對/看板整批（含GUI/排程安裝腳本/桌面捷徑）已刪除（`git log -p` 找回來），排程 `buyer-match-daily` 已停用（`buyer-match-webview` 待手動停用）。只留 `foundi_need.py`（讀房地客需條件，跟 i智慧 無關）等新資料源 | `scripts/buyer-match/README.md` |
+| **買方配案** `scripts/buyer-match/` | 🟢 2026-08-17 改用 foundi 自己的候選卡片抓永慶連結（取代已刪除的 i智慧），跑完自動產看板＋部署到 `yc-tools.pages.dev/buyer-match/`（單筆/整批一鍵複製）。手動執行，沒排程、沒去重、沒通知 | `scripts/buyer-match/README.md` |
 | ~~**KEIS 廣告上架** `scripts/keis/publish.py`~~ | ⚫ 已作廢（2026-07-23），線 D 直接打 API 取代 | — |
 
 ---
@@ -457,29 +457,22 @@ n8n 整台燒掉它照樣會叫。**
 2. 每天 13:37 `KH-Market-AutoUpdate` 再發一次保底
 3. 發完**真的去線上抓一次比對**，不符或 404 就推 LINE。同故障 3 天只吵一次，
    狀態存 `publish_state.json`
-4. `buyer-match` 的 `daily_run.py` 跑完也會自動呼叫 `kh-market-tool/update.py --deploy-only`
+4. `buyer-match` 的 `run_yc_links.py` 跑完也會自動呼叫 `kh-market-tool/update.py --deploy-only`
 
 GitHub 仍是次要通道，帳號恢復當天會自動補推積著的 commit。
 手動重發：`python update.py --deploy-only`
 
-### 買方配案看板機制（2026-08-05～08-06 定案，2026-08-14 隨 i智慧 一起刪除）
+### 買方配案看板機制（2026-08-17 改用 foundi 資料源重建）
 
-⚠️ 以下是舊機制的存檔紀錄，**現在沒有東西在跑、程式碼也刪了**（見上面表格）。之後接
-新資料源重建看板時可以照抄這套設計，用 `git log -p -- scripts/buyer-match/build_static_view.py`
-（換成對應檔名）把舊程式碼找回來參考。
+`BUYER_MATCH_HTML` 常數（`kh-market-tool/update.py`）指到
+`asce/scripts/buyer-match/output/配案看板.html`——`build_static_view.py` 讀
+`output/latest_run.json`（`run_yc_links.py` 每次跑完寫的整輪結果）轉成單檔 HTML，
+純 CSS/JS 不吃 CDN。單筆／整批一鍵複製走 `navigator.clipboard`，失敗會退回長按選字框。
 
-- **三個入口版面統一在 `build_static_view.py`**（localhost:5001／桌面 `配案看板.html`／
-  手機網址）。**不要在 `webview_server.py` 裡寫 HTML。**
-- **看板資料以排程現查結果為準**：排程現查完直接覆蓋看板的「完整清單」，物件下架／全部歸零
-  都會同步反映。（舊行為是只有人工點「完整查詢」才刷新，排程只存「新增/降價」差異，
-  所以物件下架後看板一直顯示舊連結。）
-- 客戶被移出房地資料夾後，manifest／看板自動清掉舊資料（`manifest.prune_group`）
-- **資料瘦身**：`output/` 歷史查詢檔由排程自動清（一次性清過 926K→238K），
-  `daily_run.log` 只留最近 7 天
-- 電腦端「點連結原地預覽」在 5001 和桌面單檔都有；手機網址是獨立網頁（不在 iframe 裡），
-  連結會直接原生開新分頁
-- 手機看板含客戶姓名/需求，`robots.txt` 擋 `/buyer-match/` 被搜尋引擎收錄，
-  但網址本身沒有帳密保護（使用者已確認接受）。舊的 Claude Artifact `c30bd39a-…` 已棄用
+⚠️ 08-05～08-06 那套舊機制（`localhost:5001`／`webview_server.py`／`manifest.py`／
+去重／`daily_run.py` 排程）08-14 隨 i智慧 一起刪了，**沒有照抄**，這次是全新、更簡單的
+單向流程（跑一次→蓋掉整份看板），沒有去重記憶也沒有排程，見
+`scripts/buyer-match/README.md`。舊設計要參考才去 `git log -p` 找。
 
 ---
 

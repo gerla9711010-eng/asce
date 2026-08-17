@@ -15,27 +15,38 @@
        開一個 Chrome），登入 agent.foundi.info 一次
     2. 這支會自動接上那個 Chrome（CDP），沒開著會自己開一個新的、等你登入
 
-只做「查、印出來、存成 output/ 底下的文字檔」，不做去重記憶／LINE 推播／看板——
-單純是抓永慶連結，其他批次基礎設施（`seen_store.py`／`manifest.py`／
-`build_static_view.py`／`daily_run.py`）之後真的要接排程/通知再另外討論、另外做。
+跑完會存成 output/ 底下的文字檔，也會把整輪結果寫成 output/latest_run.json、
+呼叫 `build_static_view.py` 重產看板 HTML、預設自動部署到 Cloudflare Pages
+（`--no-publish` 關掉最後這步，只留本機檔案）。不做去重記憶／LINE 推播——
+單純是抓永慶連結＋出看板，排程/通知（`seen_store.py`／`manifest.py`／
+`daily_run.py`）之後真的要接再另外討論、另外做。
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import subprocess
 import sys
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 from playwright.async_api import async_playwright
 
+import build_static_view
 import chrome_cdp
 import foundi_need
 import yc_link
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
+RUN_JSON_PATH = OUTPUT_DIR / "latest_run.json"
+
+# 部署用同一套 kh-market-tool 管線（yc-tools.pages.dev 專案），細節見
+# docs/reference.md「公開網頁：Cloudflare Pages 發布鏈路」。
+DEPLOY_SCRIPT = Path.home() / "kh-market-tool" / "update.py"
 
 # Windows 中文版終端機預設用 cp950，中文訊息／連結裡的字元不在這個字集裡時 print()
 # 會亂碼甚至整支中斷——跟舊版 buyer_match.py 同一個修法。
@@ -88,7 +99,10 @@ async def run_customer_need(ctx, customer: str, need: str, limit: int) -> list[y
     return await yc_link.collect_yc_links(page, max_candidates=limit)
 
 
-async def run_group(ctx, group: str, customer: str | None, need: str | None, limit: int) -> None:
+async def run_group(
+    ctx, group: str, customer: str | None, need: str | None, limit: int
+) -> list[dict]:
+    """跑完一組，回傳這組每個客需子條件的結構化結果（給看板 JSON 用）。"""
     foundi_page = await foundi_need.get_or_open_foundi_page(ctx)
     customers = await foundi_need.list_group(foundi_page, group)
 
@@ -107,6 +121,7 @@ async def run_group(ctx, group: str, customer: str | None, need: str | None, lim
 
     OUTPUT_DIR.mkdir(exist_ok=True)
     job_no = 0
+    group_result: list[dict] = []
     for cust, needs in customers:
         for n in needs:
             job_no += 1
@@ -131,8 +146,16 @@ async def run_group(ctx, group: str, customer: str | None, need: str | None, lim
             out_path.write_text(report, encoding="utf-8")
             print(f"[INFO] 已存檔：{out_path}（找到 {found} 筆永慶連結）")
 
+            group_result.append({
+                "customer": cust,
+                "need": n,
+                "candidates": [asdict(r) for r in results],
+            })
+    return group_result
+
 
 async def main_async(args) -> None:
+    all_groups: list[dict] = []
     async with async_playwright() as p:
         ctx = await _connect_ctx(p)
 
@@ -148,9 +171,38 @@ async def main_async(args) -> None:
             print("\n" + "=" * 40)
             print(f"[INFO] 開始跑群組「{group}」")
             try:
-                await run_group(ctx, group, args.customer, args.need, args.limit)
+                jobs = await run_group(ctx, group, args.customer, args.need, args.limit)
             except RuntimeError as e:
                 print(f"[WARN] 群組「{group}」整組失敗，跳過：{e}", file=sys.stderr)
+                continue
+            all_groups.append({"group": group, "customers": jobs})
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    RUN_JSON_PATH.write_text(
+        json.dumps(
+            {"generated_at": datetime.now().isoformat(timespec="seconds"), "groups": all_groups},
+            ensure_ascii=False, indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"\n[INFO] 整輪結果已寫入：{RUN_JSON_PATH}")
+
+    html_path = build_static_view.build()
+    print(f"[INFO] 看板已重產：{html_path}")
+
+    if args.publish:
+        if not DEPLOY_SCRIPT.exists():
+            print(f"[WARN] 找不到部署腳本 {DEPLOY_SCRIPT}，略過部署（看板 HTML 已產好，之後可手動部署）")
+            return
+        print("[INFO] 部署到 Cloudflare Pages（python update.py --deploy-only）...")
+        proc = subprocess.run(
+            [sys.executable, "update.py", "--deploy-only"],
+            cwd=DEPLOY_SCRIPT.parent,
+        )
+        if proc.returncode != 0:
+            print(f"[WARN] 部署失敗（exit {proc.returncode}），看板 HTML 已產好，之後可手動跑 update.py --deploy-only")
+        else:
+            print("[INFO] 已部署，網址：https://yc-tools.pages.dev/buyer-match/")
 
 
 def main() -> None:
@@ -161,6 +213,10 @@ def main() -> None:
     ap.add_argument(
         "--limit", type=int, default=yc_link.DEFAULT_MAX_CANDIDATES,
         help=f"每個子條件最多查前幾筆候選（預設 {yc_link.DEFAULT_MAX_CANDIDATES}，候選多時逐筆點開查很慢）",
+    )
+    ap.add_argument(
+        "--no-publish", dest="publish", action="store_false",
+        help="只重產本機看板 HTML，不部署到 Cloudflare Pages",
     )
     args = ap.parse_args()
 
