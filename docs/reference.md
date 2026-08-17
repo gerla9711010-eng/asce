@@ -467,12 +467,17 @@ GitHub 仍是次要通道，帳號恢復當天會自動補推積著的 commit。
 `BUYER_MATCH_HTML` 常數（`kh-market-tool/update.py`）指到
 `asce/scripts/buyer-match/output/配案看板.html`——`build_static_view.py` 讀
 `output/latest_run.json`（`run_yc_links.py` 每次跑完寫的整輪結果）轉成單檔 HTML，
-純 CSS/JS 不吃 CDN。單筆／整批一鍵複製走 `navigator.clipboard`，失敗會退回長按選字框。
+純 CSS/JS 不吃 CDN。按群組分頁籤切換；單筆／整批／複製全部一鍵複製走
+`navigator.clipboard`（失敗退回長按選字框），內容是「標題＋開價＋連結」。
+
+`seen_store.py` 做去重：用房地子條件 DOM 自帶的穩定 `id`（不是名稱字串，改名不會
+失效，見 `scripts/buyer-match/README.md`）記住每個子條件看過哪些連結，新出現的標🆕。
+每筆案件同時顯示永慶自己標的刊登時間（例："5天前刊登"）當客觀對照，跟🆕分開放。
 
 ⚠️ 08-05～08-06 那套舊機制（`localhost:5001`／`webview_server.py`／`manifest.py`／
-去重／`daily_run.py` 排程）08-14 隨 i智慧 一起刪了，**沒有照抄**，這次是全新、更簡單的
-單向流程（跑一次→蓋掉整份看板），沒有去重記憶也沒有排程，見
-`scripts/buyer-match/README.md`。舊設計要參考才去 `git log -p` 找。
+`daily_run.py` 排程）08-14 隨 i智慧 一起刪了，**沒有照抄**，這次是全新、更簡單的
+單向流程（跑一次→蓋掉整份看板），**沒有排程**（去重有做，排程還沒接）。
+舊設計要參考才去 `git log -p` 找。
 
 ---
 
