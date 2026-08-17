@@ -6,7 +6,9 @@
 > 線上真正在跑什麼 → `n8n-live.md`（n8n_sync.py 產的，**兩邊打架信這份**）
 > 外部 AI 工具情報（評估過的／已排除的，不用重評）→ `ai-toolbox.md`
 
-最後更新：2026-08-14 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
+最後更新：2026-08-17 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
+
+⚠️ n8n_sync 連不到 n8n（timeout，cloudflared 通道問題）：`yc-v3-scan-publish.json` 還有 1 支沒同步，下次先重跑 `--check`
 
 ---
 
@@ -100,24 +102,26 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
   發完回寫 Notion 總價與 KEIS `adcase_price`／FB 連結。**2026-08-14 使用者已同意，EG0506900
   （1298→1180）`要重發` 已手動勾上，等下一班線 C 跑**——跑完看有沒有走完整條路徑，沒有就記錄卡點
 
-### 3. 買方配案：永慶連結抓取模組寫好了，**卡在登入態沒測完**（下次接這裡）
+### 3. 買方配案：永慶連結抓得到了，但**大規模跑會斷線**（下次接這裡）
 
 - 新方向：不用重建外部查詢（i智慧那條沒補回來），改用 foundi 自己的候選卡片——展開卡片→
   「本次銷售刊登」清單裡抓 host 是 `buy.yungching.com.tw` 的連結。沒有 JSON API 捷徑可抄
   （`/dataapi/property/get/<id>/` 要一個不在 cookie/localStorage 的 token，重放回 403），
   只能逐筆點卡片展開查，細節/選擇器見 `scripts/buyer-match/yc_link.py` 開頭註解
-- 新增三支：`chrome_cdp.py`（還原，CDP port 9223 登入態基礎設施，已改成不依賴已刪除的
-  `buyer_match.py`／i智慧）、`yc_link.py`（抓連結核心邏輯）、`run_yc_links.py`（批次入口）
-- **卡點**：`python run_yc_links.py A買 --customer 235巷老闆何先生 --limit 3` 跑過一次，
-  CDP Chrome 自動開起來、正確偵測「沒登入」乾淨中止（邏輯沒問題）——但這是全新的
-  `%LOCALAPPDATA%\buyer-match-chrome` 專屬 profile，跟平常用的 Chrome 是分開的，
-  **要手動登入一次 agent.foundi.info 才能繼續測**。08-16 使用者選擇先收工、電腦要關機，
-  下次開工先登入那個視窗（或重跑腳本讓它自己開一個）再繼續
-- 下次要做：登入後重跑同一條指令，確認抓得到 3700 萬那戶的永慶連結
-  （`buy.yungching.com.tw/house/7478686`，08-16 手動實測過這筆真的存在），抓對了再擴大
-  `--limit`、多測幾個客戶。**這次刻意沒做**去重記憶／LINE 推播／看板（`seen_store.py` 等），
-  範圍只到「查得到、印出來、存成 output/ 檔案」，要接排程/通知是另一次的事
-- 分支 `claude/buyer-match-yc-link`，還沒開 PR——程式碼沒跑通過一次完整流程，先不 merge
+- 三支：`chrome_cdp.py`（CDP port 9223 登入態基礎設施）、`yc_link.py`（抓連結核心邏輯）、
+  `run_yc_links.py`（批次入口）
+- **08-17 登入卡點已解除**，抓到 3700 萬那戶的永慶連結（`buy.yungching.com.tw/house/7478686`，
+  08-16 手動核對過真的存在）
+- **08-17 修掉一個真的 bug**：`yc_link.py` 原本用 `document.querySelectorAll` 查整份文件，
+  抓到的永遠是第一張展開過的卡片（`mat-expansion-panel` 收合後內容不會從 DOM 移除，是
+  Angular Material 官方行為）——同一子條件的 3 筆候選全部回傳同一個舊連結。已改成鎖進
+  該卡片自己的 `mat-expansion-panel` 查，小量測試（3~5 筆候選）驗證連結彼此不同、正確
+- **新卡點**：跑整個 A買 群組（37 位客戶、`--limit 5`）處理到第 8 位客戶時 CDP 連線斷
+  （`Connection closed while reading from the driver`）。Chrome 沒死，推測是前面客戶累積
+  展開太多候選卡（DOM 不會清掉，同上）拖垮渲染。**下次要做**：拆批跑或找辦法清掉展開內容
+- **這次刻意沒做**去重記憶／LINE 推播／看板（`seen_store.py` 等），範圍只到「查得到、
+  印出來、存成 output/ 檔案」，要接排程/通知是另一次的事
+- 分支 `claude/buyer-match-yc-link`，還沒開 PR——大規模還沒跑通一次完整流程，先不 merge
 - 「找替代即時案源」這條待辦可以關了：不是另外接資料源，是善用 foundi 自己就有的資料
 
 ### 4. 公開網頁在 Cloudflare Pages（2026-08-05 上線，發布鏈路見 `reference.md`）
@@ -133,7 +137,6 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
 
 ## 其他待辦
 
-- **可以刪**：`桌面\asce-備份-20260730.bundle`（GitHub 帳號 08-06 已恢復、main 已對齊）
 - **Notion「來源連結」欄已刪（2026-08-05）**：存的是會過期的 houseol 網址（刪除前 72 筆全部 404）。
   引用全改指 `永慶官網連結`（線 B 二次確認／`publish.py`／yc-ad skill）。**不要再加回來**，理由見 `reference.md`
 - **Notion v2 舊資料**：YC1868705 還在、不在 KEIS，線 B 掃到略過；它的 `永慶官網連結` 已補上
