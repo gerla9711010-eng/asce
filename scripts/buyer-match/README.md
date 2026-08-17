@@ -9,15 +9,20 @@
 
 跑完會：
 1. 存成 `output/*.txt`（單一子條件一份）
-2. 整輪結果寫成 `output/latest_run.json`
-3. 呼叫 `build_static_view.py` 重產 `output/配案看板.html`
-4. 預設自動部署到 Cloudflare Pages（`https://yc-tools.pages.dev/buyer-match/`，
+2. 用 `seen_store.py` 記住每個客戶/子條件之前看過哪些連結，這次新出現的標🆕
+3. 整輪結果寫成 `output/latest_run.json`
+4. 呼叫 `build_static_view.py` 重產 `output/配案看板.html`
+5. 預設自動部署到 Cloudflare Pages（`https://yc-tools.pages.dev/buyer-match/`，
    `robots.txt` 擋收錄但沒有帳密保護）——`--no-publish` 可以只留本機檔案不部署
 
-看板支援單筆／整批一鍵複製連結（`navigator.clipboard`，失敗會退回長按選字框）。
+看板功能：
+- 按群組（A買／B買／C買／其他⋯）分頁籤切換，不是一頁塞所有客戶
+- 單筆／整批（該子條件）／複製全部（目前分頁籤那組）三種一鍵複製
+  （`navigator.clipboard`，失敗會退回長按選字框）
+- 複製內容是「標題＋開價＋連結」三行一筆，不是裸連結；多筆一起複製時筆與筆之間空一行
+- 新出現的案子標🆕（`seen_store.py` 判斷，同一個連結對同一個客戶/子條件不會重複標）
 
-⚠️ **刻意沒做**：去重記憶、LINE 推播、排程自動跑。現在是手動跑指令，要接排程/通知
-是另一輪的事。
+⚠️ **刻意沒做**：LINE 推播、排程自動跑。現在是手動跑指令，要接排程/通知是另一輪的事。
 
 ## 用法
 
@@ -51,5 +56,6 @@ python run_yc_links.py A買 --no-publish              # 只重產看板 HTML，�
 | `foundi_need.py` | 讀房地客需條件（客戶存好的圈選範圍/篩選條件），轉成關鍵字+篩選參數 |
 | `yc_link.py` | 逐筆展開候選卡片、抓永慶連結的核心邏輯 |
 | `run_yc_links.py` | 批次入口：跑群組/客戶/子條件、存檔、產看板、部署 |
-| `build_static_view.py` | 把 `output/latest_run.json` 轉成看板 HTML |
+| `build_static_view.py` | 把 `output/latest_run.json` 轉成看板 HTML（分頁籤／複製格式） |
+| `seen_store.py` | 記住每個客戶/子條件看過哪些連結，標新出現的（🆕） |
 | `output/`／`state/` | 查詢結果／去重記憶（已 gitignore） |
