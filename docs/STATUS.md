@@ -6,7 +6,9 @@
 > 線上真正在跑什麼 → `n8n-live.md`（n8n_sync.py 產的，**兩邊打架信這份**）
 > 外部 AI 工具情報（評估過的／已排除的，不用重評）→ `ai-toolbox.md`
 
-最後更新：2026-08-14 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
+最後更新：2026-08-17 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
+
+⚠️ n8n_sync 連不到 n8n（timeout，cloudflared 通道問題）：`yc-v3-scan-publish.json` 還有 1 支沒同步，下次先重跑 `--check`
 
 ---
 
@@ -68,13 +70,10 @@
 （PR #186／#187）。經過見 `incidents.md`。⚠️ 改守門員只能「補真出處」不能「放寬檢查」，
 收到「交叉審核擋下」仍要去看理由站不站得住腳。
 
-### 0.15 Codex 文案服務**已接線**（08-14 更正：本節之前寫的「還沒接線」是舊的）
+### 0.15 Codex 文案服務**已接線**（`scripts/codex-copy/`，取代 Gemini 免費配額）
 
-`scripts/codex-copy/`——用 ChatGPT 訂閱額度取代 Gemini 免費配額，線 A「產文案」節點已指向它。
-⚠️ **不穩**：cloudflared 快速通道每次重開網址都會變，8/12~8/13 曾連續斷線好幾次、
-5 班線 A 因此空跑失敗（見 `incidents.md`）。08-14 已重新啟動＋把開機捷徑放回
-`shell:startup`（`Codex文案服務 - 捷徑.lnk`，08-12/13 全停時移出的），重開機會自動接通道回寫 n8n。
-`codex` 掛掉時服務自己會退回 Gemini（見 README），但**通道本身斷掉沒有退路**，這是純網路層問題，
+⚠️ **不穩**：cloudflared 通道每次重開網址都會變，斷過好幾次害線 A 空跑（見 `incidents.md`）。
+開機捷徑已放回 `shell:startup`，重開機會自動接通道回寫 n8n，但**通道本身斷掉沒有退路**，
 斷線頻率還要觀察。
 
 **已決定不做**：煞車縮短、文案純套版、Google Cloud 開帳單、交叉審核換 Codex（理由見 `reference.md`）。
@@ -87,9 +86,7 @@
 線 C 6 班 + LINE 三個指令，比之前寬鬆很多。（交叉審核走 `flash`，是另一桶 20 次，不相干。）
 細節見 `reference.md`。
 
-### 0.8 KEIS 被砍的欄位（`images`／`age`／`school_info`…）2026-08-04 都回來了，**先別改回去**
-
-現在的繞道做法比較耐打，KEIS 砍過一次就會砍第二次。詳見 `reference.md`。
+### 0.8 KEIS 被砍的欄位（`images`／`age`／`school_info`…）已修復，**先別改回去**——見 `reference.md`
 
 ### 1. AG1911938 鳳山鳳松路透天：過兩天再看
 
@@ -105,18 +102,17 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
   發完回寫 Notion 總價與 KEIS `adcase_price`／FB 連結。**2026-08-14 使用者已同意，EG0506900
   （1298→1180）`要重發` 已手動勾上，等下一班線 C 跑**——跑完看有沒有走完整條路徑，沒有就記錄卡點
 
-### 3. 買方配案（2026-08-14 刪掉 i智慧，機制細節/修復經過見 `reference.md`／`incidents.md`）
+### 3. 買方配案：永慶連結抓取**08-17 跑通全流程**，PR 待審
 
-- 查詢/配對/看板整批（含GUI/排程安裝腳本/桌面捷徑）已刪除，不是搬去別的資料夾——
-  想找回來看 `git log -p -- scripts/buyer-match/`；只留 `foundi_need.py`
-  （讀房地客需，跟 i智慧 無關）給之後接新資料源用
-- 排程 `buyer-match-daily`／`buyer-match-webview` 都已停用（08-14 使用者在門市電腦手動確認）
-- 桌面 `桌面\買方配案\` 已同步清乾淨：i智慧 相關檔案/含真帳密的 `.env` 都刪了，
-  只留 `foundi_need.py`／`requirements.txt`／`README.md`（跟 repo 一致）
-- `C:\Users\user\_待刪_20260804_買方配案舊登入態\`（4.8 GB 舊 Chrome 登入態）已刪除
-- 手機看板 https://yc-tools.pages.dev/buyer-match/ 資料不會再更新（最後一次排程的舊資料），
-  之後可以下架或等接新資料源再重部署
-- **待辦**：找替代的即時案源資料，找到後照 `scripts/buyer-match/README.md` 的「之後要怎麼接新資料源」重建查詢那一段
+改用 foundi 自己的候選卡片抓連結（展開卡片→「本次銷售刊登」清單裡找 `buy.yungching.com.tw`
+的連結，沒有 API 捷徑可抄，細節見 `scripts/buyer-match/yc_link.py` 開頭註解）。三支：
+`chrome_cdp.py`（CDP 登入態）、`yc_link.py`（抓連結核心）、`run_yc_links.py`（批次入口）。
+
+08-17 一口氣解掉三個卡點：登入態、抓錯卡片（同一子條件回傳同一個舊連結，`mat-expansion-panel`
+收合不會真的清 DOM）、大規模斷線（同樣的 DOM 不清問題，累積展開幾十張卡拖垮渲染）。
+現在查完每筆候選都主動把 DOM 挖掉，跑完整個 A買 群組（37 位客戶）0 錯誤、連結正確無重複。
+**這次刻意沒做**去重記憶／LINE 推播／看板，範圍只到「查得到、存成 output/ 檔案」。
+分支 `claude/buyer-match-yc-link`，PR 待開／待合併。
 
 ### 4. 公開網頁在 Cloudflare Pages（2026-08-05 上線，發布鏈路見 `reference.md`）
 
@@ -131,7 +127,6 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
 
 ## 其他待辦
 
-- **可以刪**：`桌面\asce-備份-20260730.bundle`（GitHub 帳號 08-06 已恢復、main 已對齊）
 - **Notion「來源連結」欄已刪（2026-08-05）**：存的是會過期的 houseol 網址（刪除前 72 筆全部 404）。
   引用全改指 `永慶官網連結`（線 B 二次確認／`publish.py`／yc-ad skill）。**不要再加回來**，理由見 `reference.md`
 - **Notion v2 舊資料**：YC1868705 還在、不在 KEIS，線 B 掃到略過；它的 `永慶官網連結` 已補上

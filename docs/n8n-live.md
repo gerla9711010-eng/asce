@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-08-16 18:58 自動產生）
+# n8n 線上現況（2026-08-16 19:46 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -15,10 +15,10 @@
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | — |
 | 🟢 | 工作回報查詢 | `工作回報查詢.json` | 8 | 2026-08-16T10:13 success |
 | 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 26 | 2026-08-16T01:30 success |
-| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 57 | 2026-08-16T09:00 error |
+| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 57 | 2026-08-16T11:00 success |
 | 🟢 | 廣告v3 煞車（停） | `yc-v3-stop.json` | 9 | — |
-| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 27 | 2026-08-16T09:30 success |
-| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-15T07:00 success |
+| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 27 | 2026-08-16T11:30 success |
+| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-16T11:00 success |
 | 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 3 | 2026-08-16T09:00 success |
 | 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | — |
 | 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | — |
