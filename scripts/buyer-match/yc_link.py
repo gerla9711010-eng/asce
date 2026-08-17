@@ -52,14 +52,21 @@ class YcLinkResult:
 
 
 _FIND_YC_LINK_JS = """
-async (maxPages) => {
+async (cardEl, maxPages) => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // ⚠️ 一定要把搜尋範圍鎖在這張卡片自己的 mat-expansion-panel 裡，不能查整份文件：
+  // 展開過的卡片內容不會從 DOM 移除（mat-expansion-panel 用動畫隱藏，不是真的拔掉），
+  // 用 document.querySelectorAll 永遠只抓得到第一張展開過的卡片（2026-08-17 實測踩過：
+  // 3 筆不同候選全部回傳同一個連結，都是卡片 0 的舊資料）。
+  const panel = cardEl.closest('mat-expansion-panel');
+  if (!panel) return {status: 'no_panel'};
 
   // 卡片點開後 Angular 要跑一輪 change detection 才會把清單渲染出來，
   // 立刻查詢常常撲空——重試幾次，不要一次就判定「沒有刊登清單」。
   let section = null;
   for (let attempt = 0; attempt < 8 && !section; attempt++) {
-    for (const el of document.querySelectorAll('.section-header')) {
+    for (const el of panel.querySelectorAll('.section-header')) {
       if ([...el.childNodes].some(
         n => n.nodeType === 3 && n.textContent.includes('本次銷售刊登共有')
       )) {
@@ -121,12 +128,14 @@ async def collect_yc_links(
             continue
 
         try:
-            outcome = await page.evaluate(_FIND_YC_LINK_JS, MAX_PAGES_PER_CANDIDATE)
+            outcome = await card.evaluate(_FIND_YC_LINK_JS, MAX_PAGES_PER_CANDIDATE)
             status = outcome.get("status")
             if status == "ok":
                 results.append(YcLinkResult(i, title, subtitle, outcome["href"]))
             elif status == "no_section":
                 results.append(YcLinkResult(i, title, subtitle, None, "沒有刊登清單"))
+            elif status == "no_panel":
+                results.append(YcLinkResult(i, title, subtitle, None, "找不到卡片所屬的展開面板"))
             else:
                 results.append(
                     YcLinkResult(i, title, subtitle, None, "翻完刊登清單沒找到永慶")
