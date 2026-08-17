@@ -62,6 +62,18 @@ async (cardEl, maxPages) => {
   const panel = cardEl.closest('mat-expansion-panel');
   if (!panel) return {status: 'no_panel'};
 
+  // ⚠️ 點卡片收合（Playwright 端做的事）只是動畫藏起來，Angular Material 的
+  // mat-expansion-panel 內容第一次渲染後永遠留在 DOM 裡（官方行為，省下次展開的
+  // 重新渲染成本）。逐筆查完就把這張卡的內容 DOM 挖掉，不然掃一整個群組（幾十位
+  // 客戶、每人可能十幾筆候選）DOM 會一直長，長到把渲染拖垮、CDP 連線斷掉
+  // （2026-08-17 實測踩過：跑到第 8 位客戶斷線）。查完不管有沒有找到都要挖，
+  // 所以包一層 finish() 統一在回傳前處理。
+  const finish = (result) => {
+    const body = panel.querySelector('.mat-expansion-panel-body');
+    if (body) body.remove();
+    return result;
+  };
+
   // 卡片點開後 Angular 要跑一輪 change detection 才會把清單渲染出來，
   // 立刻查詢常常撲空——重試幾次，不要一次就判定「沒有刊登清單」。
   let section = null;
@@ -76,7 +88,7 @@ async (cardEl, maxPages) => {
     }
     if (!section) await sleep(400);
   }
-  if (!section) return {status: 'no_section'};
+  if (!section) return finish({status: 'no_section'});
 
   const onMarketBtn = [...section.querySelectorAll('mat-radio-button')]
     .find(b => b.textContent.includes('架上'));
@@ -88,7 +100,7 @@ async (cardEl, maxPages) => {
   for (let page = 0; page < maxPages; page++) {
     const found = [...section.querySelectorAll('a[href]')]
       .find(a => a.href.includes('yungching.com.tw'));
-    if (found) return {status: 'ok', href: found.href};
+    if (found) return finish({status: 'ok', href: found.href});
 
     const nextBtn = section.querySelector(
       'mat-paginator button.mat-mdc-paginator-navigation-next'
@@ -97,7 +109,7 @@ async (cardEl, maxPages) => {
     nextBtn.click();
     await sleep(700);
   }
-  return {status: 'not_found'};
+  return finish({status: 'not_found'});
 }
 """
 
