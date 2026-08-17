@@ -102,13 +102,16 @@ async def _connect_ctx(p):
     return browser.contexts[0] if browser.contexts else await browser.new_context()
 
 
-async def run_customer_need(ctx, customer: str, need: str, limit: int) -> list[yc_link.YcLinkResult]:
+async def run_customer_need(
+    ctx, customer: str, need: str, limit: int
+) -> tuple[foundi_need.FoundiNeed, list[yc_link.YcLinkResult]]:
     fneed = await foundi_need.load_customer_need(ctx, customer, need)
     if fneed.candidate_count == 0:
         print("[INFO] 這個子條件沒有任何候選物件，跳過")
-        return []
+        return fneed, []
     page = await foundi_need.get_or_open_foundi_page(ctx)
-    return await yc_link.collect_yc_links(page, max_candidates=limit)
+    results = await yc_link.collect_yc_links(page, max_candidates=limit)
+    return fneed, results
 
 
 async def run_group(
@@ -139,7 +142,7 @@ async def run_group(
             job_no += 1
             print(f"\n[INFO] ({job_no}/{total_jobs}) 客戶「{cust}」／子條件「{n}」")
             try:
-                results = await run_customer_need(ctx, cust, n, limit)
+                fneed, results = await run_customer_need(ctx, cust, n, limit)
             except Exception as e:
                 print(f"[WARN] 這個子條件失敗，跳過：{e}", file=sys.stderr)
                 continue
@@ -147,8 +150,11 @@ async def run_group(
             if not results:
                 continue
 
+            scope = fneed.need_id or seen_store.fallback_scope_key(cust, n)
+            if not fneed.need_id:
+                print("[WARN] 抓不到子條件穩定 id，去重記憶退回用名稱索引（改名會失效）", file=sys.stderr)
             new_links = seen_store.mark_seen(
-                seen_data, cust, n, [r.yc_link for r in results if r.yc_link]
+                seen_data, scope, [r.yc_link for r in results if r.yc_link]
             )
 
             report = _format_report(cust, n, results, new_links)

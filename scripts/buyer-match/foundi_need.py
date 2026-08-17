@@ -13,6 +13,12 @@ DOM 選擇器是 2026-07-29 用瀏覽器實測房地頁面挖出來的（見對�
 - 篩選條件摘要：`div.text-body-s.filter-preview`
 - 物件卡片：`div.panel-heading-container.hover-property-summary`
 - 載入更多：文字符合 /更多|沒有更多/ 的 button，「沒有更多」代表已經到底
+
+⚠️ 2026-08-17 加：每個 `mat-nested-tree-node.entry` 自己有 `id` 屬性（例：
+`entry-ln60g87`），跟子條件名稱文字無關，重新整理頁面測過同一個子條件的 id 不會變
+——這個 id 比名稱字串穩，給 `seen_store.py` 當索引用（子條件改名不會害去重記憶失效，
+見 `run_yc_links.py`）。名稱還是拿來選點、給人看，id 只用在「這是不是同一個子條件」
+這件事上。
 """
 
 from __future__ import annotations
@@ -76,6 +82,7 @@ class FoundiNeed:
     exclude_top_floor: bool = False
     require_parking: bool = False
     candidate_count: int = 0
+    need_id: str = ""  # DOM 上這個子條件穩定的 id（見檔案開頭說明），給去重記憶當索引用
 
 
 _EXTRACT_FOUNDI_CARDS_JS = r"""
@@ -165,9 +172,9 @@ async def _open_customer_need_sidebar(page: Page) -> None:
         print(f"[WARN] 點「客需條件」失敗（可能面板已經開著，繼續往下走）：{e}", file=sys.stderr)
 
 
-async def _select_customer_need(page: Page, customer: str, need: Optional[str]) -> str:
+async def _select_customer_need(page: Page, customer: str, need: Optional[str]) -> tuple[str, str]:
     """展開指定客戶的資料夾、點進去某個子條件（沒指定 need 就點第一個）。
-    回傳實際點進去的子條件名稱。
+    回傳 (實際點進去的子條件名稱, 這個子條件的穩定 id)。
 
     全部走 JS evaluate（不用 Playwright 的 get_by_text），因為子條件名稱後面常常跟著一顆
     未讀提醒數字的 `<mat-chip>`（例：「美術館」+ 徽章「9」），這個徽章是巢狀在同一個
@@ -209,8 +216,9 @@ async def _select_customer_need(page: Page, customer: str, need: Optional[str]) 
 
             const label = target.querySelector('button.entry-title span.mdc-button__label');
             const name = ownText(label);
+            const id = target.id;
             target.querySelector('button.entry-title').click();
-            return {picked: name};
+            return {picked: name, pickedId: id};
         }""",
         {"customer": customer, "need": need},
     )
@@ -224,12 +232,16 @@ async def _select_customer_need(page: Page, customer: str, need: Optional[str]) 
         raise RuntimeError(f"客戶「{customer}」底下找不到子條件「{need}」，現有的是：{available}")
 
     await page.wait_for_timeout(1200)
-    return result["picked"]
+    return result["picked"], result.get("pickedId", "")
 
 
 async def list_group(page: Page, group_name: str) -> list[tuple[str, list[str]]]:
     """列出「客需條件」某個群組（A買／B買／C買／其他）底下所有客戶、以及各自存了
-    哪些子條件名稱——給 `run_group_match.py` 批次跑一整個群組用。
+    哪些子條件名稱——給 `run_yc_links.py` 批次跑一整個群組用。
+
+    只回傳名稱（給人看/給 `load_customer_need` 選點用）：每個子條件穩定的 id
+    要透過 `load_customer_need`／`FoundiNeed.need_id` 拿，不在這裡重複算一次
+    （這支只是列清單，id 由真正選點進去那一步負責，避免兩處各自維護一份、之後兜不起來）。
 
     2026-07-29 實測確認：群組本身跟客戶是同一種 `mat-nested-tree-node.folder`
     （只是巢狀了一層：群組 folder → 客戶 folder → 客需 entry），選擇器沿用
@@ -478,7 +490,7 @@ async def load_customer_need(ctx, customer: str, need: Optional[str] = None) -> 
     價格/房數/用途篩選），給下游資料源查詢用（下游還沒定案，見檔案開頭說明）。"""
     page = await get_or_open_foundi_page(ctx)
     await _open_customer_need_sidebar(page)
-    picked_need = await _select_customer_need(page, customer, need)
+    picked_need, picked_need_id = await _select_customer_need(page, customer, need)
     await _switch_to_list_view(page)
 
     filter_summary = ""
@@ -563,4 +575,5 @@ async def load_customer_need(ctx, customer: str, need: Optional[str] = None) -> 
         exclude_top_floor=parsed["exclude_top_floor"],
         require_parking=parsed["require_parking"],
         candidate_count=len(raw_cards),
+        need_id=picked_need_id,
     )
