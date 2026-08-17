@@ -102,27 +102,17 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
   發完回寫 Notion 總價與 KEIS `adcase_price`／FB 連結。**2026-08-14 使用者已同意，EG0506900
   （1298→1180）`要重發` 已手動勾上，等下一班線 C 跑**——跑完看有沒有走完整條路徑，沒有就記錄卡點
 
-### 3. 買方配案：永慶連結抓得到了，但**大規模跑會斷線**（下次接這裡）
+### 3. 買方配案：永慶連結抓取**08-17 跑通全流程**，PR 待審
 
-- 新方向：不用重建外部查詢（i智慧那條沒補回來），改用 foundi 自己的候選卡片——展開卡片→
-  「本次銷售刊登」清單裡抓 host 是 `buy.yungching.com.tw` 的連結。沒有 JSON API 捷徑可抄
-  （`/dataapi/property/get/<id>/` 要一個不在 cookie/localStorage 的 token，重放回 403），
-  只能逐筆點卡片展開查，細節/選擇器見 `scripts/buyer-match/yc_link.py` 開頭註解
-- 三支：`chrome_cdp.py`（CDP port 9223 登入態基礎設施）、`yc_link.py`（抓連結核心邏輯）、
-  `run_yc_links.py`（批次入口）
-- **08-17 登入卡點已解除**，抓到 3700 萬那戶的永慶連結（`buy.yungching.com.tw/house/7478686`，
-  08-16 手動核對過真的存在）
-- **08-17 修掉一個真的 bug**：`yc_link.py` 原本用 `document.querySelectorAll` 查整份文件，
-  抓到的永遠是第一張展開過的卡片（`mat-expansion-panel` 收合後內容不會從 DOM 移除，是
-  Angular Material 官方行為）——同一子條件的 3 筆候選全部回傳同一個舊連結。已改成鎖進
-  該卡片自己的 `mat-expansion-panel` 查，小量測試（3~5 筆候選）驗證連結彼此不同、正確
-- **新卡點**：跑整個 A買 群組（37 位客戶、`--limit 5`）處理到第 8 位客戶時 CDP 連線斷
-  （`Connection closed while reading from the driver`）。Chrome 沒死，推測是前面客戶累積
-  展開太多候選卡（DOM 不會清掉，同上）拖垮渲染。**下次要做**：拆批跑或找辦法清掉展開內容
-- **這次刻意沒做**去重記憶／LINE 推播／看板（`seen_store.py` 等），範圍只到「查得到、
-  印出來、存成 output/ 檔案」，要接排程/通知是另一次的事
-- 分支 `claude/buyer-match-yc-link`，還沒開 PR——大規模還沒跑通一次完整流程，先不 merge
-- 「找替代即時案源」這條待辦可以關了：不是另外接資料源，是善用 foundi 自己就有的資料
+改用 foundi 自己的候選卡片抓連結（展開卡片→「本次銷售刊登」清單裡找 `buy.yungching.com.tw`
+的連結，沒有 API 捷徑可抄，細節見 `scripts/buyer-match/yc_link.py` 開頭註解）。三支：
+`chrome_cdp.py`（CDP 登入態）、`yc_link.py`（抓連結核心）、`run_yc_links.py`（批次入口）。
+
+08-17 一口氣解掉三個卡點：登入態、抓錯卡片（同一子條件回傳同一個舊連結，`mat-expansion-panel`
+收合不會真的清 DOM）、大規模斷線（同樣的 DOM 不清問題，累積展開幾十張卡拖垮渲染）。
+現在查完每筆候選都主動把 DOM 挖掉，跑完整個 A買 群組（37 位客戶）0 錯誤、連結正確無重複。
+**這次刻意沒做**去重記憶／LINE 推播／看板，範圍只到「查得到、存成 output/ 檔案」。
+分支 `claude/buyer-match-yc-link`，PR 待開／待合併。
 
 ### 4. 公開網頁在 Cloudflare Pages（2026-08-05 上線，發布鏈路見 `reference.md`）
 
