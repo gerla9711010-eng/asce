@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://copies-founder-current-resolve.trycloudflare.com",
+        "url": "https://showing-transactions-viewpicture-city.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
