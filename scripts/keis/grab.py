@@ -27,7 +27,9 @@ KEIS 公買搶單自動化（輕量無瀏覽器版）
     KEIS_PASSWORD2/3…     對應副帳號密碼
     KEIS_NOTIFY_WEBHOOK   n8n webhook URL；設了才會推 LINE（可選）
     KEIS_HEARTBEAT_WEBHOOK  n8n 心跳 webhook URL（可選）
-    KEIS_LINE_DIRECT_TOKEN  LINE Messaging API Channel Access Token，繞過 n8n 直推告警用
+    KEIS_TELEGRAM_TOKEN     Telegram 機器人 token，繞過 n8n 直推告警用（主要管道，無則數上限）
+    KEIS_TELEGRAM_CHAT_ID   收訊人的 Telegram chat id
+    KEIS_LINE_DIRECT_TOKEN  可選備援：LINE Channel Access Token（免費方案一個月只有 200 則）
                             （可選；沒設就少了「n8n 本身掛掉」時的告警防線，見 send_watchdog_alert）
     KEIS_LINE_PUSH_USERID   直推對象 LINE userId（可選，預設薛力瑜本人）
 """
@@ -47,6 +49,8 @@ from urllib.parse import urlencode
 
 import httpx
 from dotenv import load_dotenv
+
+import notify_telegram
 
 load_dotenv()
 
@@ -1240,9 +1244,14 @@ def push_heartbeat() -> bool:
         return False
 
 
-def push_line_direct(text: str) -> bool:
-    """繞過 n8n，直接打 LINE Messaging API push——給「n8n 本身掛掉」這種情境用的最後防線。
-    沒設 KEIS_LINE_DIRECT_TOKEN 就跳過（回傳 False）。"""
+def push_direct(text: str) -> bool:
+    """繞過 n8n 直推——給「n8n 本身掛掉」這種情境用的最後防線。
+
+    優先走 Telegram（沒有則數上限），沒設或送不出去才退回 LINE 直推。
+    兩邊都沒設就跳過（回傳 False）。
+    """
+    if notify_telegram.send(text):
+        return True
     if not LINE_DIRECT_TOKEN:
         return False
     try:
@@ -1261,10 +1270,10 @@ def push_line_direct(text: str) -> bool:
 def send_watchdog_alert(text: str) -> None:
     """n8n 心跳鏈路失效時的告警出口：優先走繞過 n8n 的直推，n8n 那條路能通就當備援一起試
     （不衝突，兩邊都推到同一個人）。兩條都送不出去，通常代表整個網路斷線，只能寫 log 留痕。"""
-    ok_direct = push_line_direct(text)
+    ok_direct = push_direct(text)
     ok_n8n = notify({"event": "alert", "text": text})
     if ok_direct or ok_n8n:
-        log(f"🚨 外部告警已送出（直推LINE={'✓' if ok_direct else '✗（未設KEIS_LINE_DIRECT_TOKEN或送不出去）'}／經n8n={'✓' if ok_n8n else '✗'}）：{text}")
+        log(f"🚨 外部告警已送出（直推={'✓' if ok_direct else '✗（未設 Telegram/LINE token 或送不出去）'}／經n8n={'✓' if ok_n8n else '✗'}）：{text}")
     else:
         log(f"🚨🚨 外部告警兩條路都送不出去（可能整個網路斷線，不只 n8n）：{text}")
 

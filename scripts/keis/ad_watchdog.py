@@ -13,7 +13,8 @@
 所以這支刻意做成：
   * **完全不碰 n8n**——不讀執行紀錄、不管流程長怎樣，n8n 整台燒掉它照樣會叫
   * **只看結果**——直接問 Notion 廣告 DB「東西有沒有做出來」
-  * **走繞過 n8n 的直推 LINE**（`KEIS_LINE_DIRECT_TOKEN`，跟 grab.py 的最後防線同一條路）
+  * **走繞過 n8n 的直推 Telegram**（`KEIS_TELEGRAM_TOKEN`，跟 grab.py 的最後防線同一條路；
+    沒設才退回 LINE。LINE 免費方案一個月只有 200 則主動推播，那 200 則要留給客戶群發）
 
 兩個判斷
 --------
@@ -25,11 +26,13 @@
 用法
 ----
     python ad_watchdog.py          # 跑一次就結束，給工作排程器每小時叫一次
-    python ad_watchdog.py --dry    # 只印不推 LINE，測試用
+    python ad_watchdog.py --dry    # 只印不推播，測試用
 
 需要 .env（跟 grab.py 同一份）：
     KEIS_NOTION_TOKEN        讀 Notion 廣告 DB
-    KEIS_LINE_DIRECT_TOKEN   繞過 n8n 直推 LINE
+    KEIS_TELEGRAM_TOKEN      繞過 n8n 直推 Telegram（主要告警管道）
+    KEIS_TELEGRAM_CHAT_ID    收訊人的 Telegram chat id
+    KEIS_LINE_DIRECT_TOKEN   可選，Telegram 送不出去時的備援
     YC_AD_NOTION_DB_ID       可選，預設就是廣告 DB
 """
 from __future__ import annotations
@@ -43,6 +46,8 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
+
+import notify_telegram
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -104,13 +109,18 @@ def save_state(state: dict) -> None:
         log(f"⚠ 狀態檔寫不進去（下次可能重複告警）：{e}")
 
 
-def push_line(text: str, dry: bool = False) -> bool:
-    """繞過 n8n 直接打 LINE Messaging API。這是整支的重點——n8n 死了它還能叫。"""
+def push_alert(text: str, dry: bool = False) -> bool:
+    """繞過 n8n 直接推告警。這是整支的重點——n8n 死了它還能叫。
+
+    優先走 Telegram（沒有則數上限），沒設 Telegram 才退回 LINE 直推。
+    """
     if dry:
         print("\n--- [--dry] 這則不會真的送出 ---\n" + text + "\n--------------------------------\n")
         return True
+    if notify_telegram.send(text):
+        return True
     if not LINE_DIRECT_TOKEN:
-        log("🚨 要告警但沒設 KEIS_LINE_DIRECT_TOKEN，只能寫 log")
+        log("🚨 要告警但 Telegram 送不出去、也沒設 KEIS_LINE_DIRECT_TOKEN，只能寫 log")
         return False
     try:
         r = httpx.post(
@@ -202,7 +212,7 @@ def check_stuck(state: dict, now: datetime, dry: bool) -> bool:
               "・FB 粉專權杖過期\n"
               "・Railway 上 n8n 掛了\n\n"
               "查法：Railway 看 Primary/Worker 有沒有異常重部署，n8n 執行紀錄有沒有斷。")
-    if push_line(text, dry):
+    if push_alert(text, dry):
         for s in stuck:
             alerted[s["id"]] = today
         log(f"🚨 已告警：{len(stuck)} 筆待發卡關（{', '.join(s['no'] for s in stuck)}）")
@@ -240,7 +250,7 @@ def check_no_publish(state: dict, now: datetime, dry: bool) -> None:
             "掃描發文線 09:00／11:00／13:00 三班都應該跑完了。\n\n"
             "代表整條線靜悄悄停擺了——注意 n8n 介面上可能完全看不到錯誤。\n"
             "先看 Railway 的 Primary/Worker 狀態與最近部署時間。")
-    if push_line(text, dry):
+    if push_alert(text, dry):
         state["no_publish_alerted"] = today
         log("🚨 已告警：今天整天沒有任何已發布")
 
@@ -297,7 +307,7 @@ def check_junk_copy(state: dict, now: datetime, dry: bool) -> None:
             + "\n\n＝AI 回傳格式壞掉，整包 JSON 被當文案貼出去。\n"
               "處理：先把 FB 那篇改掉或刪掉，再看 n8n 該班的『解析文案』節點。\n"
               "（2026-08-03 修過一次同樣的事，若又出現代表守門員的形狀檢查沒擋到）")
-    if push_line(text, dry):
+    if push_alert(text, dry):
         for b in bad:
             alerted[b["id"]] = today
         log(f"🚨 已告警：{len(bad)} 篇文案壞掉（{', '.join(b['no'] for b in bad)}）")
@@ -354,7 +364,7 @@ def check_db_disk(state: dict, now: datetime, dry: bool) -> None:
             "『儲存成功執行紀錄』關掉（設 saveDataSuccessExecution=none）。\n"
             "⚠️ 絕對不要用 API 批次 DELETE 執行紀錄——刪除會先寫交易日誌，\n"
             "在快滿的磁碟上會當場把它撐爆。要清一律用 TRUNCATE。")
-    if push_line(text, dry):
+    if push_alert(text, dry):
         state["db_disk_alerted"] = today
         log(f"🚨 已告警：資料庫 {pct:.0f}%")
 
