@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://showing-transactions-viewpicture-city.trycloudflare.com",
+        "url": "https://slip-democrat-hub-into.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
