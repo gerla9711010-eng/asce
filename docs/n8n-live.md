@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-08-19 11:08 自動產生）
+# n8n 線上現況（2026-08-19 16:10 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -9,16 +9,16 @@
 |---|---|---|---|---|
 | 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | 2026-08-11T01:55 success |
 | 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | 2026-08-15T04:21 success |
-| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | 2026-08-19T02:16 success |
-| 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 16 | 2026-08-17T12:50 success |
+| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 3 | 2026-08-19T04:18 success |
+| 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 16 | 2026-08-19T05:04 success |
 | 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | — |
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | — |
-| 🟢 | 工作回報查詢 | `工作回報查詢.json` | 8 | 2026-08-17T12:50 success |
+| 🟢 | 工作回報查詢 | `工作回報查詢.json` | 8 | 2026-08-19T05:04 success |
 | 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 26 | 2026-08-19T01:30 success |
-| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 57 | 2026-08-19T03:00 waiting |
+| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 57 | 2026-08-19T07:00 success |
 | 🟢 | 廣告v3 煞車（停） | `yc-v3-stop.json` | 9 | — |
-| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 27 | 2026-08-19T01:30 success |
-| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-19T03:00 success |
+| 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 27 | 2026-08-19T07:30 success |
+| 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-19T07:00 success |
 | 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 3 | 2026-08-19T01:00 success |
 | 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | — |
 | 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | — |
