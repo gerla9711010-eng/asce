@@ -69,7 +69,7 @@ Telegram 機器人推播沒有則數上限，系統告警／提醒一律搬過�
 | 煞車（停）／LINE 指令分流器／圖片分流器／客戶建檔器／行事曆建立器／戰果查詢／查專員電話 | 🟢 已開（LINE 觸發，沒時鐘）|
 | 情資週報 | 🟢 已開，「情資」關鍵字回覆能用；推播分支等 Telegram 遷移 |
 | 靜默失敗巡邏／KEIS 待聯絡提醒／KEIS 心跳檢查 | ⚪ 已停，**Telegram 遷移完就開回來** |
-| 廣告發文看門狗／公買搶單／自動簽到／買方配案排程／市場週報／行情看板更新 | ⚪ 已停（沒動）|
+| 廣告發文看門狗／公買搶單／自動簽到／市場週報／行情看板更新 | ⚪ 已停（沒動）|
 | YC 建檔器 v2/v3／YC 發文線／文案重產器／LINE 新聞推播 | ⚪ 已停（舊版，沒動）|
 
 「LINE 推播 → Notion 系統日誌」的架構細節見 `reference.md`。
@@ -112,18 +112,10 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
 - **線 C 的 FB 發新文＋刪舊文**：程式路徑已就緒但**還沒被真實事件走完**。EG0506900
   （1298→1180）`要重發` 已手動勾上，等下一班線 C 跑完看有沒有走完整條路徑，沒有就記錄卡點
 
-### 3. 買方配案：`python run_yc_links.py <群組>` 手動跑，看板已上線
-
-用法與去重機制見 `scripts/buyer-match/README.md`。**刻意沒做**LINE 推播／排程。
-⚠️ 已知小狀況：規模夠大偶有個別候選點擊逾時（容錯機制擋住，不影響其他資料）；
-診斷用一次性腳本沒關分頁會拖垮 CDP Chrome（砍掉 `buyer-match-chrome` 相關 `chrome.exe`
-重開即可，登入態不會掉）。
-
-### 4. 公開網頁在 Cloudflare Pages（發布鏈路見 `reference.md`）
+### 3. 公開網頁在 Cloudflare Pages（發布鏈路見 `reference.md`）
 
 - 三合一計算機 https://yc-tools.pages.dev/yc-calc/
 - 行情看板 https://yc-tools.pages.dev/kh-market/
-- 買方配案看板（內部用，`robots.txt` 擋收錄）https://yc-tools.pages.dev/buyer-match/
 
 ⚠️ **`qingan3-calc` 還是 404**：GitHub 那邊的障礙已解除，問題回到本質——**沒有本機原始檔**，
 要救得先找到原始檔才動得了。

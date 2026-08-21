@@ -439,15 +439,14 @@ n8n 整台燒掉它照樣會叫。**
 | **自動簽到** `scripts/clockin/` | 🟢 上線（2026-07-14 首跑）。jitter 0-60 分為常態分佈（中心 30 分）| `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-20 第 4 輪修完。**實際執行的是桌面 `工具\不動產售屋表工具_v3.4\zipinspect\`**（資料夾名是舊版號、內容才是新的），改完兩邊要同步。`template/*.xltx` 兩個 Excel 範本非它不可。⚠️ 待門市拿真實案件實測；塗銷防護只用模擬文字驗過 | `scripts/sale-form/README.md`、桌面 `售屋表v3.6實測清單.md` |
 | **租屋廣告文案** `scripts/rent-ad/` | 🟢 使用中（社宅／包租代管）。**桌面檔名是 `工具\國城\國城廣告文生產器.py`**，別只找「租屋」| `scripts/rent-ad/README.md` |
-| **買方配案** `scripts/buyer-match/` | 🟢 2026-08-17 改用 foundi 自己的候選卡片抓永慶連結（取代已刪除的 i智慧），跑完自動產看板＋部署到 `yc-tools.pages.dev/buyer-match/`（單筆/整批一鍵複製）。手動執行，沒排程、沒去重、沒通知 | `scripts/buyer-match/README.md` |
 | ~~**KEIS 廣告上架** `scripts/keis/publish.py`~~ | ⚫ 已作廢（2026-07-23），線 D 直接打 API 取代 | — |
 
 ---
 
 ## 公開網頁：Cloudflare Pages 發布鏈路（2026-08-05 上線）
 
-三個站共用同一個 Cloudflare Pages 專案 `yc-tools.pages.dev`：`/yc-calc/`、`/kh-market/`、
-`/buyer-match/`。搬家原因是 GitHub 帳號停權**連 GitHub Pages 一起關掉**，`github.io` 底下
+兩個站共用同一個 Cloudflare Pages 專案 `yc-tools.pages.dev`：`/yc-calc/`、`/kh-market/`。
+搬家原因是 GitHub 帳號停權**連 GitHub Pages 一起關掉**，`github.io` 底下
 三個站對外全部 404、`git ls-remote` 也 403。當時「情資沒更新」不是 bdinfo 壞掉——每週二
 照樣算好寫檔，是推不上去。
 
@@ -457,29 +456,9 @@ n8n 整台燒掉它照樣會叫。**
 2. 每天 13:37 `KH-Market-AutoUpdate` 再發一次保底
 3. 發完**真的去線上抓一次比對**，不符或 404 就推 LINE。同故障 3 天只吵一次，
    狀態存 `publish_state.json`
-4. `buyer-match` 的 `run_yc_links.py` 跑完也會自動呼叫 `kh-market-tool/update.py --deploy-only`
 
 GitHub 仍是次要通道，帳號恢復當天會自動補推積著的 commit。
 手動重發：`python update.py --deploy-only`
-
-### 買方配案看板機制（2026-08-17 改用 foundi 資料源重建）
-
-`BUYER_MATCH_HTML` 常數（`kh-market-tool/update.py`）指到
-`asce/scripts/buyer-match/output/配案看板.html`——`build_static_view.py` 讀
-`output/latest_run.json`（`run_yc_links.py` 每次跑完寫的整輪結果）轉成單檔 HTML，
-純 CSS/JS 不吃 CDN。按群組分頁籤切換；單筆／整批／複製全部一鍵複製走
-`navigator.clipboard`（失敗退回長按選字框），內容是「標題＋開價＋連結」。
-
-`seen_store.py` 做去重：用房地子條件 DOM 自帶的穩定 `id`（不是名稱字串，改名不會
-失效，見 `scripts/buyer-match/README.md`）記住每個子條件看過哪些連結，新出現的標🆕。
-每筆案件同時顯示永慶自己標的刊登時間（例："5天前刊登"）當客觀對照，跟🆕分開放。
-
-⚠️ 08-05～08-06 那套舊機制（`localhost:5001`／`webview_server.py`／`manifest.py`／
-`daily_run.py` 排程）08-14 隨 i智慧 一起刪了，**沒有照抄**，這次是全新、更簡單的
-單向流程（跑一次→蓋掉整份看板），**沒有排程**（去重有做，排程還沒接）。
-舊設計要參考才去 `git log -p` 找。
-
----
 
 ## 廣告系統 v2（已被 v3 取代，只留兩件還有效的事）
 
