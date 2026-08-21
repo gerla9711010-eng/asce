@@ -112,55 +112,6 @@ CLAUDE.md 只寫「改完要 deactivate + activate」，沒寫「什麼時候不
 
 ---
 
-## 2026-08-09 ─ 買方配案物件連結消失兩天，是讀 URL 讀太早（已修）
-
-### 症狀
-
-08-08 20:14 那班排程開始，所有配案結果的物件卡片都不再帶分享連結，之後每一班
-（含 08-09 整天）都一樣，看板上物件卡片全部沒有「看詳情／分享頁」按鈕。
-
-### 診斷過程（先講排除掉什麼，別重查）
-
-- 昨天（08-08）改的三個 commit（類型/用途拆開比對、房地選擇器修復、看板同客戶多客需
-  歸類）逐一比對 diff，**都沒碰到**抓分享連結那段程式碼（`buyer_match.py` 的
-  `open_detail_and_fetch`），桌面版跟 GitHub 版程式碼當時也完全一致——排除是自己改壞的。
-- `daily_run.log` 完全查不到失敗原因：`daily_run.py` 是直接 `await run_group_match.run_group()`
-  （沒開子行程），排程用 `pythonw.exe`（沒有終端機、不接 stdout/stderr），所以
-  `buyer_match.py` 內部印的 `[WARN]` 訊息全部有去無回，**失敗了也沒地方看得到**。
-  這件事本身是另一個要補的洞（log 全盲），先記著，還沒修。
-- 兩份 buyer-match 用的 Chrome（claude-in-chrome 擴充功能那個、跟 buyer-match 自己專用的
-  `%LOCALAPPDATA%\buyer-match-chrome`）不是同一個身份，前者沒登 i智慧，不能拿來測。
-
-### 真正原因（現場開瀏覽器、直接呼叫 `open_detail_and_fetch` 逐步印出來抓到的）
-
-點「分享」→「確定」後開出來的新分頁，**一開始 `.url` 是空字串**，約 1 秒後才靠前端 JS
-導到真正的分享網址（`https://www.ycut.com.tw/case-info/...`）。舊code在
-`wait_for_load_state("domcontentloaded")` 後就馬上讀 `.url`——這個等待在那個空白瞬間
-就已經觸發，讀到的永遠是空字串。`format_block` 對空字串跟 `None` 都不印連結，所以每筆
-都悄悄少一行，不會噴錯、也不會被任何檢查抓到。
-
-只觀察到「分頁變空白→約1秒後才導航」這個行為，**不確定是不是 i智慧改版**——沒去看
-他們的更新紀錄，只能講觀察到的現象。
-
-### 怎麼修
-
-`open_detail_and_fetch` 改成輪詢等 `share_page.url` 變成真的 `http` 開頭網址（最多等 8 秒，
-每 250ms 檢查一次），逾時才真的放棄並印 WARN。已用診斷腳本重跑驗證：`share_url` 正確抓到
-`https://www.ycut.com.tw/case-info/327a8e14-de9e-4e5f-8575-0bf096f4582b` 這類真網址。
-
-⚠️ **08-09 當天已經跑完的 `_full.txt` 結果檔沒有連結，且看板 `entry.get("full") or
-entry.get("latest")` full 優先**——今天的看板要到下一班排程（重新抓過一輪）才會補回連結，
-不會自動補之前那幾天的舊結果。
-
-### 學到什麼
-
-CDP 開新分頁後馬上讀 `.url` 是不安全的——分頁可能先以空白狀態存在、真正的網址是之後才
-靠前端 JS 導過去的，`domcontentloaded` 保證不了「這已經是最終網址」。凡是「開新分頁→讀
-它的網址」這種模式，都該輪詢等網址變成看起來像真的（`http` 開頭），不能只等一次
-load state 就信。
-
----
-
 ## 2026-08-09 ─ Postgres volume 撐到 100%，n8n 全停約 1.5 小時（已修）
 
 ### 🔴 結論先寫：清 n8n 執行紀錄一律用 TRUNCATE，**絕對不要用 API 批次 DELETE**
@@ -213,58 +164,6 @@ Deploy Logs 裡的關鍵句是
   `ad_watchdog.py` 判斷四：Postgres 佔 volume 超過 70% 就繞過 n8n 直推 LINE
 - 帳單本身不是問題：$7.14 裡 $7 是四個容器 24 小時開機的記憶體底薪，
   跟跑幾次 workflow 無關（vCPU 只花 $0.10）
-
-## 2026-08-08 ─ 買方配案：類型/用途混成同一包 OR，透店客需跑出純住宅大樓（已修）
-
-**症狀**：使用者查「77515麗華／左營臨路寬透天樓店」（要店面），結果配對名單裡混進
-「棋琴26重奏」這種純住宅社區的 2 房 2 衛平移車位物件，完全不是店面。
-
-**成因**：這條客需在房地端「類型」勾了大樓＋透天、「用途」勾店面——使用者本來就要
-「(大樓或透天) 且 店面」。但 `foundi_need.py` 解析摘要文字時把類型詞（大樓/透天）跟
-用途詞（店面/住宅/辦公）全塞進同一個 `usage_words` 清單，`buyer_match.passes_filters`
-只用一個 `usage_any` 做 OR 比對——物件只要類型命中「大樓」就通過，沒檢查用途是不是
-「店面」。房地自己的候選清單（因為類型有勾大樓）本來就把棋琴26重奏這種住宅社區也
-撈進來，工具的 OR 邏輯又沒把它濾掉，兩層疊加才漏出來。
-
-**怎麼修**（`scripts/buyer-match/foundi_need.py` + `buyer_match.py` +
-`run_customer_match.py` + `run_group_match.py`）：把類型詞跟用途詞拆成
-`_TYPE_WORDS`／`_USAGE_WORDS` 兩個清單，`FoundiNeed` 新增 `type_words` 欄位，
-`passes_filters` 新增獨立的 `type_any` 參數——類型群組內 OR、用途群組內 OR，
-兩群組之間 AND。用 `run_customer_match.py --dry-run` 對照修前/修後結果驗證：
-修後棋琴26重奏底下 11 筆純住宅案全被濾掉，只留下「棋琴26重奏方正金店面1平車」。
-
-**學到什麼**：「類型」跟「用途」是使用者心裡兩個獨立的篩選維度（要嘛是大樓要嘛是
-透天，同時還要是店面），寫程式時把不同維度的關鍵字塞進同一包清單做 OR，等於悄悄
-把「且」關係降級成「或」關係——這種混淆不會報錯、不會被空清單這種明顯訊號抓到，
-只會在使用者自己核對結果時才發現「怎麼有不相干的案子混進來」。之後房地摘要裡任何
-「兩層條件疊加」的欄位，都要先確認彼此該用 AND 還是 OR，不能預設全部攤平成同一包。
-
----
-
-## 2026-08-08 ─ 買方配案：房地改版拿掉 CSS class，選擇器讀成 0 筆，整批排程空跑一天（已修）
-
-**症狀**：使用者發現昨天新增進 A買的 6 位客戶完全沒出現在看板上，一路追問下去發現不只
-這 6 位——manifest 裡舊客戶的「完整清單」時間戳全部停在 8/7，今天 07:46 排程跑完卻沒有
-任何一筆更新到 8/8。**整個排程當天等於沒真的查過**，「新 0 戶」是假的。
-
-**成因**：房地（agent.foundi.info）把候選卡片外層 class 從 `panel-heading-container
-hover-property-summary` 改成只剩 `panel-heading-container`，`foundi_need.py` 的
-`_EXTRACT_FOUNDI_CARDS_JS` 選擇器鎖死兩個 class 一起比對，讀到 0 張卡片 → `areas` 是空的
-→ `run_group_match.py` 判斷「這個子條件沒有任何候選物件」直接跳過，根本沒去查 i智慧。
-截圖比對確認：房地畫面明明有 30 筆候選（紹偉哥／紹偉哥大樓那筆）。
-
-**怎麼修**（`scripts/buyer-match/foundi_need.py`，PR #176）：
-選擇器只留 `div.panel-heading-container`（卡片內部 `.title`／`.subtitle`／`.anchor-minor`
-沒有跟著改版跑掉，只有外層多餘的 class 被拿掉）。改完用 `daily_run.py --force` 補跑當天，
-26 個客戶/客需、248 筆全部補回來。
-
-**學到什麼**：DOM 選擇器鎖多個 class 一起比對，改版只要拿掉其中一個就整條選擇器失效、
-而且是**靜靜失效**——不噴錯、`areas` 空清單被當成「這個客需真的沒候選」處理，跟真正
-「查了但沒新東西」的 `新 0 戶` 長得一模一樣，光看 log 分不出來。判斷「排程有沒有真的
-跑」不能只看有沒有報錯，要抽查 manifest 的 `full.timestamp` 是不是真的每天在動。
-[[buyer-match-tool-pointer]]
-
----
 
 ## 2026-08-08 ─ KEIS 公買搶單：Notion 補寫路徑會把備註清空，靜靜漏了至少 5 筆（已修）
 
@@ -847,24 +746,6 @@ Notion「狀態」已加 `待發` / `取消` 兩個選項（**select 選項不�
 
 **正確做法**：要讓一筆退場一律改「聯絡狀態」（無效空號／已聯絡…），
 資料留著但不進提醒名單，對帳也不會當缺漏。
-
----
-
-## 2026-07-30 ─ 買方配案登入態被 OneDrive 弄掉
-
-profile 放在 `桌面\工具\買方配案\chrome_profile` 時被 OneDrive 同步（5943 檔／4.75 GB），
-連 Cookies 檔都變成雲端佔位檔 → Chrome 關著時被改成「線上檔案」＝隔天被登出。
-
-**修法**：登入態搬到 `%LOCALAPPDATA%\buyer-match-chrome`，用環境變數 `BUYER_MATCH_PROFILE_DIR` 指定。
-⚠️ 舊的 `chrome_profile/` 還留在 OneDrive 裡沒刪（4.75 GB，確認新的沒問題後可以刪掉停止同步）。
-⚠️ **不要硬殺那個 Chrome**（cookie 是關閉時才寫回磁碟，硬殺＝自己製造登出）。
-
-**登入態壽命實測**：房地 `sessionid` 是持久 cookie、約 29 天，關瀏覽器不會掉；
-i智慧 的登入 cookie 全是 session cookie（Chrome 一關就沒）、`token` 只活 12 分鐘 →
-所以 i智慧 每次都要重登（有帳密會自動處理），這不是工具的問題，是永慶 SSO 的設計。
-
-⚠️ **房地只能手機掃 QR Code 登入，沒有帳號密碼**（2026-07-30 使用者確認），
-所以自動重登這條路天生不存在，永遠只能偵測+推 LINE 喊人。
 
 ---
 
