@@ -23,8 +23,8 @@
 3. 「產生權杖」→ App `kaixuan-ad-bot` → 永不過期 → 勾 `pages_show_list`／
    `pages_read_engagement`／`pages_manage_posts`／`business_management`
 4. 換粉專權杖：`https://graph.facebook.com/v21.0/1041868522352339?fields=access_token&access_token={上步權杖}`
-   ⚠️ 回 error 就改用新版粉專編號 `61590105023923` 再試；**若是新編號才通，
-   `workflows/yc-v3-*.json` 裡寫死的 `1041868522352339` 要全部換掉**
+   （粉專編號就是 `1041868522352339`，已從 08-19 最後一班成功紀錄驗證。後台網址看到的
+   `61590105023923` 是新版粉專頁的 URL 編號，Graph API 用不到，不要拿去代）
 5. n8n → Credentials → `FB Page Token`（`Y6myWnsH0lkRL3CF`）→ Header Value 改
    `Bearer {新粉專權杖}` → 存檔。credential 改動不吃排程快取，**不用重開 workflow**
 6. 確認：下一個奇數整點那班，線 A 最後一個節點要是 `Notion 記 KEIS 廣告ID`，

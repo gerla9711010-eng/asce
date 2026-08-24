@@ -81,6 +81,11 @@ Custom Start Command 暫改 `sleep infinity` → `railway ssh --service Postgres
 ⚠️ 用臨時 workflow 試跑 Gemini 相關的東西**會吃掉正式線的額度**
 （2026-08-04 就因此弄掛一班廣告，見 `incidents.md`）。要測就挑非整點、控制次數。
 
+⚠️ **n8n Public API 開關流程的坑**：`POST /workflows/{id}/deactivate` 空 body 就過，
+但 `POST /workflows/{id}/activate` **一定要帶 `Content-Type: application/json`**，
+否則回 `415 Unsupported Media Type`。照紅線做 deactivate+activate 時如果只有 activate 失敗，
+會把流程留在**關閉**狀態，要記得補開回來（2026-08-24 踩過）。
+
 ⚠️ FB Page Token **沒有 `pages_read_engagement`**（列不了貼文清單，只能發文／改文）。
 要做「掃粉專找爛貼文」得先補權限，見 `docs/fb-token-setup.md` F 步驟。
 `GET /me/permissions` 和 `?fields=tasks` 對粉專權杖都問不出東西，別浪費時間。
