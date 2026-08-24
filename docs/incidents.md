@@ -34,6 +34,19 @@ App `kaixuan-ad-bot` 的完整管理權限沒被動。粉專沒被停權、沒�
 2. 「n8n 執行紀錄 success」不等於「事情有做成」，看門狗要盯**結果**不是盯 status
 3. STATUS.md 寫「已暫停」但線上是 active——再一次驗證 `n8n-live.md` 才是真相
 
+**結案（08-24 22:56）**：Meta 後台把粉專資產權限改回「完整管理」、重產系統使用者權杖
+（永不過期）→ 轉粉專權杖 → 存進 n8n credential `FB Page Token`。實測
+`GET /1041868522352339?fields=name` 回傳粉專名稱。
+
+修的過程中卡了一次：第一次存進去漏了 `Bearer ` 前綴，FB 回
+`(#200) Provide valid app ID`（打粉專）和 `code 2500 An active access token must be used`（打 /me）。
+這兩個錯**看起來像權杖無效，實際上是 Authorization header 格式不對**，補上 `Bearer ` 加空格就通。
+
+驗證手法可重用：Public API 沒有「執行 workflow」端點，所以建一支**臨時 webhook workflow**
+（webhook → HTTP Request 掛 `FB Page Token` credential 打 `GET /{page_id}?fields=name`，
+`onError: continueRegularOutput`）→ activate → 打 webhook → 讀回應 → 刪掉。
+全程唯讀、不會發文，30 秒有答案，不用等排程。
+
 
 ## 2026-08-14 全面拔掉主動 LINE 推播，改「工作回報」關鍵字查詢
 
