@@ -91,3 +91,5 @@
 | 權限清單找不到 `pages_manage_posts` | 確認 E 步驟有把 App 和粉專都指派給系統使用者，回頭補 |
 | G 步驟回傳錯誤 | 九成是 F 的權限沒勾齊，重新產生一次權杖（舊的作廢沒關係） |
 | 發文測試回 `(#200) permission denied` | 粉專資產的「完整控制」沒開，回 E 檢查 |
+| 突然回 `code 190｜This Page access token belongs to a Page that is not accessible` | Meta 把企業管理平台遷移成「商家資產管理組合」時會**把資產權限降級**（完整控制 → 部分管理）。回 E 把粉專改回完整管理，再重跑 F→H。2026-08-24 踩過，害廣告 5 天沒發 |
+| 回 `(#200) Provide valid app ID` 或 `code 2500` | 十之八九是 n8n credential 的 Value 少了 `Bearer ` 前綴（Bearer 後面要有一個空格）。不是權杖壞掉 |

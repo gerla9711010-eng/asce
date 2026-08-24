@@ -10,25 +10,21 @@
 
 ---
 
-## 🔴 FB 發文全停：粉專權杖失效（08-19 15:12 起，08-24 才發現）
+## 🟢 FB 發文已修復（08-24 22:56），**明早 09:00 那班要回頭看**
 
-線 A/B/C 08-24 已全部重新啟用（deactivate+activate 跑過），**但 FB 那段是死的**，
-權杖沒換好之前一篇都發不出去。經過與根因見 `incidents.md`（一句話：Meta 企業管理平台
-被強制遷移成「商家資產管理組合」，把系統工作人員 `n8n-bot` 的粉專權限從「完整控制」
-降成「部分管理權限（內容）」）。粉專本身健康，沒被停權。
+08-19 15:12 ～ 08-24 全停，5 天一篇沒發。經過見 `incidents.md`。已做完：
+- Meta 後台把 `n8n-bot` 的粉專資產權限從「部分管理（內容）」改回 **完整管理**
+- 重新產生系統使用者權杖（永不過期）→ 換成粉專權杖 → 存進 n8n credential `FB Page Token`
+- 實測 `GET /1041868522352339?fields=name` 回傳粉專名稱 ✅
+- 線 A/B/C 都是 active
 
-**修法（使用者本人操作，約 5 分鐘，教學全文 `docs/fb-token-setup.md` D→H）**
-1. business.facebook.com → 設定 → 用戶 → 系統工作人員 → `n8n-bot`（61591623195825）
-2. 粉專那列「管理」改成 **完整控制**；系統工作人員本身改回 **管理員**
-3. 「產生權杖」→ App `kaixuan-ad-bot` → 永不過期 → 勾 `pages_show_list`／
-   `pages_read_engagement`／`pages_manage_posts`／`business_management`
-4. 換粉專權杖：`https://graph.facebook.com/v21.0/1041868522352339?fields=access_token&access_token={上步權杖}`
-   （粉專編號就是 `1041868522352339`，已從 08-19 最後一班成功紀錄驗證。後台網址看到的
-   `61590105023923` 是新版粉專頁的 URL 編號，Graph API 用不到，不要拿去代）
-5. n8n → Credentials → `FB Page Token`（`Y6myWnsH0lkRL3CF`）→ Header Value 改
-   `Bearer {新粉專權杖}` → 存檔。credential 改動不吃排程快取，**不用重開 workflow**
-6. 確認：下一個奇數整點那班，線 A 最後一個節點要是 `Notion 記 KEIS 廣告ID`，
-   不是 `記錄發文失敗`
+**還沒驗到的**：實際發文（`pages_manage_posts`）。讀取已通、權限也勾了，但沒有真的發過一篇。
+**明天 09:00 線 A 那班**看最後一個節點是不是 `Notion 記 KEIS 廣告ID`；如果又是 `記錄發文失敗`，
+看錯誤碼是不是 `(#200) permission denied`（那就是粉專資產權限還沒生效）。
+
+⚠️ **踩過的坑**：n8n Header Auth 的 Value 必須是 `Bearer ` **加一個空格**再接權杖。
+少了 `Bearer ` 時 FB 回的是 `(#200) Provide valid app ID` / `code 2500`，
+**看起來像權杖壞掉，其實只是少了前綴**。
 
 ⚠️ **順便補洞**：`記錄發文失敗` 只寫 Notion 日誌沒推播，才會連錯 5 天沒人知道——Telegram 遷移時一起加。
 
