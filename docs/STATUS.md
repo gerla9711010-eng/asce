@@ -33,37 +33,28 @@
 
 ## 🟠 Codex 文案通道死了，已臨時退回 Gemini（08-25 15:11）
 
-線A 15:00 那班卡在 `Gemini 產文案`（其實打的是 codex-copy 的 cloudflared 通道），通道行程
-還活著但網址啞掉。已跑 `server.py --revert` 讓 n8n 指回原廠 Gemini API，**線A 現在能正常發文**，
-只是文案品質退回 Gemini 版本。經過見 `incidents.md`。
+線A 卡在 `Gemini 產文案`（其實打的是 codex-copy 的 cloudflared 通道），通道行程還活著但
+網址啞掉。已跑 `server.py --revert` 讓 n8n 指回原廠 Gemini API，**線A 現在能正常發文**，
+只是文案品質退回 Gemini 版。經過見 `incidents.md`。
 
-**要恢復 Codex 版文案**：門市電腦上手動 kill 掉 `pythonw.exe`（跑 codex-copy 服務）跟
-`cloudflared.exe`（Claude 的沙盒擋掉 kill process，這步只能人工做），再重新雙擊
-`scripts/codex-copy/啟動.vbs` 或跑 `啟動.vbs`。啟動後會自動掛新通道＋把網址寫回 n8n。
-不急，Gemini 能撐著用。
+**要恢復 Codex 版文案**：門市電腦上手動 kill 掉 `pythonw.exe`（codex-copy 服務）跟
+`cloudflared.exe`（Claude 沙盒擋 kill process，只能人工做），再跑
+`scripts/codex-copy/啟動.vbs`，會自動掛新通道＋把網址寫回 n8n。不急，Gemini 撐得住。
+⚠️ cloudflared 快速通道本來就不穩、網址每次重開都會變，這是已知限制不是新 bug。
 
 ---
 
-## 🟢 系統通知改走 Telegram（08-19 起，08-25 全部做完，當天就抓到 3 個真的壞掉的東西）
+## 🟢 系統通知全改走 Telegram（08-19 起，08-25 做完，上線當天抓到 3 個真的壞掉的東西）
 
-LINE 200 則配額留給客戶群發，系統告警／提醒全搬去 Telegram（無上限）。LINE **關鍵字回覆
-（情資／戰果／工作回報…）完全不動**。細節、腳本、踩過的坑見 `reference.md`「補回主動推」。
+LINE 200 則配額留給客戶群發，系統告警／提醒全搬去 Telegram（無上限）。LINE 關鍵字回覆
+（情資／戰果／工作回報…）不受影響。細節見 `reference.md`「補回主動推」。
 
-⚠️ **`KEIS 心跳檢查` 這支 08-25 已經整支刪掉（不只是停用）**：08-24 才被 `incidents.md` 記錄
-過是死流程（grab.py 早就不打這個 webhook 了），收工時卻跟另外 3 支一起重新啟用，兩度誤觸
-「310 小時沒心跳」假警報，判定用不到就直接刪了，git 也同步移除。**之後做批次啟用/遷移
-一類的作業前，先看 `incidents.md` 有沒有記過某支 workflow 是死的，不要整批照單全收。**
+⚠️ **教訓**：`KEIS 心跳檢查` 08-24 才被記錄是死流程，收工時卻跟著一起重新啟用兩次觸發假警報，
+最後整支刪掉重建成極簡設計（n8n 只回 200，判斷交給 grab.py 自己做，16:24 已驗證心跳送達）。
+**之後批次啟用/遷移前，先看 `incidents.md` 有沒有記過某支 workflow 是死的，不要整批照單全收。**
 
-**「n8n 整個掛掉」偵測已重建並生效（08-25）**：新建 `KEIS 心跳接收（極簡）` workflow（只有
-一個 webhook 節點，收到 POST 就回 200，不排程檢查、不存 static data），`.env`（repo + 桌面
-兩份）的 `KEIS_HEARTBEAT_WEBHOOK` 已指過去，grab.py 常駐行程也已重啟（透過 `run.bat` 自帶的
-自動重啟迴圈，不是手動關視窗）讀到新設定。16:24 已收到第一筆真心跳（execution #6553
-success），確認整條路徑通了。「連續失敗多久算掛了」交給 grab.py 自己判斷
-（`heartbeat_alert_sent`），不會再有 n8n 排程自查靜態時間戳的殭屍狀態問題。
-
-**還沒被真實事件驗過**（結構已對，等自然發生）：
-靜默失敗巡邏（24h 內同錯不重報，要等真的抓到吞掉的錯誤）、KEIS 情資週報的異常告警分支
-（要等週報產生失敗一次）——這三支目前收不到訊息是正常的，不是壞掉。
+**還沒被真實事件驗過**（結構已對，等自然發生，收不到訊息是正常的）：靜默失敗巡邏（24h 內
+同錯不重報）、KEIS 情資週報的異常告警分支。
 
 ---
 
@@ -91,7 +82,7 @@ success），確認整條路徑通了。「連續失敗多久算掛了」交給 
 | 煞車（停）／LINE 指令分流器／圖片分流器／客戶建檔器／行事曆建立器／戰果查詢／查專員電話 | 🟢 已開（LINE 觸發，沒時鐘）|
 | 情資週報／靜默失敗巡邏／KEIS 待聯絡提醒 | 🟢 08-25 全部改推 Telegram＋重新啟用 |
 | 廣告發文看門狗／自動簽到／市場週報／行情看板更新 | ⚪ 已停（沒動）|
-| 公買搶單（門市電腦 grab.py） | 🟢 08-24 重開＋開機捷徑放回 `shell:startup`（之前被移出忘記放回）|
+| 公買搶單（門市電腦 grab.py） | 🟢 開機捷徑在 `shell:startup`；心跳改推極簡 webhook（08-25） |
 | YC 建檔器 v2/v3／YC 發文線／文案重產器／LINE 新聞推播 | ⚪ 已停（舊版，沒動）|
 
 「LINE 推播 → Notion 系統日誌」的架構細節見 `reference.md`。
@@ -101,12 +92,6 @@ success），確認整條路徑通了。「連續失敗多久算掛了」交給 
 ## ▶ 下次開工從這裡接
 
 ### 0.1 守門員：改的時候只能「補真出處」不能「放寬檢查」（第 10 個 bug 經過見 `incidents.md`）
-
-### 0.15 Codex 文案服務**已接線**（`scripts/codex-copy/`，取代 Gemini 免費配額）
-
-⚠️ **不穩**：cloudflared 通道每次重開網址都會變，斷過好幾次害線 A 空跑（見 `incidents.md`）。
-開機捷徑已放回 `shell:startup`，重開機會自動接通道回寫 n8n，但**通道本身斷掉沒有退路**，
-斷線頻率還要觀察。
 
 **已決定不做**：煞車縮短、文案純套版、Google Cloud 開帳單、交叉審核換 Codex（理由見 `reference.md`）。
 
