@@ -1,0 +1,26 @@
+{
+  "name": "KEIS 心跳接收（極簡）",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "keis-heartbeat-ping",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "name": "收心跳",
+      "id": "1f28b9c1-3fc5-4c07-bb32-9ff1bd292b77",
+      "webhookId": "a60eb916-71df-410b-9c04-0a7a9c65e028"
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
