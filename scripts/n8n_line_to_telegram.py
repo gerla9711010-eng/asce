@@ -21,7 +21,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 CRED = {"id": "yBF20qXez1b7FLFI", "name": "Telegram 業務助理 Bot"}
 CHAT_ID = "1890720012"
-TARGETS = ["KEIS 心跳檢查", "KEIS 待聯絡提醒", "靜默失敗巡邏", "KEIS 情資週報"]
+TARGETS = ["KEIS 待聯絡提醒", "靜默失敗巡邏", "KEIS 情資週報"]
+# 「KEIS 心跳檢查」原本也在這份清單，2026-08-25 因為兩度誤觸假警報已整支刪除，見 incidents.md
 
 DRY = "--dry-run" in sys.argv
 
