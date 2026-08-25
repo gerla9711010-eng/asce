@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-08-25 17:03 自動產生）
+# n8n 線上現況（2026-08-25 17:13 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -8,7 +8,7 @@
 | 狀態 | 名稱 | 檔案 | 節點 | 最近執行 |
 |---|---|---|---|---|
 | 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-08-12T01:00 success |
-| 🟢 | KEIS 心跳接收（極簡） | `KEIS-心跳接收極簡.json` | 1 | 2026-08-25T08:56 success |
+| 🟢 | KEIS 心跳接收（極簡） | `KEIS-心跳接收極簡.json` | 1 | 2026-08-25T09:06 success |
 | 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | — |
 | 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | 2026-08-15T04:21 success |
 | 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 4 | 2026-08-25T06:31 success |
@@ -17,7 +17,7 @@
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | — |
 | 🟢 | 工作回報查詢 | `工作回報查詢.json` | 8 | 2026-08-25T01:30 success |
 | 🟢 | 廣告v3 下架偵測線 | `yc-v3-removal.json` | 28 | 2026-08-25T01:30 success |
-| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 60 | 2026-08-25T09:00 waiting |
+| 🟢 | 廣告v3 掃描發文線 | `yc-v3-scan-publish.json` | 60 | 2026-08-25T09:00 success |
 | 🟢 | 廣告v3 煞車（停） | `yc-v3-stop.json` | 9 | — |
 | 🟢 | 廣告v3 重發輪替線 | `yc-v3-repost.json` | 28 | 2026-08-25T07:30 success |
 | 🟢 | 查專員電話（展售系統） | `查專員電話展售系統.json` | 7 | 2026-08-25T09:00 success |
