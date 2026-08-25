@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://deal-nonprofit-guy-sixth.trycloudflare.com",
+        "url": "https://drink-wires-donna-richard.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -215,10 +215,6 @@
             {
               "name": "content-type",
               "value": "application/json"
-            },
-            {
-              "name": "X-Codex-Token",
-              "value": "Zfy_R1Gvw_xSJjVrJUPs1Sl_r7MfPziA"
             }
           ]
         },
@@ -241,8 +237,8 @@
       "waitBetweenTries": 5000,
       "credentials": {
         "httpHeaderAuth": {
-          "id": "zTIA89pDJJs0Ad29",
-          "name": "Gemini API Key"
+          "id": "L3y0sJpMjeVeHirQ",
+          "name": "Codex 文案通道 Token"
         }
       },
       "maxTries": 3
