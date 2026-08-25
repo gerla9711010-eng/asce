@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-08-25｜Telegram 告警上線當天就抓到兩個真的壞掉的東西
+
+**背景**：這天把系統錯誤/FB發文失敗等告警從「寫日誌不推」改回主動推 Telegram（見 STATUS.md），
+上線幾小時內就收到兩則真的告警——證明改對了方向，之前壞了都沒人知道。
+
+**#1 線A發文卡在「Gemini 產文案」，錯誤「connection cannot be established, incorrect host」**：
+`scripts/codex-copy/` 用 cloudflared 快速通道把 ChatGPT 訂閱接進 n8n（取代 Gemini 免費配額），
+通道網址每次重開都會變。這次 cloudflared.exe 行程還活著、但通道本身已經死了（不是行程掛掉，
+watchdog 的「行程結束才重開」判斷抓不到這種「活著但通道啞掉」的情況），n8n 指著死掉的網址當然連不上。
+**修法**：`python scripts/codex-copy/server.py --revert` 先把 n8n 產文案節點指回原廠 Gemini API
+解除卡關；要恢復 Codex 版文案品質，得手動 kill 掉舊的 pythonw.exe／cloudflared.exe（Claude 的
+沙盒不給 kill process，只能人工做），再重跑 `啟動.vbs` 重新掛通道。
+**學到什麼**：`server.py` 的 watchdog 只防得住「cloudflared 進程本身死掉」，防不住「進程還在、
+通道啞掉」這種半死不活的狀態，之後如果常發生要考慮加一個對通道本身的健康檢查（打自己的網址）。
+⚠️ 這個 workflow 的 deactivate+activate 有煞車窗口限制（09/11/13/15/17/19:00～:10 不要碰，
+執行可能卡在 Wait 節點被打斷）——修這個之前特地等窗口過了才動手。
+
+**#2 LINE 指令分流器「未知指令處理」節點噴 SyntaxError「Invalid or unexpected token」**：
+節點的 jsCode 裡，訊息字串用單引號包住，但字串內容裡混進了**真的換行字元**（不是 `\n` 逃脫序列）——
+JS 單引號字串不允許字面換行，所以只要真的觸發到這條「無效指令」分支就會炸。這條分支很少走到
+（要打一個 router 認不得的指令才會進來），才會潛伏到現在才被抓到，而且是靠今天新開的 Telegram
+告警才第一次浮出來（之前只寫系統日誌，沒人會去翻）。
+**修法**：改成 `const lines = [...].join('\n')` 陣列組字串，不要再用單引號裡塞多行文字；
+順便把訊息裡「系統不再主動推播」那句過時說明換成現況。
+**學到什麼**：n8n Code 節點存進 JSON 後，肉眼看 repr/print 出來的 `\n` 分不出「真換行」跟
+「逃脫序列」——要確認 jsCode 語法有效，用 `node --check` 包一層 `function f(){...}` 去跑最準。
+
+---
+
 ## 2026-08-24｜公買搶單「心跳沒回應」假警報吵了好一陣子，其實是指向已停用的 workflow
 
 **症狀**：`grab.py` 每 2 小時被 LINE 噴一次「⚠ 沒心跳」，但腳本其實一直活著、`inventory.csv` 也持續在更新。

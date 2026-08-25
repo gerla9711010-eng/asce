@@ -31,7 +31,20 @@
 
 ---
 
-## 🟢 系統通知改走 Telegram（08-19 起，08-25 全部做完）
+## 🟠 Codex 文案通道死了，已臨時退回 Gemini（08-25 15:11）
+
+線A 15:00 那班卡在 `Gemini 產文案`（其實打的是 codex-copy 的 cloudflared 通道），通道行程
+還活著但網址啞掉。已跑 `server.py --revert` 讓 n8n 指回原廠 Gemini API，**線A 現在能正常發文**，
+只是文案品質退回 Gemini 版本。經過見 `incidents.md`。
+
+**要恢復 Codex 版文案**：門市電腦上手動 kill 掉 `pythonw.exe`（跑 codex-copy 服務）跟
+`cloudflared.exe`（Claude 的沙盒擋掉 kill process，這步只能人工做），再重新雙擊
+`scripts/codex-copy/啟動.vbs` 或跑 `啟動.vbs`。啟動後會自動掛新通道＋把網址寫回 n8n。
+不急，Gemini 能撐著用。
+
+---
+
+## 🟢 系統通知改走 Telegram（08-19 起，08-25 全部做完，當天就抓到 2 個真的壞掉的東西）
 
 LINE 200 則配額留給客戶群發，系統告警／提醒全搬去 Telegram（無上限）。LINE **關鍵字回覆
 （情資／戰果／工作回報…）完全不動**。細節、腳本、踩過的坑見 `reference.md`「補回主動推」。
