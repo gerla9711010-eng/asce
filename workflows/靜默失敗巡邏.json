@@ -106,7 +106,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// 走訪每一筆執行的所有節點輸出，找出「有錯但被容錯吞掉」的那些。\n// 判準：節點輸出的 json 帶著 error 物件。離線對 60 筆執行試掃過，零誤報。\nconst IGNORE = [];   // 未來若有節點天生就會回 error（且屬預期），把節點名加進來\nconst found = [];\nlet maxId = 0;\nfor (const item of $input.all()) {\n  const d = item.json || {};\n  maxId = Math.max(maxId, Number(d.id || 0));\n  const wfName = (d.workflowData && d.workflowData.name) || d.workflowId || '未知流程';\n  const runData = ((d.data || {}).resultData || {}).runData || {};\n  for (const [node, runs] of Object.entries(runData)) {\n    if (IGNORE.includes(node)) continue;\n    for (const run of runs) {\n      for (const branch of ((run.data || {}).main || [])) {\n        for (const it of (branch || [])) {\n          const j = (it || {}).json;\n          if (j && typeof j === 'object' && j.error && typeof j.error === 'object') {\n            const msg = String(j.error.message || JSON.stringify(j.error)).slice(0, 160);\n            found.push({ execId: d.id, wfName, node, msg });\n          }\n        }\n      }\n    }\n  }\n}\nconst s = $getWorkflowStaticData('global');\nif (maxId) s.lastExecId = maxId;\n// 同一個節點同一種錯只報一次\nconst seen = new Set();\nconst uniq = found.filter(f => {\n  const k = f.wfName + '|' + f.node + '|' + f.msg.slice(0, 60);\n  if (seen.has(k)) return false;\n  seen.add(k); return true;\n});\nreturn uniq.length ? [{ json: { count: uniq.length, items: uniq } }] : [];\n"
+        "jsCode": "// 走訪每一筆執行的所有節點輸出，找出「有錯但被容錯吞掉」的那些。\n// 判準：節點輸出的 json 帶著 error 物件。離線對 60 筆執行試掃過，零誤報。\nconst IGNORE = [];   // 未來若有節點天生就會回 error（且屬預期），把節點名加進來\nconst found = [];\nlet maxId = 0;\nfor (const item of $input.all()) {\n  const d = item.json || {};\n  maxId = Math.max(maxId, Number(d.id || 0));\n  const wfName = (d.workflowData && d.workflowData.name) || d.workflowId || '未知流程';\n  const runData = ((d.data || {}).resultData || {}).runData || {};\n  for (const [node, runs] of Object.entries(runData)) {\n    if (IGNORE.includes(node)) continue;\n    for (const run of runs) {\n      for (const branch of ((run.data || {}).main || [])) {\n        for (const it of (branch || [])) {\n          const j = (it || {}).json;\n          if (j && typeof j === 'object' && j.error && typeof j.error === 'object') {\n            const msg = String(j.error.message || JSON.stringify(j.error)).slice(0, 160);\n            found.push({ execId: d.id, wfName, node, msg });\n          }\n        }\n      }\n    }\n  }\n}\nconst s = $getWorkflowStaticData('global');\nif (maxId) s.lastExecId = maxId;\n// 同一個節點同一種錯只報一次（這批之內）\nconst seen = new Set();\nconst uniq = found.filter(f => {\n  const k = f.wfName + '|' + f.node + '|' + f.msg.slice(0, 60);\n  if (seen.has(k)) return false;\n  seen.add(k); return true;\n});\n// 同一種錯 24 小時內只報一次（跨批），避免同一個持續性錯誤每 30 分鐘洗一次\nconst COOLDOWN_MS = 24 * 60 * 60 * 1000;\nconst now = Date.now();\ns.alertedAt = s.alertedAt || {};\nconst fresh = uniq.filter(f => {\n  const k = f.wfName + '|' + f.node + '|' + f.msg.slice(0, 60);\n  const last = s.alertedAt[k] || 0;\n  if (now - last < COOLDOWN_MS) return false;\n  s.alertedAt[k] = now;\n  return true;\n});\nreturn fresh.length ? [{ json: { count: fresh.length, items: fresh } }] : [];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -132,43 +132,30 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', messages: [{ type: 'text', text: $json.text }] }) }}",
-        "options": {
-          "timeout": 20000
+        "chatId": "1890720012",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
         }
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [
         1320,
         0
       ],
       "id": "sw-07",
-      "name": "LINE Push",
+      "name": "Telegram 告警",
       "credentials": {
-        "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
         }
       },
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 5000
+      "waitBetweenTries": 5000,
+      "webhookId": "781f3dfe-db6c-4bc0-957f-dae282c3903d"
     }
   ],
   "connections": {
@@ -231,7 +218,7 @@
       "main": [
         [
           {
-            "node": "LINE Push",
+            "node": "Telegram 告警",
             "type": "main",
             "index": 0
           }

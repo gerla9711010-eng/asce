@@ -92,13 +92,17 @@ def main():
         if DRY:
             print("  → --dry-run，沒有寫回")
             continue
+        settings = dict(wf.get("settings", {}))
+        # PUT schema 比 GET 回傳的嚴格，這兩個欄位會被拒絕（400: must NOT have additional properties）
+        settings.pop("binaryMode", None)
+        settings.pop("availableInMCP", None)
         res = req(
             "/api/v1/workflows/" + w["id"],
             {
                 "name": wf["name"],
                 "nodes": wf["nodes"],
                 "connections": wf["connections"],
-                "settings": wf.get("settings", {}),
+                "settings": settings,
             },
             "PUT",
         )

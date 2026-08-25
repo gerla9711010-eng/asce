@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-08-25 14:30 自動產生）
+# n8n 線上現況（2026-08-25 14:58 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -7,9 +7,11 @@
 
 | 狀態 | 名稱 | 檔案 | 節點 | 最近執行 |
 |---|---|---|---|---|
+| 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-08-12T01:00 success |
+| 🟢 | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-12T10:00 success |
 | 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | — |
 | 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | 2026-08-15T04:21 success |
-| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 4 | 2026-08-25T00:01 success |
+| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 4 | 2026-08-25T06:31 success |
 | 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 16 | 2026-08-25T01:30 success |
 | 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | — |
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | — |
@@ -22,14 +24,12 @@
 | 🟢 | 系統錯誤 LINE 告警 | `系統錯誤-LINE-告警.json` | 4 | 2026-08-25T05:00 success |
 | 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | — |
 | 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | — |
-| ⚪ | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 4 | 2026-08-12T01:00 success |
-| ⚪ | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-12T10:00 success |
+| 🟢 | 靜默失敗巡邏 | `靜默失敗巡邏.json` | 7 | — |
 | ⚪ | LINE 新聞推播 | `line-news-push.json` | 6 | — |
 | ⚪ | YC 建檔器 v2（抓真物編productID） | `yc-property-create.json` | 13 | — |
 | ⚪ | YC 建檔器 v3（鎖物編+總價） | `yc-property-create-v3.json` | 13 | — |
 | ⚪ | YC 發文線（發 YCxxx） | `yc-fb-publish.json` | 24 | — |
 | ⚪ | 文案重產器 | `yc-rewrite-copy.json` | 10 | — |
-| ⚪ | 靜默失敗巡邏 | `靜默失敗巡邏.json` | 7 | — |
 
 ## 廣告 DB 欄位｜誰在寫
 

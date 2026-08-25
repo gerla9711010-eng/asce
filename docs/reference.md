@@ -328,8 +328,17 @@ FB 發文系統＋搶單通知的部分改回主動推，**系統日誌照寫不
 ⚠️ 用 Public API PUT workflow 時，GET 回來的 `settings` 裡 `binaryMode`／`availableInMCP`
 兩個欄位 PUT 會被 400 拒絕（`must NOT have additional properties`），寫回前要先濾掉。
 
-心跳告警／待聯絡提醒／靜默失敗巡邏／情資週報 這 4 支的 LINE→Telegram 換裝還沒做，
-另外走 `scripts/n8n_line_to_telegram.py`（見 STATUS.md 待辦）。
+**心跳告警／待聯絡提醒／靜默失敗巡邏／情資週報（2026-08-25 補完）**：這 4 支原本就是
+push 型（不是系統日誌型），只是 LINE 節點還沒換 Telegram、而且三支處於停用。用
+`scripts/n8n_line_to_telegram.py` 換節點，再 deactivate+activate（情資週報）／activate
+（另外三支，本來就是關的）。換裝前先加防吵，不然開回去會洗版：
+- **KEIS 心跳檢查**：`存心跳時間` 收到心跳時把 `sd.alerted` 重設為 `false`；
+  `心跳過期才往下` 判斷過期時先看 `sd.alerted`，已經報過就不再報，直到心跳恢復重置旗標
+  （只在「正常→斷線」那一刻報一次，不會每 2 小時重報同一次斷線）
+- **靜默失敗巡邏**：`找出被吞掉的錯誤` 原本只在同一批次內去重，加了 `s.alertedAt[簽名]`
+  時間戳，同一個 (流程,節點,錯誤訊息) 簽名 24 小時內只報一次（用 workflow static data，
+  跨執行持久化）
+- 待聯絡提醒本來就一天只跑一次，不需要防吵
 
 ### 重試策略
 

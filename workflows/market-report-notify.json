@@ -66,41 +66,30 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.line.me/v2/bot/message/push",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: $json.userId, messages: [{ type: 'text', text: $json.text }] }) }}",
-        "options": {}
+        "chatId": "1890720012",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
       },
       "id": "46254c96-a3ef-45fe-919a-0d170fda4568",
-      "name": "LINE Push（異常告警）",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "name": "Telegram 告警",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [
         672,
         -80
       ],
       "credentials": {
-        "httpHeaderAuth": {
-          "id": "OmFzUGgZ1xIpAAP5",
-          "name": "LINE Channel Access Token"
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
         }
       },
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 5000
+      "waitBetweenTries": 5000,
+      "webhookId": "784f75e6-f49d-45bd-83e7-9bc45b47fd96"
     },
     {
       "parameters": {
@@ -194,7 +183,7 @@
       "main": [
         [
           {
-            "node": "LINE Push（異常告警）",
+            "node": "Telegram 告警",
             "type": "main",
             "index": 0
           }
