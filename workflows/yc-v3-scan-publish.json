@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://societies-alpha-snowboard-song.trycloudflare.com",
+        "url": "https://heard-reasons-nevada-ventures.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -1544,6 +1544,78 @@
       "parameters": {
         "jsCode": "// 文案交叉審核判定（2026-08-04 加）\n// 為什麼要有它：數字守門員是機械檢查（數字對不對、有沒有 JSON 殘骸），\n// 抓不到「語意層」的錯——資料混到別間、前後矛盾、整段不像人寫的。\n// 所以在發文前多一段「沒有生成上下文」的 Gemini 對話當第二雙眼睛。\n//\n// 🔴 兩條原則，改之前先想清楚：\n// 1. 審核只用來「擋」，絕不用來「改文案」——讓 AI 改 AI 寫的東西只會多一層不可控。\n// 2. 審核自己壞掉時一律放行（SKIP）。一個輔助檢查不該有能力弄停整條廣告線；\n//    HTTP 節點已設 onError=continueRegularOutput，錯誤會被靜默失敗巡邏抓到，不會沒人知道。\nconst j = $('解析文案+footer').first().json;\nlet verdict = 'SKIP';\nlet reason = '';\ntry {\n  const resp = $input.first().json;\n  const txt = resp.candidates?.[0]?.content?.parts?.[0]?.text || '';\n  const clean = txt.trim().replace(/^```json\\s*/, '').replace(/^```\\s*/, '').replace(/\\s*```$/, '');\n  const r = JSON.parse(clean);\n  const v = String(r.verdict || '').trim().toUpperCase();\n  if (v === 'NG') {\n    verdict = 'NG';\n    reason = String(r.reason || '').trim() || '審核員說有問題但沒說原因';\n  } else if (v === 'OK') {\n    verdict = 'OK';\n  } else {\n    reason = '審核員回了看不懂的 verdict：' + v.slice(0, 40);\n  }\n} catch (e) {\n  reason = '審核回應解析失敗：' + String(e && e.message || e).slice(0, 80);\n}\nreturn [{ json: { ...j, _reviewVerdict: verdict, _reviewReason: reason } }];\n"
       }
+    },
+    {
+      "parameters": {
+        "chatId": "1890720012",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3610,
+        1060
+      ],
+      "name": "Telegram 發文失敗",
+      "credentials": {
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
+        }
+      },
+      "id": "b9275c0c-092a-474b-b257-d7bb9b242ddd",
+      "webhookId": "95b8ca77-f4ca-4374-8b2b-56acbcd9df3b"
+    },
+    {
+      "parameters": {
+        "chatId": "1890720012",
+        "text": "={{ 'KEIS 列表少了欄位 ' + ($json._missing || []).join('、') + '（撈到 ' + $json._count + ' 筆）。這輪沒發，要修程式。' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -380,
+        200
+      ],
+      "name": "Telegram 體檢告警",
+      "credentials": {
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
+        }
+      },
+      "id": "753f94c3-8aaa-4cf2-b5ee-9d878c35113f",
+      "webhookId": "8da124e6-a1f6-46b9-bc32-5b1776832543"
+    },
+    {
+      "parameters": {
+        "chatId": "1890720012",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -480,
+        620
+      ],
+      "name": "Telegram 跳過摘要",
+      "credentials": {
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
+        }
+      },
+      "id": "954bc816-ecbd-4f74-9b0f-5ff86a163208",
+      "webhookId": "44d10efc-f73d-48ca-b4e0-06c398a2110c"
     }
   ],
   "connections": {
@@ -1855,6 +1927,11 @@
             "node": "記錄體檢告警",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Telegram 體檢告警",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2012,6 +2089,11 @@
             "node": "記錄發文失敗",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Telegram 發文失敗",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -2166,6 +2248,11 @@
         [
           {
             "node": "記錄跳過摘要",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram 跳過摘要",
             "type": "main",
             "index": 0
           }

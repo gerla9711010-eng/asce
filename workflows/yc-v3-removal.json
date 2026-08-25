@@ -765,6 +765,54 @@
           "name": "Notion API Token"
         }
       }
+    },
+    {
+      "parameters": {
+        "chatId": "1890720012",
+        "text": "={{ $json.summaryText }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        860,
+        476
+      ],
+      "name": "Telegram 刪文失敗",
+      "credentials": {
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
+        }
+      },
+      "id": "3d890adc-9a90-45eb-a862-bd42583bba65",
+      "webhookId": "04892016-570a-4a37-8085-cf16a7df729f"
+    },
+    {
+      "parameters": {
+        "chatId": "1890720012",
+        "text": "={{ $json.summaryText }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        60,
+        676
+      ],
+      "name": "Telegram KEIS故障",
+      "credentials": {
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
+        }
+      },
+      "id": "2702da57-8c08-4ac2-a8c2-458c3dc9cee7",
+      "webhookId": "3e1ec952-da76-4aca-acd0-5e8e739214af"
     }
   ],
   "connections": {
@@ -999,6 +1047,11 @@
             "node": "記錄摘要",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Telegram 刪文失敗",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1019,6 +1072,11 @@
         [
           {
             "node": "記錄摘要",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram KEIS故障",
             "type": "main",
             "index": 0
           }
