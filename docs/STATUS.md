@@ -54,12 +54,12 @@ LINE 200 則配額留給客戶群發，系統告警／提醒全搬去 Telegram�
 「310 小時沒心跳」假警報，判定用不到就直接刪了，git 也同步移除。**之後做批次啟用/遷移
 一類的作業前，先看 `incidents.md` 有沒有記過某支 workflow 是死的，不要整批照單全收。**
 
-**「n8n 整個掛掉」偵測已重建（08-25），改成極簡設計**：新建 `KEIS 心跳接收（極簡）`
-workflow（只有一個 webhook 節點，收到 POST 就回 200，不排程檢查、不存 static data），
-`.env`（repo + 桌面兩份）的 `KEIS_HEARTBEAT_WEBHOOK` 已指過去。真正的「連續失敗多久算掛了」
-判斷交給 grab.py 自己做（`heartbeat_alert_sent` 那段邏輯本來就寫好，這次才真的接上）。
-⚠️ **grab.py 是常駐行程，改 `.env` 不會讓正在跑的那份生效，要等下次重啟 `run.bat`/服務
-才會真的開始送心跳**——目前那個常駐行程還是舊設定（等同沒設 webhook）。
+**「n8n 整個掛掉」偵測已重建並生效（08-25）**：新建 `KEIS 心跳接收（極簡）` workflow（只有
+一個 webhook 節點，收到 POST 就回 200，不排程檢查、不存 static data），`.env`（repo + 桌面
+兩份）的 `KEIS_HEARTBEAT_WEBHOOK` 已指過去，grab.py 常駐行程也已重啟（透過 `run.bat` 自帶的
+自動重啟迴圈，不是手動關視窗）讀到新設定。16:24 已收到第一筆真心跳（execution #6553
+success），確認整條路徑通了。「連續失敗多久算掛了」交給 grab.py 自己判斷
+（`heartbeat_alert_sent`），不會再有 n8n 排程自查靜態時間戳的殭屍狀態問題。
 
 **還沒被真實事件驗過**（結構已對，等自然發生）：
 靜默失敗巡邏（24h 內同錯不重報，要等真的抓到吞掉的錯誤）、KEIS 情資週報的異常告警分支
