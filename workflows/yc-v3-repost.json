@@ -744,6 +744,45 @@
       },
       "id": "91b42e36-39e7-41b2-a089-f77a21b52203",
       "webhookId": "3687f005-7afb-4c55-b527-2b4c464db220"
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('取貼文結果').first().json;\nconst o = $('挑一件重發').first().json;\nconst text = `🔁 已重發 ${p.contract_no}\\n${p.permalink || '（連結未取得，請到粉專確認）'}\\n\\n`\n  + (o.oldPermalink ? `舊貼文已刪：${o.oldPermalink}\\n\\n` : '')\n  + `━ 社團版（複製貼原生文）━\\n${p['社團文案'] || ''}`;\nreturn [{ json: { text } }];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        200
+      ],
+      "name": "組重發通知",
+      "id": "224812a5-5439-48a9-a739-4cd07ea61655"
+    },
+    {
+      "parameters": {
+        "chatId": "1890720012",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3000,
+        200
+      ],
+      "name": "Telegram 重發通知",
+      "credentials": {
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "id": "2804aa2d-b43c-48e9-a85f-3e3094f0cda3",
+      "webhookId": "af5ef508-ec13-4086-b51a-46ac33b23d0d"
     }
   ],
   "connections": {
@@ -908,6 +947,11 @@
             "node": "有 KEIS 廣告?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "組重發通知",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1040,6 +1084,17 @@
           }
         ],
         []
+      ]
+    },
+    "組重發通知": {
+      "main": [
+        [
+          {
+            "node": "Telegram 重發通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
