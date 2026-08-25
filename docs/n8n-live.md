@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-08-25 16:03 自動產生）
+# n8n 線上現況（2026-08-25 16:11 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -24,7 +24,6 @@
 | 🟢 | 自動簽到 LINE 通知 | `clockin-notify.json` | 3 | — |
 | 🟢 | 行事曆建立器 | `line-calendar-create.json` | 13 | — |
 | 🟢 | 靜默失敗巡邏 | `靜默失敗巡邏.json` | 7 | 2026-08-25T07:00 error |
-| ⚪ | KEIS 心跳檢查 | `keis-heartbeat-check.json` | 5 | 2026-08-25T08:00 success |
 | ⚪ | LINE 新聞推播 | `line-news-push.json` | 6 | — |
 | ⚪ | YC 建檔器 v2（抓真物編productID） | `yc-property-create.json` | 13 | — |
 | ⚪ | YC 建檔器 v3（鎖物編+總價） | `yc-property-create-v3.json` | 13 | — |
@@ -68,5 +67,5 @@
 
 ## 分岔檢查
 
-- git 與 n8n 檔案一致
+- ⚠️ **git 有但 n8n 沒有**（n8n 上被刪了？）：keis-heartbeat-check.json
 - Notion 欄位都有對應的寫入來源
