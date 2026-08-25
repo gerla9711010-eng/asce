@@ -19,6 +19,8 @@
 **要恢復 Codex 版文案**：門市電腦上手動 kill 掉 `pythonw.exe`（codex-copy 服務）跟
 `cloudflared.exe`（Claude 沙盒擋 kill process，只能人工做），再跑
 `scripts/codex-copy/啟動.vbs`，會自動掛新通道＋把網址寫回 n8n。不急，Gemini 撐得住。
+🔑 **重啟前先換一組新的 `X-Codex-Token`**：舊的明碼寫在 workflow JSON 裡，08-19 起就在 public
+git 歷史，洗檔案沒用，只能換。順便改成 n8n credential（Header Auth），別再 inline。
 ⚠️ cloudflared 快速通道本來就不穩、網址每次重開都會變，這是已知限制不是新 bug。
 
 ---
