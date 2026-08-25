@@ -316,6 +316,21 @@ static data 存「上次查詢時間」當篩選起點，LINE 回覆成功後才
 自動一起出現，不用改查詢邏輯。⚠️ 心跳告警／待聯絡提醒等「只在異常時才推」的還沒動，
 量小不是主因，之後有空再一起改。
 
+### 補回主動推（2026-08-25，改推 Telegram）
+
+Telegram 機器人 `@Keis_ace_bot`（收訊 chat id `1890720012`，n8n credential「Telegram 業務助理
+Bot」`yBF20qXez1b7FLFI`／`telegramApi`）沒有則數上限，上面「拔掉推播」的 8 個事件裡屬於
+FB 發文系統＋搶單通知的部分改回主動推，**系統日誌照寫不變**（工作回報查詢還要靠它）：
+`keis-grab-notify`（搶單成功）、`yc-v3-scan-publish`（發文失敗／API體檢告警／跳過摘要）、
+`yc-v3-removal`（刪文失敗／KEIS故障）、`yc-v3-repost`（守門員告警）、`系統錯誤-LINE-告警`。
+做法是在原本「組訊息 → 寫系統日誌」的節點旁多接一條 Telegram 節點（並聯，同一份資料兩邊送）。
+腳本：`scripts/n8n_add_telegram_push.py`（可重跑，已存在的節點會跳過）。
+⚠️ 用 Public API PUT workflow 時，GET 回來的 `settings` 裡 `binaryMode`／`availableInMCP`
+兩個欄位 PUT 會被 400 拒絕（`must NOT have additional properties`），寫回前要先濾掉。
+
+心跳告警／待聯絡提醒／靜默失敗巡邏／情資週報 這 4 支的 LINE→Telegram 換裝還沒做，
+另外走 `scripts/n8n_line_to_telegram.py`（見 STATUS.md 待辦）。
+
 ### 重試策略
 
 線 A/線 C 的 KEIS、Notion、Gemini、FB 上傳節點全部 `retryOnFail=3 次 / 間隔 5 秒`。

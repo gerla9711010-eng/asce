@@ -720,6 +720,30 @@
         }
       },
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "1890720012",
+        "text": "={{ $json._guardMsg }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1650,
+        200
+      ],
+      "name": "Telegram 守門員告警",
+      "credentials": {
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
+        }
+      },
+      "id": "91b42e36-39e7-41b2-a089-f77a21b52203",
+      "webhookId": "3687f005-7afb-4c55-b527-2b4c464db220"
     }
   ],
   "connections": {
@@ -911,6 +935,11 @@
         [
           {
             "node": "記錄守門員告警",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram 守門員告警",
             "type": "main",
             "index": 0
           }

@@ -71,6 +71,30 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "chatId": "1890720012",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        944,
+        376
+      ],
+      "name": "Telegram 搶單通知",
+      "credentials": {
+        "telegramApi": {
+          "id": "yBF20qXez1b7FLFI",
+          "name": "Telegram 業務助理 Bot"
+        }
+      },
+      "id": "1afb9482-26ec-4d20-b726-40527f9d3f86",
+      "webhookId": "089d948f-cd25-417b-b0d3-2b9e0effccca"
     }
   ],
   "connections": {
@@ -90,6 +114,11 @@
         [
           {
             "node": "寫入系統日誌",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram 搶單通知",
             "type": "main",
             "index": 0
           }

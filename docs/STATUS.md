@@ -6,7 +6,7 @@
 > 線上真正在跑什麼 → `n8n-live.md`（n8n_sync.py 產的，**兩邊打架信這份**）
 > 外部 AI 工具情報（評估過的／已排除的，不用重評）→ `ai-toolbox.md`
 
-最後更新：2026-08-24 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
+最後更新：2026-08-25 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
 
@@ -26,7 +26,8 @@
 少了 `Bearer ` 時 FB 回的是 `(#200) Provide valid app ID` / `code 2500`，
 **看起來像權杖壞掉，其實只是少了前綴**。
 
-⚠️ **順便補洞**：`記錄發文失敗` 只寫 Notion 日誌沒推播，才會連錯 5 天沒人知道——Telegram 遷移時一起加。
+⚠️ **順便補洞**：`記錄發文失敗` 原本只寫 Notion 日誌沒推播，才會連錯 5 天沒人知道——
+08-25 已補 Telegram 主動推，見下方。
 
 ---
 
@@ -40,15 +41,13 @@ Telegram 機器人推播沒有則數上限，系統告警／提醒一律搬過�
 待聯絡提醒／心跳檢查）從 08-12/13 停機後就一直是關的。額度是**後台手動群發客戶**用掉的。
 真正的問題是「為了省額度不敢開監控」，換成 Telegram 就沒這個顧慮。
 
-**已完成**
-- Telegram 機器人 `@Keis_ace_bot`（顯示名「業務助理」），收訊 chat id `1890720012`
-- n8n credential「Telegram 業務助理 Bot」（`yBF20qXez1b7FLFI`，type `telegramApi`）已建好
-- `scripts/keis/notify_telegram.py`（新）；`ad_watchdog.py` 的 `push_alert()`、`grab.py` 的
-  `push_direct()` 改成**先送 Telegram、LINE 當備援**。repo 與桌面 `keis/` 兩邊已同步、實測送達
-- token 放各自的 `.env`（在 `.gitignore` 裡，不會進 git）
+**已完成**（細節見 `reference.md`「補回主動推」）
+- Telegram 機器人＋n8n credential 已建好，`ad_watchdog.py`／`grab.py` 本機端已改先送 Telegram
+- 08-25：FB 發文系統（線A/B/C）＋搶單通知 5 支流程、8 個事件補回 Telegram 主動推，
+  系統日誌照寫不變；已實測收到推播
 
 **待做**
-1. 跑 `python scripts/n8n_line_to_telegram.py`——把 4 支流程的 LINE Push 節點換成 Telegram 節點。
+1. 跑 `python scripts/n8n_line_to_telegram.py`——把另外 4 支流程的 LINE Push 節點換成 Telegram 節點。
    08-19 `--dry-run` 驗過會改到哪 4 支，但實際寫入被權限擋下來沒跑成
 2. 跑完對「KEIS 情資週報」做一次 deactivate + activate（它是這 4 支裡唯一 active 的）
 3. 把**靜默失敗巡邏／KEIS 待聯絡提醒／KEIS 心跳檢查**三支重新啟用
@@ -77,7 +76,7 @@ Telegram 機器人推播沒有則數上限，系統告警／提醒一律搬過�
 | 線 | 狀態 |
 |---|---|
 | 線 A 掃描發文／線 B 下架偵測／線 C 重發輪替 | 🟢 08-24 全部重新啟用（deactivate+activate 跑過）；**但 FB 權杖死了，發不出去**，見上面 🔴 |
-| 系統錯誤告警／工作回報查詢／搶單通知／簽到通知（都改寫系統日誌，不推播） | 🟢 已開 |
+| 系統錯誤告警／搶單通知（08-25 已補回 Telegram 主動推，系統日誌照寫）／工作回報查詢／簽到通知（後者維持只寫日誌，不推） | 🟢 已開 |
 | 煞車（停）／LINE 指令分流器／圖片分流器／客戶建檔器／行事曆建立器／戰果查詢／查專員電話 | 🟢 已開（LINE 觸發，沒時鐘）|
 | 情資週報 | 🟢 已開，「情資」關鍵字回覆能用；推播分支等 Telegram 遷移 |
 | 靜默失敗巡邏／KEIS 待聯絡提醒／KEIS 心跳檢查 | ⚪ 已停，**Telegram 遷移完就開回來** |
