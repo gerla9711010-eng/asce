@@ -10,18 +10,21 @@
 
 ---
 
-## 🟠 Codex 文案通道死了，已臨時退回 Gemini（08-25 15:11）
+## 🟢 Codex 文案通道已恢復，token 也換過了（08-25 20:44）
 
-線A 卡在 `Gemini 產文案`（其實打的是 codex-copy 的 cloudflared 通道），通道行程還活著但
-網址啞掉。已跑 `server.py --revert` 讓 n8n 指回原廠 Gemini API，**線A 現在能正常發文**，
-只是文案品質退回 Gemini 版。經過見 `incidents.md`。
+線A `Gemini 產文案` 指向 `drink-wires-donna-richard.trycloudflare.com`，已用暫時 workflow
+帶 credential 實打驗證通過（回 400「text 是空的」＝密鑰對，401 才是密鑰錯）。
 
-**要恢復 Codex 版文案**：門市電腦上手動 kill 掉 `pythonw.exe`（codex-copy 服務）跟
-`cloudflared.exe`（Claude 沙盒擋 kill process，只能人工做），再跑
-`scripts/codex-copy/啟動.vbs`，會自動掛新通道＋把網址寫回 n8n。不急，Gemini 撐得住。
-🔑 **重啟前先換一組新的 `X-Codex-Token`**：舊的明碼寫在 workflow JSON 裡，08-19 起就在 public
-git 歷史，洗檔案沒用，只能換。順便改成 n8n credential（Header Auth），別再 inline。
-⚠️ cloudflared 快速通道本來就不穩、網址每次重開都會變，這是已知限制不是新 bug。
+🔑 **token 外洩案已結**：舊那組 08-19 起就明碼躺在 public git（server.py 每次開機把它 inline
+寫進 workflow header，`n8n_sync.py` 一拉就同步進去）。已經：換新 token（`scripts/codex-copy/.env`）、
+建 n8n credential「Codex 文案通道 Token」（`L3y0sJpMjeVeHirQ`）、改 `server.py` 改掛 credential
+不再寫 inline。**舊 token 作廢，workflow JSON 裡已經沒有任何密鑰。**
+輪替腳本：`scripts/codex-copy/rotate_token.py`（可重跑）。
+
+⚠️ cloudflared 快速通道網址每次重開都會變，這是已知限制不是 bug；server.py 會自動寫回 n8n。
+**電腦關機／服務停掉時會自動把 n8n 改回 Gemini 原廠**，所以沒開機的時段廣告照樣發得出去。
+⚠️ 08-25 早上踩過一次「服務日誌寫『運作中』但網址其實已經啞了」——那種狀況要靠
+`系統錯誤 LINE 告警`（🟢 ON，已有 Telegram 節點）通知，不會再靜悄悄。
 
 ---
 
@@ -109,11 +112,6 @@ KEIS 資料完整、編號有效（1580 萬／空屋），但**官網真的還�
 ---
 
 ## 其他待辦
-
-- 🔑 **codex-copy 的 `X-Codex-Token` 明碼寫在 workflow JSON 裡，已經跟著同步進 public repo**
-  （`workflows/yc-v3-scan-publish.json`、`yc-v3-repost.json`，git 歷史從 08-19 就有）。
-  通道目前是死的、影響有限，但**下次重啟 codex-copy 服務時要換一組新 token，並改成
-  n8n credential（Header Auth）而不是 inline header**，否則 n8n_sync 每次都會再同步進 git 一次。
 
 - **Notion v2 舊資料**：YC1868705 還在、不在 KEIS，線 B 掃到略過；`永慶官網連結` 已補上
 - **未來候補**：多開一個 IG 帳號專發廣告。使用者要先自己把新 IG 轉商業帳號、綁粉專＋開權限，

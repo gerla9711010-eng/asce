@@ -239,6 +239,13 @@ class Handler(BaseHTTPRequestHandler):
 # ────────────────────────────────────────────────────────────────────────────
 GEMINI_NODE = "Gemini 產文案"
 SCAN_WF = "ooctMtxcaHtGThuV"          # 廣告v3 掃描發文線
+# 產文案節點只有一個 httpHeaderAuth 位子，指向哪邊就換哪個 credential：
+# 指 Gemini 原廠要帶 x-goog-api-key，指本機通道要帶 X-Codex-Token。
+# ⚠️ token 一律走 credential，**絕不能再 inline 寫進 header**——n8n_sync.py 會把 workflow
+#    拉回 public repo，等於外洩（2026-08-19～08-25 就是這樣漏了一組，見 incidents.md）。
+GEMINI_CRED = {"id": "zTIA89pDJJs0Ad29", "name": "Gemini API Key"}
+CODEX_CRED_ID = os.environ.get("CODEX_N8N_CRED_ID", "").strip()
+CODEX_CRED_NAME = "Codex 文案通道 Token"
 REPO_ENV = HERE.parent.parent / ".env"  # n8n 金鑰跟 n8n_sync.py 共用同一份
 # n8n 的 PUT schema 只吃這些 settings（多送 binaryMode/availableInMCP 會 400）
 _WF_SETTINGS_OK = {"executionOrder", "errorWorkflow", "saveDataSuccessExecution",
@@ -269,14 +276,21 @@ def point_n8n_at(target_url: str | None) -> None:
         opts = n["parameters"].setdefault("options", {})
         hdrs = n["parameters"].setdefault("headerParameters", {}).setdefault("parameters", [])
         hdrs[:] = [x for x in hdrs if x.get("name") != "X-Codex-Token"]
+        creds = n.setdefault("credentials", {})
         if target_url:
             n["parameters"]["url"] = target_url
             opts["timeout"] = 120000          # codex 比 Gemini 慢，60 秒不夠
-            if TOKEN:
+            if CODEX_CRED_ID:
+                creds["httpHeaderAuth"] = {"id": CODEX_CRED_ID, "name": CODEX_CRED_NAME}
+            elif TOKEN:
+                # 沒設 credential id 才退回舊做法。這條路會把 token 同步進 public git，
+                # 只當成過渡用，正常情況請跑 scripts/codex-copy/rotate_token.py 建 credential。
+                log("⚠️ 沒有 CODEX_N8N_CRED_ID，退回 inline header（token 會進 git，請盡快換）")
                 hdrs.append({"name": "X-Codex-Token", "value": TOKEN})
         else:
             n["parameters"]["url"] = GEMINI_URL
             opts["timeout"] = 60000
+            creds["httpHeaderAuth"] = dict(GEMINI_CRED)
         break
     else:
         raise RuntimeError(f"找不到節點「{GEMINI_NODE}」")

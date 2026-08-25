@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-08-19～08-25｜codex 通道密鑰明碼躺進 public git 六天
+
+**症狀**：沒有症狀——沒人打進來，也沒有任何告警。是 08-25 晚上做別的事、`git diff` 掃到
+`"name": "X-Codex-Token", "value": "Zfy_..."` 才發現的。
+
+**成因**：`server.py` 開通道時，把 `CODEX_COPY_TOKEN` 當成 **inline header 明碼寫進**
+「Gemini 產文案」節點。交接規則要求每個 session 跑 `n8n_sync.py` 把 workflow 拉回 git，
+於是密鑰跟著進了 **public** repo（`gerla9711010-eng/asce`），08-19 那筆 commit 起就在歷史裡。
+
+**為什麼危害有限但還是得修**：這把密鑰只保護本機的 codex 中繼服務，而且通道網址每次重開就變，
+路人拿到密鑰也要先猜到當下的 `*.trycloudflare.com` 才打得到。但「燒掉 ChatGPT 訂閱額度」是
+真的做得到的，而且**洗檔案沒有用**——git 歷史裡已經有了，只能換。
+
+**怎麼修（08-25 20:44 全部做完並實測）**：
+1. `scripts/codex-copy/rotate_token.py`：產新 token 寫回 `scripts/codex-copy/.env`（gitignore），
+   在 n8n 建 credential「Codex 文案通道 Token」（`httpHeaderAuth`），順手清掉節點裡的 inline header
+2. `server.py` 的 `point_n8n_at()` 改成**換 credential** 而不是塞 header：指通道掛
+   `Codex 文案通道 Token`，指回原廠 Gemini 掛 `Gemini API Key`（同一個節點只有一個
+   httpHeaderAuth 位子，所以是換不是加）
+3. 用暫時 webhook workflow 帶 credential 實打通道，回 400「text 是空的」＝密鑰對
+   （401 才是密鑰錯），驗完立刻刪流程
+
+**學到什麼**：
+- **會被 `n8n_sync.py` 拉回 git 的東西 = 會公開的東西。** 任何腳本要往 workflow 裡寫值之前，
+  先問「這個值進 public repo 可以嗎」；密鑰一律走 n8n credential，Public API 讀不出值。
+- credential 的 id 可以安全記在 `.env`（`CODEX_N8N_CRED_ID`），值讀不出來，重跑輪替腳本會更新同一筆。
+- 這是**第二次**同款事故（第一次是 `bot_104.py` 寫死密碼，見 `reference.md`）。
+  兩次都不是「不知道不能寫死」，而是**寫的時候沒想到那個檔案會被同步出去**。
+
 ## 2026-08-25｜Telegram 告警上線當天就抓到兩個真的壞掉的東西
 
 **背景**：這天把系統錯誤/FB發文失敗等告警從「寫日誌不推」改回主動推 Telegram（見 STATUS.md），
