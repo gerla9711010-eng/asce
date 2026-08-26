@@ -27,6 +27,8 @@
 - `f839c97`（.bat 說明）已在本機 main，遠端狀態不明——PR #235 開出來了，合了沒不知道。
 - 恢復後第一件事：`git fetch`，比對 #234/#235 有沒有進 origin/main，再決定要不要重推。
 - **新節制標準：一個工作天最多 2 個 PR**，跨 session 也算。
+- **申訴已送出**（08-26 20:07，support.github.com → Reinstatement request → GitHub account or
+  content），**Ticket ID: 4700948**。已收到自動確認信，客服量大要等，不用重複送、不用催。
 
 ---
 
