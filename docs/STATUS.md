@@ -10,10 +10,19 @@
 
 ---
 
-## 🟢 Codex 文案通道已恢復，token 也換過了（08-25 20:44）
+## 🟢 Codex 文案通道：token 已換、退路已補、重複啟動已修（08-26 15:21）
 
-線A `Gemini 產文案` 指向 `drink-wires-donna-richard.trycloudflare.com`，已用暫時 workflow
-帶 credential 實打驗證通過（回 400「text 是空的」＝密鑰對，401 才是密鑰錯）。
+線A `Gemini 產文案` 目前指向哪個通道網址**看 `n8n-live.md`**（每次重開都會變，別寫死在這）。
+驗活的方法：對通道 POST `{}` 帶 `X-Codex-Token` → 回 **400「text 是空的」＝活的且密鑰對**，
+401 是密鑰錯，502/530 是通道死了。腳本可參考 `rotate_token.py` 的寫法。
+
+⚠️ **一次只能跑一份服務**。08-26 修掉：開機捷徑已經在跑時再雙擊 `啟動Codex文案.bat`，
+以前會變成兩份搶同一個 port、各開一條通道輪流寫 n8n（＝早上「通道殭屍化」的真正成因，
+經過見 `incidents.md`）。現在第二份會當場退出，不碰 n8n。
+**查行程時要連 `python.exe` 一起查，不能只查 `pythonw.exe`**；要殺先殺 server 再掃 cloudflared。
+
+🛟 **codex 掛掉的退路已補上**（08-26）：`GEMINI_API_KEY` 已填進 `scripts/codex-copy/.env`
+（gitignore 內），實測 `call_gemini()` 3.3 秒回正常文案。以前這格是空的，codex 一失敗就整班沒文案。
 
 🔑 **token 外洩案已結**：舊那組 08-19 起就明碼躺在 public git（server.py 每次開機把它 inline
 寫進 workflow header，`n8n_sync.py` 一拉就同步進去）。已經：換新 token（`scripts/codex-copy/.env`）、

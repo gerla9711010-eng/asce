@@ -306,6 +306,11 @@ def point_n8n_at(target_url: str | None) -> None:
     log(f"已把 n8n 產文案指向：{target_url or 'Gemini（原廠）'}")
 
 
+class SingleInstanceServer(ThreadingHTTPServer):
+    """關掉 SO_REUSEADDR，讓「已經有一份在跑」變成開不起來，而不是兩份搶同一個 port。"""
+    allow_reuse_address = False
+
+
 def start_tunnel(port: int) -> tuple[subprocess.Popen, str]:
     """開一條 Cloudflare 快速通道，回傳 (行程, 對外網址)。"""
     exe = "cloudflared"
@@ -365,7 +370,16 @@ def main() -> int:
     if not TOKEN:
         log("⚠️ 沒設 CODEX_COPY_TOKEN，任何人打得到這個網址就能燒你的訂閱額度")
 
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    try:
+        srv = SingleInstanceServer((args.host, args.port), Handler)
+    except OSError:
+        # 2026-08-26 踩到：開機捷徑已經跑了一份，使用者又雙擊 .bat 開第二份。
+        # HTTPServer 預設 allow_reuse_address=True，第二份不但不會失敗，還會搶走 port，
+        # 於是兩份各開一條通道、輪流把自己的網址寫回 n8n——後寫的贏，輸的那條通道
+        # 還活著卻沒人管（今早「通道殭屍化」就是這樣來的）。現在第二份會當場退出。
+        log(f"❌ 127.0.0.1:{args.port} 已經有一份服務在跑了，這份直接退出（不會動到 n8n）")
+        log("   要重開的話：先把現有那份關掉（工作管理員砍 python/pythonw），再開一次")
+        return 1
     import threading
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     log(f"服務已啟動：http://{args.host}:{args.port}")
