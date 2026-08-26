@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-08-26｜通道殭屍化的真正成因：兩份 server.py 同時在跑
+
+**症狀**：08-26 早上通道「殭屍化」——n8n 上的網址還在，但打過去是死的，重啟服務才恢復
+（commit b03853c）。當時以為是 cloudflared 快速通道自己不穩。
+
+**成因**：不是通道不穩，是**同時有兩份 server.py 在跑**。
+開機捷徑（`啟動.vbs` → pythonw）已經跑了一份，使用者又雙擊 `啟動Codex文案.bat` 開了第二份
+（console 的 python.exe）。兩份各自開一條 cloudflare 通道、各自把自己的網址寫回 n8n，
+**後寫的贏**；輸的那條通道還活著卻沒有任何人管它，而 n8n 指的那條一旦它的 server 被關掉，
+就變成「網址還在、後面沒人接」的殭屍狀態。
+
+第二份為什麼開得起來？`ThreadingHTTPServer` 繼承自 `HTTPServer`，預設
+`allow_reuse_address = True`（SO_REUSEADDR）。在 Windows 上這會讓第二個行程**搶得走**已經
+被綁住的 port，不會像預期那樣噴 "address already in use"。所以兩份都以為自己啟動成功。
+
+**怎麼修**：`server.py` 加 `class SingleInstanceServer(ThreadingHTTPServer)`，
+`allow_reuse_address = False`，bind 失敗就印訊息並 `return 1` 直接退出，**不碰 n8n、不開通道**。
+已實測：服務跑著時再跑一次 `python server.py --tunnel --port 8787` → 立刻退出 exit=1。
+
+**學到什麼**：
+1. **診斷行程時不要只查 `pythonw.exe`。** 這次一開始只列 pythonw 和 cloudflared，
+   那個 console 的 `python.exe` 整整躲過三輪檢查，害我以為是自己改壞的。
+   一律用 `Name='python.exe' OR Name='pythonw.exe' OR ...` 全查。
+2. **殺行程的順序有差**：先殺 cloudflared 的話，server 的看門狗會在那個空檔補開一條新的，
+   然後 server 才死 → 又多一條孤兒通道。**要殺就先殺 server，再掃 cloudflared。**
+3. 「重啟就好了」是最貴的結論——它讓真正的成因多活了一天。
+
+---
+
 ## 2026-08-19～08-25｜codex 通道密鑰明碼躺進 public git 六天
 
 **症狀**：沒有症狀——沒人打進來，也沒有任何告警。是 08-25 晚上做別的事、`git diff` 掃到
