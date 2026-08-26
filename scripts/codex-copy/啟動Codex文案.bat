@@ -12,9 +12,21 @@ echo   這個視窗要一直開著。關掉它，n8n 會自動改回 Gemini。
 echo.
 echo ================================================
 python server.py --tunnel --port 8787
+if errorlevel 1 goto already
 echo ================================================
 echo.
 echo   服務已停止，n8n 應該已自動改回 Gemini。
 echo   若上面顯示沒改回去，請執行：python server.py --revert
+echo.
+pause
+exit /b
+
+:already
+echo ================================================
+echo.
+echo   這不是壞掉。開機的時候已經自動啟動一份了，一次只能跑一份。
+echo   這個視窗直接關掉就好，服務正常在跑。
+echo.
+echo   真的要重開：工作管理員砍掉 python 和 pythonw，再點一次這個檔案。
 echo.
 pause
