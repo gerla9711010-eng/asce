@@ -6,7 +6,7 @@
 > 線上真正在跑什麼 → `n8n-live.md`（n8n_sync.py 產的，**兩邊打架信這份**）
 > 外部 AI 工具情報（評估過的／已排除的，不用重評）→ `ai-toolbox.md`
 
-最後更新：2026-08-26 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
+最後更新：2026-08-27 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
 
@@ -32,30 +32,17 @@
 
 ---
 
-## 🟢 Codex 文案通道：token 已換、退路已補、重複啟動已修（08-26 15:21）
+## 🟢 Codex 文案通道：穩定運作中，08-27 補上外部健康探測
 
 線A `Gemini 產文案` 目前指向哪個通道網址**看 `n8n-live.md`**（每次重開都會變，別寫死在這）。
 驗活的方法：對通道 POST `{}` 帶 `X-Codex-Token` → 回 **400「text 是空的」＝活的且密鑰對**，
-401 是密鑰錯，502/530 是通道死了。腳本可參考 `rotate_token.py` 的寫法。
+401 是密鑰錯，502/530 是通道死了。單一實例保護、codex 掛掉走 Gemini 退路、token 走 credential
+不寫 inline，這幾項 08-26 前都已修好，機制見 `scripts/codex-copy/README.md`。
 
-⚠️ **一次只能跑一份服務**。08-26 修掉：開機捷徑已經在跑時再雙擊 `啟動Codex文案.bat`，
-以前會變成兩份搶同一個 port、各開一條通道輪流寫 n8n（＝早上「通道殭屍化」的真正成因，
-經過見 `incidents.md`）。現在第二份會當場退出，不碰 n8n。
-**查行程時要連 `python.exe` 一起查，不能只查 `pythonw.exe`**；要殺先殺 server 再掃 cloudflared。
-
-🛟 **codex 掛掉的退路已補上**（08-26）：`GEMINI_API_KEY` 已填進 `scripts/codex-copy/.env`
-（gitignore 內），實測 `call_gemini()` 3.3 秒回正常文案。以前這格是空的，codex 一失敗就整班沒文案。
-
-🔑 **token 外洩案已結**：舊那組 08-19 起就明碼躺在 public git（server.py 每次開機把它 inline
-寫進 workflow header，`n8n_sync.py` 一拉就同步進去）。已經：換新 token（`scripts/codex-copy/.env`）、
-建 n8n credential「Codex 文案通道 Token」（`L3y0sJpMjeVeHirQ`）、改 `server.py` 改掛 credential
-不再寫 inline。**舊 token 作廢，workflow JSON 裡已經沒有任何密鑰。**
-輪替腳本：`scripts/codex-copy/rotate_token.py`（可重跑）。
-
-⚠️ cloudflared 快速通道網址每次重開都會變，這是已知限制不是 bug；server.py 會自動寫回 n8n。
-**電腦關機／服務停掉時會自動把 n8n 改回 Gemini 原廠**，所以沒開機的時段廣告照樣發得出去。
-⚠️ 08-25 早上踩過一次「服務日誌寫『運作中』但網址其實已經啞了」——那種狀況要靠
-`系統錯誤 LINE 告警`（🟢 ON，已有 Telegram 節點）通知，不會再靜悄悄。
+🟢 **08-27 修：通道「行程活著、邊緣連線已死」的偵測盲區**（連兩天 09:00/11:00 兩班失敗，
+經過見 `incidents.md`）。原本只看 cloudflared 行程死活，現在 `server.py` 每 120 秒主動探測
+public 網址 `/health`，打不通就當掛掉重開，並避開 09/11/13/15/17/19 :00~:10 煞車窗口才寫回
+n8n。**還沒被下一次真的斷線驗過**，13:00 那班用新網址是正常的。
 
 ---
 

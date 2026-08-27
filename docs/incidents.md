@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-08-27｜掃描發文線連兩天 09:00/11:00 兩班失敗：cloudflared 行程活著、邊緣連線已死
+
+**症狀**：`廣告v3 掃描發文線` 卡在「Gemini 產文案」，錯誤 `The connection cannot be
+established, this usually occurs due to an incorrect host (domain) value`。08-26、08-27
+連兩天早上 09:00、11:00（本地時間）固定失敗，13:00 起才恢復正常。一度誤判成「電腦沒開機」，
+後來查 n8n API 回的是 UTC，才發現當時電腦其實已經開機快 1.5 小時。
+
+**根因**：`server.py --tunnel` 的健康檢查只看 `tunnel.poll()`（cloudflared 這個子行程死了沒），
+抓不到「行程沒死、但跟 Cloudflare edge 的連線已經悄悄斷了」這種情況——實測當下本機
+`127.0.0.1:8787/health` 正常回應，但 public 網址連 DNS 都解析不到，log 全程只寫「運作中」，
+完全沒有異常紀錄。免費版 quick tunnel（`trycloudflare.com`）本來就不保證連線穩定，這個帳號
+的 Cloudflare 沒有網域（0 個 zone）開不了「具名通道」那種固定又較穩的網址，所以只能用這種
+每次重開都換網址的快速通道。
+
+**修法**：`scripts/codex-copy/server.py` 監控迴圈加了 `probe_alive()`，每 120 秒主動從外部打一次
+public 網址的 `/health`，打不通就當成「通道掛了」觸發跟行程死掉一樣的重開流程；同時加
+`in_brake_window()` / `wait_until_safe_to_patch()`，避免探測到掛掉後的自動 PATCH 撞到
+`廣告v3 掃描發文線` 09/11/13/15/17/19 :00~:10 的煞車窗口（deactivate+activate 打斷正在跑的
+執行）。當下也手動 `--revert` 保底、重開服務換新網址，13:00 那班已用新網址正常。
+
+**學到什麼**：n8n 執行紀錄的時間戳是 UTC，跟台灣時間差 8 小時，先看錯時區會整個誤判成
+「離峰時段」，白繞一圈。「服務日誌寫『運作中』」不能當作「對外真的打得通」的證據，長時間跑的
+對外服務要有主動探測，不能只信自己的 process 存活。
+
+---
+
 ## 2026-08-26｜GitHub 帳號第二次被停權：根因是「頻繁收工」＝高頻開PR自動合併
 
 **症狀**：15:32 `gh pr merge 235` 噴 403「Your account was suspended」，`git push`/`fetch`/`gh`

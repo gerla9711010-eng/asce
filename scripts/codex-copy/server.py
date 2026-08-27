@@ -306,6 +306,37 @@ def point_n8n_at(target_url: str | None) -> None:
     log(f"已把 n8n 產文案指向：{target_url or 'Gemini（原廠）'}")
 
 
+# 廣告v3 掃描發文線每兩小時跑一班（09/11/13/15/17/19），跑起來的前 10 分鐘是「煞車 10 分鐘」
+# 窗口（見 README）。這段時間 deactivate+activate 有可能打斷正在跑的執行，之前只有人手動改
+# n8n 時會避開；現在健康探測也會自動 PATCH，必須一起守。
+_BRAKE_HOURS = (9, 11, 13, 15, 17, 19)
+
+
+def in_brake_window(now: datetime | None = None) -> bool:
+    now = now or datetime.now(TPE)
+    return now.hour in _BRAKE_HOURS and now.minute < 10
+
+
+def wait_until_safe_to_patch() -> None:
+    while in_brake_window():
+        log("⏸ 現在是煞車窗口（整點～整點過10分），延後寫回 n8n，60 秒後再檢查")
+        time.sleep(60)
+
+
+def probe_alive(public_url: str) -> bool:
+    """探測 public 網址是不是真的打得通——只看 cloudflared 行程死活會漏掉
+
+    「行程還在、但邊緣連線已經斷了」這種情況（2026-08-27 早上 09:00/11:00 兩班
+    就是死在這裡：process 沒死、log 一路寫「運作中」，但 n8n 連都連不上）。
+    """
+    import httpx
+    try:
+        r = httpx.get(f"{public_url}/health", timeout=10)
+        return r.status_code == 200
+    except Exception:      # noqa: BLE001 — 連線層的任何失敗都當作「打不通」
+        return False
+
+
 class SingleInstanceServer(ThreadingHTTPServer):
     """關掉 SO_REUSEADDR，讓「已經有一份在跑」變成開不起來，而不是兩份搶同一個 port。"""
     allow_reuse_address = False
@@ -417,18 +448,33 @@ def main() -> int:
             point_n8n_at(public)
         log("運作中（Ctrl+C 停止）")
         backoff = 10
+        PROBE_EVERY = 120  # 秒——只看行程死活抓不到「活著但打不通」，要定期真的打一次
+        last_probe = time.time()
         while True:
             time.sleep(5)
-            if not (tunnel and tunnel.poll() is not None):
+            dead = bool(tunnel and tunnel.poll() is not None)
+            reason = "通道行程掉了"
+            if not dead and tunnel and time.time() - last_probe >= PROBE_EVERY:
+                last_probe = time.time()
+                if not probe_alive(public):
+                    dead, reason = True, "行程還活著但外部打不通"
+            if not dead:
                 continue
             # 門市每晚 00:00~07:22 固定斷網，通道一定會掉。這裡不能讓重連失敗把服務帶走——
             # 廣告線 09:00 才開始跑，睡一下重試就好，等網路回來自然接上。
-            log("⚠️ 通道掉了，重開並重新註冊")
+            log(f"⚠️ 通道掛了（{reason}），重開並重新註冊")
+            if tunnel:
+                try:
+                    tunnel.kill()
+                except Exception:      # noqa: BLE001
+                    pass
             try:
                 tunnel, public = start_tunnel(args.port)
                 log(f"通道已開：{public}")
+                wait_until_safe_to_patch()
                 point_n8n_at(public)
                 backoff = 10
+                last_probe = time.time()
             except Exception as e:      # noqa: BLE001
                 tunnel = None
                 log(f"⚠️ 重開失敗（{e}），{backoff} 秒後再試")
