@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-08-29｜08:00 通道死掉後卡死 2 小時多沒重試：重開失敗時 tunnel=None 讓判活迴圈永遠判成活著
+
+**症狀**：`Gemini 產文案` 又報一次一樣的錯（`incorrect host (domain) value`），執行紀錄
+execution 7175。查 log 發現 08:00:39 就偵測到「行程還活著但外部打不通」並嘗試重開，
+但 `start_tunnel()` 本身失敗（`getaddrinfo failed`，Cloudflare 邊緣一時解析不到，通常幾秒後
+自己會好），之後日誌完全沒動靜到 10:09 才被這次告警發現——中間 2 小時多完全沒再重試。
+
+**根因**：08-27 那次修的健康迴圈長這樣：
+```python
+dead = bool(tunnel and tunnel.poll() is not None)   # tunnel 失敗會被設成 None
+...
+if not dead: continue
+```
+`start_tunnel()` 失敗時 except 區塊把 `tunnel` 設成 `None` 再 `sleep(backoff)`，但下一輪迴圈
+判斷「掛了沒」的條件寫成 `tunnel and tunnel.poll()...`——`tunnel` 是 `None` 時整條件短路成
+`False`，永遠判斷「沒有掛」，於是重試邏輯完全不會再被觸發，卡死到有人手動介入為止。
+跟 08-27 那次是不同 bug：08-27 修的是「怎麼偵測到死掉」，這次是「偵測到死掉、重開又失敗一次
+之後，怎麼會忘記自己還沒重開成功」。
+
+**怎麼修**（`scripts/codex-copy/server.py`）：`dead = tunnel is None or tunnel.poll() is not None`，
+`tunnel` 是 `None` 直接算掛。手動 `taskkill` 掉卡住的 pythonw，重開服務，通道打回
+`inspector-strips-settlement-posing.trycloudflare.com`，驗活（POST `{}` 回 400）確認正常。
+
+**學到什麼**：「失敗後把狀態設成 sentinel（`None`/`null`）」跟「判斷是否需要重試」如果共用同一個
+變數，很容易讓 sentinel 值意外滿足「一切正常」的條件——寫重試迴圈時，失敗分支要嘛立刻重試，
+要嘛讓下一輪的判活條件明確涵蓋 sentinel 狀態，不要指望它「剛好」被涵蓋到。
+
+---
+
 ## 2026-08-27｜掃描發文線連兩天 09:00/11:00 兩班失敗：cloudflared 行程活著、邊緣連線已死
 
 **症狀**：`廣告v3 掃描發文線` 卡在「Gemini 產文案」，錯誤 `The connection cannot be

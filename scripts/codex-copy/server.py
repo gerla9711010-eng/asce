@@ -452,8 +452,8 @@ def main() -> int:
         last_probe = time.time()
         while True:
             time.sleep(5)
-            dead = bool(tunnel and tunnel.poll() is not None)
-            reason = "通道行程掉了"
+            dead = tunnel is None or tunnel.poll() is not None
+            reason = "上次重開沒成功" if tunnel is None else "通道行程掉了"
             if not dead and tunnel and time.time() - last_probe >= PROBE_EVERY:
                 last_probe = time.time()
                 if not probe_alive(public):
