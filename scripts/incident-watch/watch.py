@@ -253,5 +253,18 @@ def run_once() -> None:
     save_state(state)
 
 
+def loop_forever(interval_seconds: int = 900) -> None:
+    """開機常駐用：自己每 interval_seconds 秒查一次，不需要任何人或 Claude 視窗開著。"""
+    while True:
+        try:
+            run_once()
+        except Exception as e:      # noqa: BLE001 — 這支要一直活著，單輪出錯不能把它帶走
+            print(f"這輪出錯，跳過：{e}")
+        time.sleep(interval_seconds)
+
+
 if __name__ == "__main__":
-    run_once()
+    if "--loop" in sys.argv:
+        loop_forever()
+    else:
+        run_once()
