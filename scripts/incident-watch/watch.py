@@ -17,6 +17,8 @@ from pathlib import Path
 import httpx
 from dotenv import dotenv_values
 
+NO_WINDOW = subprocess.CREATE_NO_WINDOW  # 不然每次呼叫 wmic/taskkill/git 都會閃一下黑視窗
+
 HERE = Path(__file__).parent
 REPO = HERE.parent.parent
 STATE_FILE = HERE / "state.json"
@@ -118,7 +120,7 @@ def is_codex_tunnel_dead(error_text: str) -> bool:
 def find_codex_copy_pid() -> str | None:
     out = subprocess.run(
         ["wmic", "process", "where", "name='pythonw.exe'", "get", "ProcessId,CommandLine", "/format:csv"],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW,
     ).stdout
     for line in out.splitlines():
         if "codex-copy" in line and "server.py" in line:
@@ -144,13 +146,14 @@ def fix_codex_tunnel_dead() -> str:
 
     pid = find_codex_copy_pid()
     if pid:
-        subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True, text=True, timeout=15)
+        subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True, text=True, timeout=15,
+                        creationflags=NO_WINDOW)
         time.sleep(1)
 
     pythonw = sys.executable.replace("python.exe", "pythonw.exe")
     subprocess.Popen(
         [pythonw, str(CODEX_COPY_DIR / "server.py"), "--tunnel", "--port", "8787"],
-        cwd=str(CODEX_COPY_DIR),
+        cwd=str(CODEX_COPY_DIR), creationflags=NO_WINDOW,
     )
 
     for _ in range(30):
@@ -181,22 +184,25 @@ KNOWN_INCIDENTS = [
 def sync_and_commit(summary: str) -> None:
     r = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "n8n_sync.py")],
-        cwd=str(REPO), capture_output=True, text=True, timeout=120,
+        cwd=str(REPO), capture_output=True, text=True, timeout=120, creationflags=NO_WINDOW,
     )
     status = subprocess.run(
         ["git", "status", "--porcelain"], cwd=str(REPO), capture_output=True, text=True, timeout=30,
+        creationflags=NO_WINDOW,
     ).stdout
     if not status.strip():
         return
-    subprocess.run(["git", "add", "-A", "--", "docs/n8n-live.md", "workflows/"], cwd=str(REPO), timeout=30)
+    subprocess.run(["git", "add", "-A", "--", "docs/n8n-live.md", "workflows/"], cwd=str(REPO), timeout=30,
+                    creationflags=NO_WINDOW)
     staged = subprocess.run(
         ["git", "diff", "--cached", "--name-only"], cwd=str(REPO), capture_output=True, text=True, timeout=30,
+        creationflags=NO_WINDOW,
     ).stdout
     if not staged.strip():
         return
     subprocess.run(
         ["git", "commit", "-m", f"[自動修復] {summary}"],
-        cwd=str(REPO), timeout=30,
+        cwd=str(REPO), timeout=30, creationflags=NO_WINDOW,
     )
 
 

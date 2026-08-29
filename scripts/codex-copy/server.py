@@ -125,6 +125,7 @@ def call_codex(prompt: str) -> str:
         input=prompt, capture_output=True, text=True,
         encoding="utf-8", errors="replace",
         timeout=CODEX_TIMEOUT, shell=(os.name == "nt"),
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,  # 不然每次都彈黑視窗
     )
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
     found = find_json(out)
@@ -354,6 +355,7 @@ def start_tunnel(port: int) -> tuple[subprocess.Popen, str]:
         [exe, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace", bufsize=1,
+        creationflags=subprocess.CREATE_NO_WINDOW,  # 不然 cloudflared 這個主控台程式會彈黑視窗
     )
     deadline = time.time() + 60
     while time.time() < deadline:
