@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://pays-projects-publisher-state.trycloudflare.com",
+        "url": "https://subsequent-developmental-galaxy-dot.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
