@@ -31,6 +31,15 @@ function copyText(it) {
   return L.filter(Boolean).map((x) => '- ' + x).join('\n');
 }
 
+/* 收集器存的是 UTC ISO，顯示要換成台灣時間，不然看起來像 8 小時前跑的 */
+function localTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso).replace('T', ' ').slice(0, 16);
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
 /* 攤平成 folder > client > demand > items */
 const folders = {};
 for (const o of R.out || []) {
@@ -146,7 +155,7 @@ summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 </style>
 <div class="top">
   <h1>買方配案</h1>
-  <div class="stat">${totalClients} 位客戶 · ${totalDemands} 個客需 · <b>${totalItems}</b> 筆官網連結　|　更新 ${esc((R.finishedAt || R.startedAt || '').replace('T', ' ').slice(0, 16))}</div>
+  <div class="stat">${totalClients} 位客戶 · ${totalDemands} 個客需 · <b>${totalItems}</b> 筆官網連結　|　更新 ${esc(localTime(R.finishedAt || R.startedAt))}</div>
   <div style="margin-top:7px"><button class="cp primary" type="button" data-copy="${esc(allText.join('\n\n'))}">一鍵全部複製</button></div>
 </div>
 ${body || '<p class="stat">沒有抓到任何官網連結。</p>'}
