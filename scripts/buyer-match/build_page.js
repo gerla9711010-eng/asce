@@ -40,13 +40,23 @@ function localTime(iso) {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
+/* 同一間房子會在永慶/台慶/永義/有巢氏各有一個官網連結 —— 每間只留一個，優先永慶。
+   沒有永慶刊登的（別家加盟店的案子）就往後遞補，不要整間漏掉。 */
+const BADGE_PRIORITY = ['永慶', '台慶', '永義', '有巢氏'];
+const rank = (b) => { const i = BADGE_PRIORITY.indexOf(b); return i < 0 ? 99 : i; };
+function oneLinkPerProperty(items) {
+  const by = {};
+  for (const it of items) { const k = it.fp || it.url; (by[k] = by[k] || []).push(it); }
+  return Object.keys(by).map((k) => by[k].slice().sort((a, b) => rank(a.badge) - rank(b.badge))[0]);
+}
+
 /* 攤平成 folder > client > demand > items */
 const folders = {};
 for (const o of R.out || []) {
   if (!o.items || !o.items.length) continue;
   const f = (folders[o.folder] = folders[o.folder] || {});
   const c = (f[o.client] = f[o.client] || {});
-  c[o.demand] = (c[o.demand] || []).concat(o.items);
+  c[o.demand] = oneLinkPerProperty((c[o.demand] || []).concat(o.items));
 }
 const ORDER = ['A買', 'B買', 'C買'];
 
