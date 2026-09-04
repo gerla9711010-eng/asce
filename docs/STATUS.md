@@ -28,7 +28,7 @@
 - **新節制標準：一個工作天最多 2 個 PR**，跨 session 也算。
 - **申訴已送出**（08-26 20:07，support.github.com → Reinstatement request → GitHub account or
   content），**Ticket ID: 4700948**。已收到自動確認信，客服量大要等，不用重複送、不用催。
-- 09-01 確認：`git fetch` 仍 403，同一次停權還沒解。已建雲端排程「GitHub帳號停權檢查」
+- 09-01、09-03 確認：`git fetch` 仍 403，同一次停權還沒解。已建雲端排程「GitHub帳號停權檢查」
   （每天 09:00，用 WebFetch 查 github.com 頁面＋Notion 記狀態，**只有狀態改變才推播**，
   不會每天重複吵），解封那天會自動推播通知，不用手動盯。
 
@@ -97,7 +97,7 @@ LINE 200 則配額留給客戶群發，系統告警／提醒全搬去 Telegram�
 | 情資週報／靜默失敗巡邏／KEIS 待聯絡提醒 | 🟢 08-25 全部改推 Telegram＋重新啟用 |
 | 廣告發文看門狗（`scripts/keis/ad_watchdog.py`）／incident-watch | 🟢 09-02 重新開啟：看門狗 Task Scheduler 改回 Enabled（每小時查 Notion，走 Telegram）；incident-watch 補裝開機啟動。一開就抓到 `AG1786752` 卡在「待發」23 天（08-10～09-02，KEIS廣告ID/粉專連結全空，沒建過任何廣告），已刪除該筆 Notion 紀錄 |
 | 自動簽到／市場週報／行情看板更新 | ⚪ 已停（沒動）|
-| 公買搶單（門市電腦 grab.py） | 🟢 開機捷徑在 `shell:startup`；心跳改推極簡 webhook（08-25） |
+| 公買搶單（門市電腦 grab.py） | ⚪ 09-04 使用者要求關閉：程序已殺，開機捷徑移到 `桌面\keis\_停用的開機捷徑\`（要開回去就搬回 `shell:startup`） |
 | YC 建檔器 v2/v3／YC 發文線／文案重產器／LINE 新聞推播 | ⚪ 已停（舊版，沒動）|
 
 「LINE 推播 → Notion 系統日誌」的架構細節見 `reference.md`。
@@ -140,10 +140,11 @@ LINE 200 則配額留給客戶群發，系統告警／提醒全搬去 Telegram�
 
 ## 其他待辦
 
-- 🔴 「疑似同業每日網頁比對」（08:30）**查無≠乾淨**：WebSearch 工具連 Google 直接查得到的仲介
-  名片頁都查不到（09-02 實測 8 種查法全落空，使用者手機 Google 秒出結果）。09-02 已手動勾
-  1 筆（0989808766/許聖賢）。**真正解法待辦**：申請 Google Custom Search API（免費100次/天夠用），
-  **需使用者本人登入 Google Cloud Console 拿 key**，等他進公司再處理，之後改 routine 換掉 WebSearch。
+- 🔴 「疑似同業每日網頁比對」（08:30）**查無≠乾淨**：WebSearch 查不到手機 Google 秒出的仲介名片頁
+  （驗收基準＝0989808766/許聖賢）。09-04 已申請 Google CSE，key＋cx 進兩份 `keis/.env`（`GOOGLE_CSE_*`），
+  API 已啟用、配額 100/天，**但一律 403 `does not have the access to Custom Search JSON API`**（重試 6 次，
+  新版 UI 無「不限制金鑰」可拆），疑生效延遲，**下次 session 先重測**。另待解：①雲端 routine 讀不到本機
+  .env ②「搜尋整個網路」2027-01-01 停用只能指定網站（暫填 `*.591.com.tw`，待問使用者那筆落在哪個網域）。
 - **Notion v2 舊資料**：YC1868705 還在、不在 KEIS，線 B 掃到略過；`永慶官網連結` 已補上
 - **未來候補**：多開一個 IG 帳號專發廣告。使用者要先自己把 IG 轉商業帳號＋綁粉專開權限，
   之後才接 n8n。卡在帳號還沒建，不用主動催

@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://suse-despite-slowly-eagles.trycloudflare.com",
+        "url": "https://optimal-mercy-interaction-prev.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
