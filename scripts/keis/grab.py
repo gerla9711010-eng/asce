@@ -94,7 +94,9 @@ WINDOW_SIZE = 70              # 搶單決策的窗口：只看編號最大的前
                                # 08-03 另外加了「漏接偵測」（見 update_inventory 的 missed）：真的還是
                                # 被視窗排除掉的合格名單，會自動 LINE 通知，不用再靠這個數字硬猜。
 PAGE_SIZE = 100               # 全池掃描每頁抓幾筆（API 上限 100，超過會回 0 筆）
-DEEP_SWEEP_SEC = 3600         # 全池掃描間隔。它只負責寫 inventory.csv 給人稽核，不影響搶單
+DEEP_SWEEP_SEC = 14400        # 全池掃描間隔。它只負責寫 inventory.csv 給人稽核，不影響搶單。
+                              # 2026-09-05 從 3600 改 14400（4 小時）：它是唯一「一次十幾二十個請求」
+                              # 的動作，一天 16 次占掉全天請求 2~3 成，而池子真正大變動只有早上那批。
 DEEP_SWEEP_MAX_PAGES = 40     # 全池掃描最多翻幾頁，防呆用
 DEEP_SWEEP_ROTATE = True      # 全池掃描輪流換帳號（帳號看不到自己申請過的，固定一個會有盲區）
 
@@ -676,6 +678,36 @@ def observe_status_changes(records: list, status_seen: dict) -> dict:
 # 換新檔名重開一份（舊檔留在資料夾裡當廢棄物，不影響運作）。
 # 2026-07-22：page1_track2.csv 也中招被弄壞，這次直接搬離 OneDrive 同步路徑(見上方 _LOCAL)根治。
 TOPID_CSV = _LOCAL / "page1_track3.csv"  # 每輪記錄page1最新單號，供事後判斷輪詢間隔有沒有漏接
+TOPID_KEEP_DAYS = 30          # 保留天數（2026-09-05 加）。這檔每輪寫一行、只長不縮，45 天就 21 萬筆/6.4MB。
+                              # 它唯一的用途是事後回答「某個時刻最新到哪個單號、有沒有漏接」，
+                              # 而這種追查都發生在事發後幾天到兩週內（07-23 睡過頭、08-26 停機補記
+                              # 都是十天內查的），30 天綽綽有餘。設 90 天等於沒設——檔案本身才 45 天。
+                              # 純觀測檔，砍掉舊資料不影響搶單/總帳/二手判定。
+
+
+def trim_top_id_log() -> None:
+    """啟動時砍掉 TOPID_KEEP_DAYS 之前的舊紀錄，讓 page1_track3.csv 不會無限長。
+    純觀測、失敗只記一行——絕不能因為整理紀錄檔而讓搶單起不來。"""
+    try:
+        if not TOPID_CSV.exists():
+            return
+        cutoff = (datetime.now() - timedelta(days=TOPID_KEEP_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+        with TOPID_CSV.open("r", newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.reader(f))
+        if not rows:
+            return
+        header, body = rows[0], rows[1:]
+        kept = [r for r in body if r and r[0] >= cutoff]
+        if len(kept) == len(body):
+            return
+        tmp = TOPID_CSV.with_suffix(".tmp")
+        with tmp.open("w", newline="", encoding="utf-8-sig") as f:
+            csv.writer(f).writerows([header] + kept)
+        tmp.replace(TOPID_CSV)
+        log(f"🧹 page1_track3.csv 砍掉 {len(body) - len(kept)} 筆逾 {TOPID_KEEP_DAYS} 天舊紀錄"
+            f"（剩 {len(kept)} 筆）")
+    except Exception as e:
+        log(f"⚠ 整理 page1_track3.csv 失敗（純觀測，不影響搶單）：{type(e).__name__}")
 
 
 def track_top_id(records: list, also_ids: list[int] | None = None) -> None:
@@ -2012,6 +2044,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
     labels = "、".join(c.label for c in clients)
     log(f"👁 watch 啟動（{mode}），帳號：{labels}（共 {len(clients)} 個，各 7 配額）")
     log(f"   全天分層輪詢：{WATCH_TIERS}（開始,結束,間隔秒）。Ctrl+C 結束。")
+    trim_top_id_log()
     try:
         info = clients[0].check_ip()
         if info.get("allowed"):
