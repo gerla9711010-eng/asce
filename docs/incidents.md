@@ -32,7 +32,7 @@
    凡是「查 Notion → 推播/寫入」的流程都適用（搶單通知、廣告看門狗同理）。
 2. 用 `notion-query-data-sources`（SQL/view）查證也會踩到同一個舊索引——它一開始也把
    Ling小姐報成「未聯絡」。**要確認單筆的真值，只有 `GET /v1/pages/{id}` 準**。
-3. 驗收方式：`scratchpad/dryrun.mjs` 直接抓線上 workflow 的 jsCode/jsonBody 在本機跑一遍，
+3. 驗收方式：`node scripts/n8n_dryrun_reminder.mjs` 直接抓線上 workflow 的 jsCode/jsonBody 在本機跑一遍，
    Public API 沒有「執行 workflow」的端點，這是唯一能在推播前看到成品的方法。
 
 ---
