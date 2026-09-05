@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://optimal-mercy-interaction-prev.trycloudflare.com",
+        "url": "https://mailed-reflected-licensed-chemistry.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,

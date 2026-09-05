@@ -42,7 +42,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  filter: { property: '聯絡狀態', select: { equals: '未聯絡' } },\n  page_size: 100\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  filter: { property: '聯絡狀態', select: { equals: '未聯絡' } },\n  sorts: [{ property: '搶到時間', direction: 'ascending' }],\n  page_size: 100\n}) }}",
         "options": {}
       },
       "id": "c13c9590-195a-4a68-9512-922d7f654311",
@@ -62,7 +62,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 從未聯絡名單中，挑出「搶到時間 + 7 天」剩 <= 2 天（含當天、含已過期）的\n// 剩 2/1 天、今天 = 黃燈🟡；已過期 = 紅燈🔴。沒有符合的就回空陣列 → 不推 LINE。\nconst USER_ID = 'Ufab42c56b2eb9b9a9ff18c367b85a6dd'; // 薛力瑜\nconst DAY = 24 * 3600 * 1000;\nconst results = $input.first().json.results || [];\nconst now = new Date();\n\nconst rows = [];\nfor (const p of results) {\n  const props = p.properties || {};\n  const grab = props['搶到時間'] && props['搶到時間'].date && props['搶到時間'].date.start;\n  if (!grab) continue; // 沒搶到時間不算\n  const deadline = new Date(new Date(grab).getTime() + 7 * DAY);\n  const daysLeft = Math.trunc((deadline - now) / DAY); // 與 Notion dateBetween 一致（截斷）\n  if (daysLeft > 2) continue; // 以 Notion「🔔 待聯絡」view 為準：推剩≤2天(含今天/過期)，給打電話的緩衝\n  const name = (props['姓名'] && props['姓名'].title && props['姓名'].title[0] && props['姓名'].title[0].plain_text) || '(未命名)';\n  const phone = (props['電話'] && props['電話'].phone_number) || '';\n  const city = (props['縣市'] && props['縣市'].select && props['縣市'].select.name) || '';\n  const cat = (props['類型'] && props['類型'].select && props['類型'].select.name) || '';\n  const acct = (props['帳號'] && props['帳號'].select && props['帳號'].select.name) || '';\n  let flag;\n  if (daysLeft < 0) flag = '🔴已過期';\n  else if (daysLeft === 0) flag = '🟡今天到期';\n  else flag = '🟡剩' + daysLeft + '天';\n  rows.push({ daysLeft, name, phone, city, cat, acct, flag });\n}\n\nif (rows.length === 0) return []; // 沒有待提醒 → 不推 LINE\n\nrows.sort((a, b) => a.daysLeft - b.daysLeft); // 最急（已過期）排前面\nconst today = now.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' });\nconst lines = rows.map(function (r) {\n  const parts = [r.name, r.city + r.cat, r.phone, r.acct].filter(Boolean).join('｜');\n  return '・' + r.flag + '｜' + parts;\n}).join('\\n');\nconst text = '🔔 待聯絡提醒 ' + today + '\\n以下 ' + rows.length + ' 筆「未聯絡」快到期，記得跟進：\\n\\n' + lines;\nreturn [{ json: { userId: USER_ID, text } }];\n"
+        "jsCode": "// 從未聯絡名單中，挑出「搶到時間 + 7 天」剩 <= 2 天（含當天、含已過期）的\n// 剩 2/1 天、今天 = 黃燈🟡；已過期 = 紅燈🔴。沒有符合的就回空陣列 → 不推。\n// ⚠️ 2026-09-05 事故：Notion 的 select 篩選偶爾回傳索引沒更新的舊值（已改成\n//    「已聯絡/無效空號」的 2 筆還是被撈進來），所以這裡一定要再驗一次 payload。\nconst DAY = 24 * 3600 * 1000;\nconst results = $input.first().json.results || [];\nconst now = new Date();\n\nconst rows = [];\nfor (const p of results) {\n  const props = p.properties || {};\n  const status = (props['聯絡狀態'] && props['聯絡狀態'].select && props['聯絡狀態'].select.name) || '';\n  if (status !== '未聯絡') continue; // 防 Notion 篩選回舊值，別拿掉\n  const grab = props['搶到時間'] && props['搶到時間'].date && props['搶到時間'].date.start;\n  if (!grab) continue; // 沒搶到時間不算\n  const deadline = new Date(new Date(grab).getTime() + 7 * DAY);\n  const daysLeft = Math.trunc((deadline - now) / DAY); // 與 Notion dateBetween 一致（截斷）\n  if (daysLeft > 2) continue; // 以 Notion「🔔 待聯絡」view 為準：推剩≤2天(含今天/過期)\n  const name = (props['姓名'] && props['姓名'].title && props['姓名'].title[0] && props['姓名'].title[0].plain_text) || '(未命名)';\n  const phone = (props['電話'] && props['電話'].phone_number) || '';\n  const city = (props['縣市'] && props['縣市'].select && props['縣市'].select.name) || '';\n  const cat = (props['類型'] && props['類型'].select && props['類型'].select.name) || '';\n  const acct = (props['帳號'] && props['帳號'].select && props['帳號'].select.name) || '';\n  let flag;\n  if (daysLeft < 0) flag = '🔴已過期';\n  else if (daysLeft === 0) flag = '🟡今天到期';\n  else flag = '🟡剩' + daysLeft + '天';\n  rows.push({ daysLeft, grab, name, phone, city, cat, acct, flag });\n}\n\nif (rows.length === 0) return []; // 沒有待提醒 → 不推\n\nrows.sort((a, b) => a.daysLeft - b.daysLeft); // 最急（已過期）排前面\nconst phones = Array.from(new Set(rows.map(r => r.phone).filter(Boolean)));\nreturn [{ json: { rows, phones } }];\n"
       },
       "id": "70a6236a-3b87-4002-b193-e563c598f1f1",
       "name": "挑出快到期未聯絡",
@@ -86,7 +86,7 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        704,
+        832,
         -176
       ],
       "credentials": {
@@ -99,6 +99,58 @@
       "maxTries": 3,
       "waitBetweenTries": 5000,
       "webhookId": "3102bca5-4de5-4f2f-aadb-2ab895fcbfb0"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/4f28b91531594c618725afc3ecc36e2f/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: $json.phones.length === 0 ? { property: 'summary_id', rich_text: { equals: '__no_match__' } } : ($json.phones.length === 1 ? { property: '電話', phone_number: { equals: $json.phones[0] } } : { or: $json.phones.map(p => ({ property: '電話', phone_number: { equals: p } })) }), page_size: 100 }) }}",
+        "options": {}
+      },
+      "id": "b1f7a2c4-5d6e-4f80-9a11-2c3d4e5f6a70",
+      "name": "查同電話前筆",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        592,
+        -176
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "edOz4T0LC6EP41Ug",
+          "name": "Notion API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 每筆後面標「同電話前一筆」是什麼狀態（只標示、不過濾，重複與否由使用者自己判斷）\nconst rows = $('挑出快到期未聯絡').first().json.rows || [];\nconst all = $input.first().json.results || [];\n\nconst byPhone = {};\nfor (const p of all) {\n  const props = p.properties || {};\n  const ph = (props['電話'] && props['電話'].phone_number) || '';\n  const grab = props['搶到時間'] && props['搶到時間'].date && props['搶到時間'].date.start;\n  if (!ph || !grab) continue;\n  const note = ((props['備註'] && props['備註'].rich_text) || [])\n    .map(t => t.plain_text).join('').replace(/\\s+/g, ' ').trim();\n  byPhone[ph] = byPhone[ph] || [];\n  byPhone[ph].push({\n    grab,\n    status: (props['聯絡狀態'] && props['聯絡狀態'].select && props['聯絡狀態'].select.name) || '(未填)',\n    valid: (props['有效性'] && props['有效性'].select && props['有效性'].select.name) || '',\n    note: note.replace(/🔁[^｜]*｜前面還有[^：]*/g, '').replace(/^[・\\s]+/, '').slice(0, 40)\n  });\n}\n\nconst md = s => String(s).slice(5, 10); // ISO → MM-DD，直接切字串避免時區跑掉\n\nconst lines = rows.map(function (r) {\n  const parts = [r.name, r.city + r.cat, r.phone, r.acct].filter(Boolean).join('｜');\n  let line = '・' + r.flag + '｜' + parts;\n  const older = (byPhone[r.phone] || []).filter(x => x.grab < r.grab);\n  const prev = older.slice().sort((a, b) => (a.grab < b.grab ? 1 : -1))[0];\n  if (prev) {\n    let tail = '　↳🔁 同電話前筆(共' + older.length + '筆)｜' + md(prev.grab) + '｜' + prev.status;\n    if (prev.valid) tail += '/' + prev.valid;\n    if (prev.note) tail += '｜' + prev.note;\n    line += '\\n' + tail;\n  }\n  return line;\n}).join('\\n');\n\nconst today = new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' });\nconst text = '🔔 待聯絡提醒 ' + today + '\\n以下 ' + rows.length + ' 筆「未聯絡」快到期，記得跟進：\\n\\n' + lines;\nreturn [{ json: { text } }];\n"
+      },
+      "id": "c2e8b3d5-6e7f-4091-ab22-3d4e5f6a7b81",
+      "name": "組訊息（標重複）",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        -176
+      ]
     }
   ],
   "connections": {
@@ -125,6 +177,28 @@
       ]
     },
     "挑出快到期未聯絡": {
+      "main": [
+        [
+          {
+            "node": "查同電話前筆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查同電話前筆": {
+      "main": [
+        [
+          {
+            "node": "組訊息（標重複）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組訊息（標重複）": {
       "main": [
         [
           {
