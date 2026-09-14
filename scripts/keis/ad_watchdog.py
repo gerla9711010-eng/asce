@@ -23,6 +23,14 @@
 2. 過了 14:00 還沒有任何一筆「今天已發布」→ 告警。保底網，抓所有整條線靜悄悄停擺的狀況，
    不管原因是什麼（09/11/13 三班都跑完了才判，不會冤枉）。
 
+順便看一件跟廣告無關的事（2026-09-14 加）
+------------------------------------------
+`grab.py`（公買搶單）**死掉時完全沒有人會叫**——08-24/08-25 把「KEIS 心跳檢查」那支
+workflow 整支刪掉之後（它一直噴假警報），剩下的唯一防線是 grab.py 自己的計時器，
+而那個要「程序還活著」才叫得出來。09-04 11:25～09-05 19:53 就這樣靜悄悄停了 32 小時，
+漏掉 3 筆合格名單。這支看門狗本來就每小時跑、住在 n8n 外面、直推 Telegram，
+順手多看一眼 grab.py 的觀測檔有沒有在動最便宜，不必再養第二套監控。
+
 用法
 ----
     python ad_watchdog.py          # 跑一次就結束，給工作排程器每小時叫一次
@@ -57,11 +65,18 @@ NO_PUBLISH_HOUR = 14      # 幾點之後還沒有任何「今天已發布」就�
 NO_PUBLISH_UNTIL = 23     # 保底檢查只在這個鐘點前做，深夜不吵
 DB_WARN_PCT = 70          # Postgres 佔 volume 幾成就告警（2026-08-09 撐爆過一次，見 incidents.md）
 DB_VOLUME_BYTES = int(4.4 * 1024 ** 3)   # volume 實際可用量（5GB 標稱、df 看到 4.4GiB）
+GRAB_STALE_MINUTES = 25   # grab.py 的觀測檔多久沒動就算它死了（白天輪詢間隔 60 秒，25 分很寬鬆）
+GRAB_FROM_HOUR = 8        # 幾點之後才檢查（門市網路 00:00~約07:22 斷、電腦 00:30 關機 07:30 才開）
+GRAB_UNTIL_HOUR = 23      # 幾點之後不再檢查（接近關機時間，不吵）
+GRAB_REALERT_HOURS = 6    # 還是死的話，每幾小時再提醒一次
 # =====================
 
 TPE = timezone(timedelta(hours=8))
 HERE = Path(__file__).parent
 STATE_FILE = HERE / "ad_watchdog_state.json"
+# grab.py 的高頻觀測檔放本機（不進 OneDrive，怕又被同步弄壞）——跟 grab.py 的 _LOCAL 同一個算法
+GRAB_LOCAL = Path(os.environ.get("LOCALAPPDATA") or HERE) / "keis-grab"
+GRAB_MARKERS = ("inventory.csv", "page1_track3.csv")   # 每輪都會被覆寫，取兩者較新的當存活指標
 LOG_FILE = HERE / "logs" / "ad-watchdog.log"
 LOG_KEEP_LINES = 3000
 
@@ -369,6 +384,66 @@ def check_db_disk(state: dict, now: datetime, dry: bool) -> None:
         log(f"🚨 已告警：資料庫 {pct:.0f}%")
 
 
+def grab_last_seen() -> datetime | None:
+    """grab.py 最後一次真的做事是什麼時候（讀觀測檔的修改時間，完全不碰網路）。"""
+    best = None
+    for name in GRAB_MARKERS:
+        try:
+            m = datetime.fromtimestamp((GRAB_LOCAL / name).stat().st_mtime, TPE)
+        except OSError:
+            continue
+        if best is None or m > best:
+            best = m
+    return best
+
+
+def check_grab_alive(state: dict, now: datetime, dry: bool) -> None:
+    """判斷五：公買搶單 grab.py 還在動嗎（2026-09-14 加，理由見檔頭）。
+
+    刻意只看本機檔案的修改時間：不問 n8n、不問 Notion、不問 KEIS。grab.py 自己的心跳
+    告警只在「程序活著」時有效，這裡補的正是「程序沒了」那個盲區。
+
+    白天網路斷掉時 grab.py 抓不到資料也不會更新觀測檔，這種情況一樣會叫——訊息裡講的是
+    「沒在動」而不是「死了」，因為對使用者來說要做的事一樣（去雙擊 run.bat 看一眼）。
+    """
+    if not (GRAB_FROM_HOUR <= now.hour < GRAB_UNTIL_HOUR):
+        return
+    last = grab_last_seen()
+    if last is None:
+        log(f"搶單存活檢查：{GRAB_LOCAL} 裡找不到觀測檔，跳過（沒在這台跑就是正常）")
+        return
+
+    idle_min = (now - last).total_seconds() / 60
+    if idle_min <= GRAB_STALE_MINUTES:
+        if state.pop("grab_dead_alerted", None):
+            push_alert(f"✅ 公買搶單恢復了（最後動作 {last:%H:%M}）", dry)
+            log(f"✅ 搶單恢復，最後動作 {last:%H:%M:%S}")
+        else:
+            log(f"搶單存活檢查：正常（最後動作 {last:%H:%M:%S}，{idle_min:.0f} 分鐘前）")
+        return
+
+    prev = state.get("grab_dead_alerted")
+    if prev:
+        try:
+            if (now - datetime.fromisoformat(prev)).total_seconds() < GRAB_REALERT_HOURS * 3600:
+                log(f"搶單存活檢查：還是沒在動（{idle_min:.0f} 分鐘），"
+                    f"{GRAB_REALERT_HOURS} 小時內已提醒過，這輪不重推")
+                return
+        except ValueError:
+            pass
+
+    text = ("🔴 公買搶單沒在動了\n\n"
+            f"最後一次抓到資料：{last:%m-%d %H:%M}（已經 {idle_min / 60:.1f} 小時沒動作）\n\n"
+            "＝這段時間新上架的名單全部漏掉。2026-09-04 同樣狀況停了 32 小時、漏 3 筆。\n\n"
+            "怎麼救（30 秒）：\n"
+            "1. 桌面\\keis\\run.bat 雙擊，它自己會每 60 秒重試\n"
+            "2. 黑窗跑出「watch 啟動」就好了，窗別關\n\n"
+            "常見原因：run.bat 的黑窗被關掉、電腦重開沒自動起來、門市網路白天斷線。")
+    if push_alert(text, dry):
+        state["grab_dead_alerted"] = now.isoformat(timespec="seconds")
+        log(f"🚨 已告警：搶單 {idle_min / 60:.1f} 小時沒動作（最後 {last:%m-%d %H:%M}）")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="廣告發文看門狗（不依賴 n8n）")
     ap.add_argument("--dry", action="store_true", help="只印不推 LINE")
@@ -380,6 +455,9 @@ def main() -> int:
 
     now = datetime.now(TPE)
     state = load_state()
+    # 這則只讀本機檔案，故意放在 try 外面、也放在最前面：Notion 連不上而 return 的那條路
+    # 不該把「搶單死了」這件事一起吃掉（2026-09-14）
+    check_grab_alive(state, now, args.dry)
     try:
         # 卡關告警已經推出去就不再推保底那則——兩則講的是同一件事，一次一則就好
         if not check_stuck(state, now, args.dry):
@@ -392,6 +470,8 @@ def main() -> int:
         # 門市每晚 00:00~約 07:22 固定斷網，那段時間查不到 Notion 是正常的，不告警
         # （而且真的斷網時 LINE 也推不出去，叫了也沒用）
         log(f"連不上 Notion，這輪跳過（斷網時屬正常）：{e}")
+        if not args.dry:
+            save_state(state)   # 上面的搶單存活檢查可能已經推過告警，狀態要留下來才不會每小時重推
         return 0
     if not args.dry:
         save_state(state)   # --dry 不留痕跡，否則測一次就把「今天已提醒」記下去，真的出事反而不叫
