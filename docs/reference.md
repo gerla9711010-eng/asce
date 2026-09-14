@@ -475,6 +475,26 @@ n8n 整台燒掉它照樣會叫。**
 | log | `桌面\keis\logs\ad-watchdog.log`；狀態 `ad_watchdog_state.json` |
 | 測試 | `python ad_watchdog.py --dry`（只印不推、**不寫狀態檔**）|
 
+⚠️ **這支現有的三個判斷不涵蓋「AI 語意審核被吞錯」**——判斷三只抓格式壞掉（JSON殘骸/`\n`），
+數字對不對交給 n8n 自己的「數字守門員」（同一執行裡就有 `_guardOk`/`_guardBad`，看得到但這支
+沒去讀）。真正只有 AI 審核能抓的是語意層（混到別間房子、憑空編造、自打架），這塊 2026-09-14
+評估過要不要補一支「文案審核後備檢查」，結論是**不建**，見下面「Cowork 雲端排程」那條的教訓。
+目前做法：n8n 的「靜默失敗巡邏」抓到「文案交叉審核」被跳過會推 Telegram，收到就轉貼給 Claude
+現查（2 分鐘內查得完，讀執行資料裡的「解析文案+footer」跟官方欄位比對即可，不用另外的自動化）。
+
+## Cowork 雲端排程（RemoteTrigger／`schedule` skill）：不能拿來做需要外部 API 金鑰的監控
+
+Cowork（`claude.ai/code/routines`）目前只有兩支在跑：「疑似同業每日網頁比對」「GitHub帳號停權
+檢查」，兩支都只靠 Notion MCP／WebFetch，**沒有用到任何外部服務的 API 金鑰**。這不是巧合——
+2026-09-14 想幫它加一支要讀 n8n API＋推 Telegram 的排程，撞到兩個死結：
+1. `job_config.ccr.environment_variables` 這個欄位**看起來能填，實際上 API 會靜靜丟掉**（create/
+   update 回應裡 echo 回來是空的），排程執行時完全拿不到金鑰。
+2. 改成把金鑰明碼寫進排程的 prompt 文字裡，兩次都被 Claude Code 的安全分類器擋下（判定為
+   「Credential Leakage」／「Credential Exploration」），**不該想辦法繞過去，這道防線是對的**。
+**結論**：Cowork 排程只適合用「Notion MCP／WebFetch／WebSearch」這種不需要自己帶金鑰的任務；
+只要工作需要 n8n API key、Telegram bot token 這類本機才有的憑證，一律留在本機（Task Scheduler
+讀 `.env`），不要浪費時間想辦法把金鑰塞進 Cowork。
+
 ---
 
 ## 獨立桌面工具（深度細節見各自 README）

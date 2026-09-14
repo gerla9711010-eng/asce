@@ -153,6 +153,25 @@ public 網址的 `/health`，打不通就當成「通道掛了」觸發跟行程
 
 ---
 
+## 2026-09-14｜GitHub 帳號第三次被停權：這次不是這個 session 開太密
+
+**症狀**：09-14 開工第一步 `git fetch origin main` 就噴 403「Your account was suspended」，
+`gh api user` 也直接回同樣的錯——整個帳號層級擋掉，不是單一 repo 或權杖過期。
+
+**跟前兩次（07-30、08-26）不一樣的地方**：這個 session 本身零 PR、零 push——本機最新 commit
+還停在 09-08，中間完全沒有開合 PR 的紀錄。代表**不是這次收工太密踩到偵測**，成因待查。
+懷疑跟 [[parallel-claude-sessions]] 有關——同時開著的其他視窗如果在這之間密集開合過 PR，
+一樣會踩到「一天最多 2 個 PR」那條線，只是這個 session 看不到別人做了什麼。
+
+**這次沒有現場申訴**：GitHub 官網本身也在停權範圍內（連 `https://github.com/gerla9711010-eng`
+都可能連不上），申訴要使用者自己到 support.github.com 走 Reinstatement request 流程，
+Claude 端的 `gh`/`git` 都進不去，做不了。
+
+**待辦**：復權後第一件事，比對 09-08 之後有沒有其他 session 開過 PR、開了幾個、間隔多密，
+確認是不是真的踩到 2-PR/day 規則，不是就要往別的方向查。
+
+---
+
 ## 2026-08-26｜GitHub 帳號第二次被停權：根因是「頻繁收工」＝高頻開PR自動合併
 
 **症狀**：15:32 `gh pr merge 235` 噴 403「Your account was suspended」，`git push`/`fetch`/`gh`

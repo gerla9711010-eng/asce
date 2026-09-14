@@ -32,20 +32,17 @@ Notion `page_size:100` 同病、漲價完全沒接。另加 `KEIS 價格沒跟�
 
 ---
 
-## 🔴 GitHub 帳號又被停權（08-26 15:32）——收工流程暫時只做本機 commit
+## 🔴 GitHub 帳號第三次被停權（09-14 開工第一步發現）——收工流程只做本機 commit
 
-`gh pr merge 235` 當下噴 403「Your account was suspended」。`git fetch` / `push` / `gh` 全部不能用。
-成因跟 2026-07-30 同一個：**PR 開太密**（08-25 晚 4 個 ＋ 08-26 下午 3 個）。
+`git fetch`／`gh api user` 全部回 403「Your account was suspended」。這次**這個 session 零
+PR**，不是開太密踩到的（跟 07-30／08-26 那兩次不同），成因待查，完整經過見 `incidents.md` 最上面。
 
-**恢復前的做法**：branch → PR → merge 整段跳過，只做本機 `git commit`。不用重試、不用等。
-- `f839c97`（.bat 說明）已在本機 main，遠端狀態不明——PR #235 開出來了，合了沒不知道。
-- 恢復後第一件事：`git fetch`，比對 #234/#235 有沒有進 origin/main，再決定要不要重推。
-- **新節制標準：一個工作天最多 2 個 PR**，跨 session 也算。
-- **申訴已送出**（08-26 20:07，support.github.com → Reinstatement request → GitHub account or
-  content），**Ticket ID: 4700948**。已收到自動確認信，客服量大要等，不用重複送、不用催。
-- 已建雲端排程「GitHub帳號停權檢查」（每天09:00查狀態，**只有狀態改變才推播**，不用手動盯）。
-- **09-08 補回覆**：客服 Ivy 8/26 16:07 問「打算怎麼用 GitHub」卡了13天沒人回，09-08補寄說明。
-  同晚 `git ls-remote origin HEAD` 再測仍 403，同一次停權還沒解——下次開工先重測一次。
+**恢復前的做法**：branch → PR → merge 整段跳過，只做本機 `git commit`，累積到能推的時候再一次推。
+- **申訴要使用者自己去 support.github.com 送**（Claude 端 `gh`/`git` 都進不去，做不了這步）。
+- 復權後第一件事：`git fetch` 確認、比對這次卡在本機沒推上去的 commit、查是不是又踩到
+  「一天最多 2 個 PR」（[[parallel-claude-sessions]] 開著的其他視窗有沒有份）。
+- 之前建的雲端排程「GitHub帳號停權檢查」（每天09:00，狀態變了才推播）應該會抓到——但這次
+  它自己也可能因為同一個停權查不動，別完全依賴它，開工先手動 `git fetch` 確認一次。
 
 ---
 
