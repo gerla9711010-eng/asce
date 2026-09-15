@@ -125,7 +125,10 @@ n8n 2.x 把登入綁瀏覽器指紋，**用瀏覽器做寫入會 401 並把使�
 
 > **2026-07-23 退役**：`建檔 <網址>`、`發 YCxxx`、`生成文案 YCxxx` 已從 router 拔掉
 > （下游 `YC 建檔器 v2` / `YC 發文線` / `文案重產器` 三支 workflow 一併停用，
-> **2026-09-15 已從 n8n 刪除**，JSON 在 `backup/n8n-deleted-2026-09-15/`）。
+> **2026-09-15 已從 n8n 刪除**，JSON 取回方式見下）。
+> ⚠️ `backup/` 有 gitignore，那份只在門市電腦本機。**跨機器要取回一律走 git 歷史**：
+> `git show fa81093^:workflows/yc-fb-publish.json > yc-fb-publish.json`
+> （另三支換檔名：`line-news-push.json` / `yc-property-create.json` / `yc-rewrite-copy.json`）
 > 要復原：先開新空白 workflow 匯入那三份 JSON，再把 router 的 `解析 LINE 指令` 節點
 > 加回 create/publish/rewrite 三行對應（Switch 分支與轉發節點都還在）。
 > 原始 router JSON 備份在 `backup/n8n-router-v3-before-2026-07-23.json`。
@@ -168,7 +171,7 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發（分不出時預設客戶）
 - **KEIS 待聯絡提醒**：每天 09:00 查搶單名單 → 挑「未聯絡 且 搶到滿 7 天剩≤2 天」→ 有才推 LINE。搭配 Notion 視圖「🔔 待聯絡」
   ⚠️ **在 Notion 手動刪名單是沒用的**：`audit_notion` 拿 `grabbed.csv` 當唯一真相，刪掉＝它眼中的缺漏 → 補回來。**要讓一筆退場一律改「聯絡狀態」**
-- ~~物件建檔器（v2） / 文案重產器 / YC 發文線 / LINE 新聞推播~~：2026-07-23 停用、**2026-09-15 刪除**，功能由線 A + `/yc-ad` skill 取代。JSON 備份在 `backup/n8n-deleted-2026-09-15/`（`YC 建檔器 v3` 保留為停用狀態）
+- ~~物件建檔器（v2） / 文案重產器 / YC 發文線 / LINE 新聞推播~~：2026-07-23 停用、**2026-09-15 刪除**，功能由線 A + `/yc-ad` skill 取代。取回 JSON 見上面 LINE 指令區的 `git show` 指令（`YC 建檔器 v3` 保留為停用狀態）
 - ~~撤除回報器 / YC 下架偵測線（舊）~~：2026-07-23 刪除，功能由線 B 取代。JSON 備份在 `backup/n8n-deleted-2026-07-23/`
 
 ---
