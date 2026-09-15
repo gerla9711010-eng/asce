@@ -252,13 +252,20 @@
         if (!(await load(t.id))) throw new Error('客需不見了');
         total = resultCount();
         let N = await ensureCards(999);
-        if (!N && total !== 0) { await sleep(4000); N = await ensureCards(999); }
-        /* total===0（.result-summary 明確寫「共 0 筆」）是合法的空結果，一張卡都沒有是正常現象，
-           要放行讓下面把舊資料清空，不能當失敗跳過——不然這個客需一旦真的變成 0 筆命中，
-           state 裡的舊清單就永遠清不掉，變成陰魂不散的下架物件。
-           total===null（撞到「超過查詢次數限制」時畫面沒有 .result-summary）才是真的不可信，
-           跟「total>0 卻一張卡都沒渲染出來」一樣要丟出去保護 state，不要靜靜覆蓋成空的。 */
-        if (!N && total !== 0) throw new Error('一張卡都沒渲染出來（共' + (total == null ? '?' : total) + '筆）');
+        /* bad 有兩種：total>0(或null) 卻一張卡都沒渲染出來；或 total===0 卻還殘留 >0 張卡
+           （Angular 重繪有時間差，抓到的很可能是上一個客需還沒清掉的舊卡片）。
+           兩種都先重試一次，還是兜不起來就丟出去，寧可保護 state 也不要存進串錯客需的資料。 */
+        let bad = total === 0 ? N > 0 : !N;
+        if (bad) {
+          await sleep(total === 0 ? 1500 : 4000);
+          total = resultCount();
+          N = await ensureCards(999);
+          bad = total === 0 ? N > 0 : !N;
+        }
+        /* total===0 且 N===0（真的空結果）要放行，讓下面把舊資料清空，不能當失敗跳過——
+           不然這個客需一旦真的變成 0 筆命中，state 裡的舊清單就永遠清不掉，變成陰魂不散的下架物件。
+           total===null（撞到「超過查詢次數限制」時畫面沒有 .result-summary）永遠不可信。 */
+        if (total == null || bad) throw new Error('一張卡都沒渲染出來（共' + (total == null ? '?' : total) + '筆，畫面 ' + N + ' 張卡）');
         const panels0 = [...document.querySelectorAll('fd-property-panel')];
         fps = panels0.map(fingerprint);
         const fpSet = new Set(fps);
