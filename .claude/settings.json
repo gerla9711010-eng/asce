@@ -20,5 +20,20 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__claude-in-chrome__find",
+      "mcp__claude-in-chrome__get_page_text",
+      "Bash(python scripts/n8n_sync.py --check)",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__read_network_requests",
+      "PowerShell(Get-ScheduledTask *)",
+      "mcp__claude-in-chrome__read_page",
+      "PowerShell(Get-CimInstance Win32_Process *)",
+      "mcp__claude-in-chrome__read_console_messages",
+      "mcp__claude_ai_Notion__notion-fetch",
+      "mcp__claude_ai_Notion__notion-query-data-sources"
+    ]
   }
 }
