@@ -252,11 +252,13 @@
         if (!(await load(t.id))) throw new Error('客需不見了');
         total = resultCount();
         let N = await ensureCards(999);
-        if (!N) { await sleep(4000); N = await ensureCards(999); }
-        /* 一張卡都沒有就一律當失敗丟出去 —— 撞到「超過查詢次數限制」時畫面沒有 .result-summary，
-           total 會是 null；舊版寫成 (!N && total) 就不會丟，於是整批客需被當成「無新物件」
-           把 state 裡的舊資料覆蓋成空的。寧可對真的 0 筆客需多噴一行錯誤，也不要靜靜刪資料。 */
-        if (!N) throw new Error('一張卡都沒渲染出來（共' + (total == null ? '?' : total) + '筆）');
+        if (!N && total !== 0) { await sleep(4000); N = await ensureCards(999); }
+        /* total===0（.result-summary 明確寫「共 0 筆」）是合法的空結果，一張卡都沒有是正常現象，
+           要放行讓下面把舊資料清空，不能當失敗跳過——不然這個客需一旦真的變成 0 筆命中，
+           state 裡的舊清單就永遠清不掉，變成陰魂不散的下架物件。
+           total===null（撞到「超過查詢次數限制」時畫面沒有 .result-summary）才是真的不可信，
+           跟「total>0 卻一張卡都沒渲染出來」一樣要丟出去保護 state，不要靜靜覆蓋成空的。 */
+        if (!N && total !== 0) throw new Error('一張卡都沒渲染出來（共' + (total == null ? '?' : total) + '筆）');
         const panels0 = [...document.querySelectorAll('fd-property-panel')];
         fps = panels0.map(fingerprint);
         const fpSet = new Set(fps);
