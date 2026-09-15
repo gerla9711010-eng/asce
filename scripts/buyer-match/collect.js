@@ -250,19 +250,30 @@
 
       try {
         if (!(await load(t.id))) throw new Error('客需不見了');
-        total = resultCount();
+        /* load() 只等「畫面出現任一張卡」或逾時，不保證卡片/摘要真的已經換成這個客需的資料——
+           所以 total 故意晚一步，等 ensureCards() 的穩定判斷跑完才讀，縮小讀到舊客需殘留畫面的機率。 */
         let N = await ensureCards(999);
+        total = resultCount();
         /* bad 有兩種：total>0(或null) 卻一張卡都沒渲染出來；或 total===0 卻還殘留 >0 張卡
-           （Angular 重繪有時間差，抓到的很可能是上一個客需還沒清掉的舊卡片）。
-           兩種都先重試一次，還是兜不起來就丟出去，寧可保護 state 也不要存進串錯客需的資料。 */
+           （很可能是上一個客需還沒清掉的舊卡片）。兩種都先重試一次，還是兜不起來就丟出去，
+           寧可保護 state 也不要存進串錯客需的資料。 */
         let bad = total === 0 ? N > 0 : !N;
         if (bad) {
           await sleep(total === 0 ? 1500 : 4000);
-          total = resultCount();
           N = await ensureCards(999);
+          total = resultCount();
           bad = total === 0 ? N > 0 : !N;
         }
-        /* total===0 且 N===0（真的空結果）要放行，讓下面把舊資料清空，不能當失敗跳過——
+        if (!bad && total === 0 && N === 0) {
+          /* 空結果多驗一次：客需剛切換的瞬間，摘要跟卡片有機率同時巧合讀到 0——
+             其實是新客需真正的資料還沒跑出來，不是真的 0 筆。等久一點再讀一次，
+             兩次都讀到 0/0 才採信，不然會把明明有資料的客需誤判成空的、洗掉 state。 */
+          await sleep(2000);
+          N = await ensureCards(999);
+          total = resultCount();
+          bad = total === 0 ? N > 0 : !N;
+        }
+        /* total===0 且 N===0（雙重驗過的真空結果）要放行，讓下面把舊資料清空，不能當失敗跳過——
            不然這個客需一旦真的變成 0 筆命中，state 裡的舊清單就永遠清不掉，變成陰魂不散的下架物件。
            total===null（撞到「超過查詢次數限制」時畫面沒有 .result-summary）永遠不可信。 */
         if (total == null || bad) throw new Error('一張卡都沒渲染出來（共' + (total == null ? '?' : total) + '筆，畫面 ' + N + ' 張卡）');
