@@ -1,4 +1,4 @@
-/* 買方配案系統 — 資料收集器 v5
+/* 買方配案系統 — 資料收集器 v6
  *
  * 用法：在 agent.foundi.info/tool/property/list（已登入）的 DevTools Console 貼上執行，然後：
  *   FDBM.run()          // 增量跑：只展開新出現的物件，沒有新物件的客需直接跳過
@@ -13,16 +13,17 @@
  * 2. 一律用 textContent，不用 innerText —— innerText 會強迫整頁重新排版，
  *    卡片一多就把主執行緒卡死（v2 就是這樣停擺的）。
  * 3. 卡片展開後「關不掉」（App 把 mat-expansion-panel 的收合鎖住了）。
- *    所以每 CHUNK 張卡就切到別的客需再切回來，讓 Angular 重新渲染清單 = 全部歸零。
+ *    所以每 3~5 張卡（隨機）就切到別的客需再切回來，讓 Angular 重新渲染清單 = 全部歸零。
  * 4. 「本次銷售刊登」一頁只有 5 筆，會分頁；不翻頁會漏掉永慶/台慶的連結。
  * 5. 官網判定用「徽章文字」(永慶/台慶/永義/有巢氏)，不用網域白名單 —— 網域用猜的會靜靜漏件。
  * 6. 下架判定：物件如果不再出現在該客需的搜尋結果裡，就從結果移除。
  *    （跨網域直接測連結會被瀏覽器 CORS 擋掉，測不到真實狀態）
+ * 7. 擬人化節奏：這支沒有走內部 API、資料量也不大，速度不是重點——所有等待都吃隨機抖動，
+ *    客需之間插隨機停頓，每 8~10 個客需再插一次長休息。別為了「跑快一點」改回固定間隔。
  */
 (function () {
   const OFFICIAL = ['永慶', '台慶', '永義', '有巢氏'];
   const FOLDERS = ['A買', 'B買', 'C買'];
-  const CHUNK = 4;        // 一次最多同時展開幾張卡
   const MAXOPEN = 8;      // 展開中的卡超過這個數就提前重置
   const STATE_KEY = 'FDBM_STATE';
   /* 背景分頁會被 Chrome 把 setTimeout 降速 4~5 倍（看起來像卡住）。
@@ -37,7 +38,12 @@
       return (ms) => new Promise((r) => { const i = ++seq; waiting.set(i, r); w.postMessage({ id: i, ms }); });
     } catch (e) { return null; }
   })();
-  const sleep = (ms) => (TW ? TW(ms) : new Promise((r) => setTimeout(r, ms)));
+  const rawSleep = (ms) => (TW ? TW(ms) : new Promise((r) => setTimeout(r, ms)));
+  const rand = (min, max) => min + Math.random() * (max - min);
+  /* 擬人化：每個等待都乘上 0.7~1.5 的隨機抖動，避免固定節奏被當成腳本。 */
+  const sleep = (ms) => rawSleep(rand(ms * 0.7, ms * 1.5));
+  /* 給明確的「人在停頓」情境用（客需之間、長休息），不吃上面的倍率、直接給範圍。 */
+  const pause = (min, max) => rawSleep(rand(min, max));
 
   const R = {
     log: [], done: 0, total: 0, cards: 0, expanded: 0, skipped: 0,
@@ -226,11 +232,18 @@
     R.total = list.length;
 
     const state = opts.full ? { demands: {} } : loadState();
+    const breakEvery = 8 + Math.floor(Math.random() * 3); // 每 8~10 個客需長休息一次
 
     for (let k = opts.from || 0; k < list.length; k++) {
       const t = list[k];
       R.idx = k;
       R.cur = keyOf(t);
+
+      if (k > (opts.from || 0)) {
+        const done = k - (opts.from || 0);
+        if (done % breakEvery === 0) { note('長休息'); await pause(5000, 15000); }
+        else await pause(800, 3000);
+      }
       const alt = (list[(k + 1) % list.length].id === t.id ? list[(k + 2) % list.length] : list[(k + 1) % list.length]).id;
       const prev = (opts.only && opts.only.length) ? null : state.demands[keyOf(t)];
       let total = null, fps = [], items = [];
@@ -239,8 +252,11 @@
         if (!(await load(t.id))) throw new Error('客需不見了');
         total = resultCount();
         let N = await ensureCards(999);
-        if (!N && total) { await sleep(4000); N = await ensureCards(999); }
-        if (!N && total) throw new Error('共' + total + '筆卻一張卡都沒渲染出來');
+        if (!N) { await sleep(4000); N = await ensureCards(999); }
+        /* 一張卡都沒有就一律當失敗丟出去 —— 撞到「超過查詢次數限制」時畫面沒有 .result-summary，
+           total 會是 null；舊版寫成 (!N && total) 就不會丟，於是整批客需被當成「無新物件」
+           把 state 裡的舊資料覆蓋成空的。寧可對真的 0 筆客需多噴一行錯誤，也不要靜靜刪資料。 */
+        if (!N) throw new Error('一張卡都沒渲染出來（共' + (total == null ? '?' : total) + '筆）');
         const panels0 = [...document.querySelectorAll('fd-property-panel')];
         fps = panels0.map(fingerprint);
         const fpSet = new Set(fps);
@@ -258,17 +274,20 @@
           note('跳過（無新物件）' + keyOf(t));
         } else {
           const fresh = [];
-          for (let ti = 0; ti < targets.length; ti += CHUNK) {
+          for (let ti = 0; ti < targets.length; ) {
+            const chunk = 3 + Math.floor(Math.random() * 3); // 3~5，別用固定值
             if (ti > 0) { await load(alt); await load(t.id); }
-            const need = targets[Math.min(ti + CHUNK, targets.length) - 1] + 1;
+            const end = Math.min(ti + chunk, targets.length);
+            const need = targets[end - 1] + 1;
             await ensureCards(need);
             const panels = [...document.querySelectorAll('fd-property-panel')];
-            for (let j = ti; j < Math.min(ti + CHUNK, targets.length); j++) {
+            for (let j = ti; j < end; j++) {
               const p = panels[targets[j]];
               if (!p) continue;
               try { await readCard(p, fresh); } catch (e) { note('卡片錯誤 ' + e.message); }
               if (openCount() >= MAXOPEN) break;
             }
+            ti = end;
           }
           fresh.forEach((i) => { i.isNew = !!prev; });
           items = kept.concat(fresh);
@@ -338,5 +357,5 @@
         .map((k) => k + ' (共' + st.demands[k].total + '筆卻 0 張卡)');
     },
   };
-  return 'FDBM v5 ready (worker timer + dumpState)';
+  return 'FDBM v6 ready (worker timer + dumpState + 擬人化節奏)';
 })();

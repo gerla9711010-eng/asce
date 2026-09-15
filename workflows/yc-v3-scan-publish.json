@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://idea-inter-james-biological.trycloudflare.com",
+        "url": "https://wall-patch-book-align.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
