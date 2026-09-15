@@ -10,13 +10,17 @@
 
 ---
 
-## 🔴 GitHub 帳號第三次被停權（09-14）——只做本機 commit
+## 🔴 GitHub 帳號自 08-26 起持續停權中——只做本機 commit
 
-`git fetch`／`gh api user` 全回 403。這次**零 PR**，不是開太密（跟 07-30／08-26 不同），成因待查，
-經過見 `incidents.md`。**恢復前**：branch → PR → merge 整段跳過，只做本機 `git commit`。
-- **申訴要使用者自己去 support.github.com 送**（Claude 端 `gh`/`git` 都進不去）。
-- 復權後：`git fetch` 確認、比對卡在本機沒推的 commit、查有沒有又踩到「一天最多 2 個 PR」
-  （[[parallel-claude-sessions]] 其他視窗有沒有份）。雲端排程那支可能也被同一個停權卡住，別依賴。
+`git fetch`／`gh api user`／網頁登入全回 403。**09-15 查證：這不是「第三次」，是 08-26 那次從來沒解除。**
+`origin/main` 最後一筆停在 `7b355b3`（08-26 15:25 merge PR #234），之後零推送，本機領先 31 筆。
+所以「09-14 零 PR 也被停」不是謎——帳號本來就還在停權中。真實次數：07-30（已解）、08-26（未解）。
+
+**恢復前**：branch → PR → merge 整段跳過，只做本機 `git commit`。
+- 申訴使用者自己處理，**不要再提醒他去 support.github.com**。工單 `[NNXWX5-X7Y47]`，
+  09-15 已再次回信施壓（要求 GitHub 講出實際觸發原因）。
+- 復權後：`git fetch` 確認、把積著的 31 筆推上去、確認有沒有分支需要重開 PR。
+  雲端排程那支可能也被同一個停權卡住，別依賴。
 
 ---
 
