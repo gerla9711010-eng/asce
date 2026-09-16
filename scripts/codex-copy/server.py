@@ -93,6 +93,34 @@ def extract_prompt(body: dict) -> str:
     return str(parts[0].get("text") or "")
 
 
+# 下游「數字守門員」的門檻：粉專主體 < 60 字、社團主體 < 15 字就判定文案壞掉。
+# 這裡用同一組數字提早攔截——在代理端就發現空文案，才來得及改走 Gemini 退路；
+# 等到 n8n 的守門員發現就太晚了，那一班只能整件跳過。
+MIN_FB, MIN_GRP = 60, 15
+
+
+def validate_copy(raw: str, who: str) -> str:
+    """確認文案真的有內容。壞掉就丟例外，交給呼叫端走退路。
+
+    2026-09-16 加：codex 額度用完時不會報錯，而是「成功」回
+    {"粉專主體":"","社團主體":""}——格式完全正確、內容全空。
+    舊版只檢查 find_json() 撈不撈得到 JSON，這種空殼算「撈到了」，
+    於是 except 沒觸發、Gemini 退路整個被跳過，廣告線連 4 班發不出東西。
+    """
+    try:
+        d = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"{who} 回的不是合法 JSON：{e}") from e
+    fb = str(d.get("粉專主體") or "").strip()
+    grp = str(d.get("社團主體") or "").strip()
+    if len(fb) < MIN_FB or len(grp) < MIN_GRP:
+        raise RuntimeError(
+            f"{who} 回了空殼文案（粉專 {len(fb)} 字／社團 {len(grp)} 字，"
+            f"門檻 {MIN_FB}／{MIN_GRP}）——多半是額度用完或模型拒答"
+        )
+    return raw
+
+
 def find_json(text: str) -> str | None:
     """從 codex 的輸出裡撈出文案 JSON。
 
@@ -131,7 +159,7 @@ def call_codex(prompt: str) -> str:
     found = find_json(out)
     if not found:
         raise RuntimeError(f"codex 沒吐出可解析的文案 JSON（exit={proc.returncode}）")
-    return found
+    return validate_copy(found, "codex")
 
 
 def call_gemini(prompt: str) -> str:
@@ -147,7 +175,9 @@ def call_gemini(prompt: str) -> str:
         timeout=60,
     )
     r.raise_for_status()
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    # 退路自己也要驗——Gemini 免費版撞到每日 20 次上限時同樣會回空殼，
+    # 沒驗就會把空文案當「退路成功」送出去，等於白做一層保險。
+    return validate_copy(r.json()["candidates"][0]["content"]["parts"][0]["text"], "gemini")
 
 
 def as_gemini_response(text: str, served_by: str) -> dict:
