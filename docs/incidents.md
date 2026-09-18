@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-09-18｜GitHub 帳號 08-26 停權正式解除，官方回覆成因
+
+**症狀**：`git fetch`/`gh api user` 09-18 早上恢復正常，同一時間收到 GitHub Support 官方回信
+（Sep 17, 2026 11:28 PM UTC，工單 `[NNXWX5-X7Y47]`，客服 Ciro）。
+
+**GitHub 官方說法**（原文摘要）：「Sometimes our abuse detecting systems highlight accounts that
+need to be manually reviewed. We've cleared the restrictions from your account.」——**自動濫用偵測
+系統標記、人工審核後解除**，沒有具體點名是哪個行為觸發（沒有回答「實際觸發原因」那個追問）。
+
+**停權時長**：08-26 15:32 ～ 09-17 23:28 UTC，將近 23 天。
+
+**處理方式**：復權後一次性打包 54 筆停權期間的本機 commit 成單一 PR（#236）、`gh pr merge` 一次合併，
+之後就沒再動 git（見「PR節流」那條）。
+
+**學到什麼**：
+1. 「根因不明」是官方給的答案，不是我們沒查到——GitHub 自己也只講「automated abuse detecting
+   systems」，沒有更細的觸發條件。之後不用再追這個問題的「標準答案」。
+2. 使用者 2026-09-18 已決定：維持 `gh pr merge` 自動合併，但把節流從「2個/天」收緊到
+   **跨 session 每天最多 1 個 PR**（完整規則見 Claude 的 `github-account-suspension-recurring` 記憶）。
+   這是最佳猜測不是保證，下次如果照樣被停權，不代表這條規則沒用，可能是別的觸發源。
+
+---
+
 ## 2026-09-18｜搶到的客戶姓名帶 `*`，把 Telegram 搶單通知炸掉
 
 **症狀**：n8n 執行失敗通知，卡在「Telegram 搶單通知」節點，`Bad request - please check your parameters`。
