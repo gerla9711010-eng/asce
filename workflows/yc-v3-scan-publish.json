@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://exposed-affiliates-indicator-breeds.trycloudflare.com",
+        "url": "https://skill-byte-highways-ties.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,

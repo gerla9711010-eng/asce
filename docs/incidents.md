@@ -6,6 +6,24 @@
 
 ---
 
+## 2026-09-18｜搶到的客戶姓名帶 `*`，把 Telegram 搶單通知炸掉
+
+**症狀**：n8n 執行失敗通知，卡在「Telegram 搶單通知」節點，`Bad request - please check your parameters`。
+
+**成因**：那批 14 筆裡有一筆 KEIS 本來就打碼過的姓名「`*`小姐」。Telegram 節點沒設 `parseMode`，
+預設當 Markdown 解析，孤立的 `*` 被當成粗體開始符號、找不到對應結尾 → 整則訊息被 Telegram 拒收。
+
+**影響範圍小**：Telegram 節點排在流程最後，前面「寫入系統日誌」(Notion) 已經成功寫入，
+搶單本身也已經拿到——只有這一則推播沒送出，不是資料遺失或搶單機制壞掉。
+
+**修法**：`keis-grab-notify.json` 的 Telegram 節點 `additionalFields` 加 `"parseMode": "none"`，
+乾脆關掉 Markdown 解析（這些訊息本來就沒用到粗體/斜體）。Public API 更新 + deactivate/activate。
+
+**學到什麼**：任何把「自由文字欄位」（客戶姓名、備註、KEIS 打碼字串）直接塞進 Telegram/Markdown
+訊息的節點，都該考慮關掉 parseMode，除非真的需要格式——不然遲早會被某個特殊字元炸到。
+
+---
+
 ## 2026-09-15｜候選頁連打被永慶回截斷版 HTML，兩件好好的案子連兩班沒發
 
 **症狀**：EG0530947／AA1036885 連兩班被判「候選 2 筆都不是這件」，整班沒發成品。
