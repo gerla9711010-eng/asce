@@ -93,6 +93,34 @@ def extract_prompt(body: dict) -> str:
     return str(parts[0].get("text") or "")
 
 
+# 下游「數字守門員」的門檻：粉專主體 < 60 字、社團主體 < 15 字就判定文案壞掉。
+# 這裡用同一組數字提早攔截——在代理端就發現空文案，才來得及改走 Gemini 退路；
+# 等到 n8n 的守門員發現就太晚了，那一班只能整件跳過。
+MIN_FB, MIN_GRP = 60, 15
+
+
+def validate_copy(raw: str, who: str) -> str:
+    """確認文案真的有內容。壞掉就丟例外，交給呼叫端走退路。
+
+    2026-09-16 加：codex 額度用完時不會報錯，而是「成功」回
+    {"粉專主體":"","社團主體":""}——格式完全正確、內容全空。
+    舊版只檢查 find_json() 撈不撈得到 JSON，這種空殼算「撈到了」，
+    於是 except 沒觸發、Gemini 退路整個被跳過，廣告線連 4 班發不出東西。
+    """
+    try:
+        d = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"{who} 回的不是合法 JSON：{e}") from e
+    fb = str(d.get("粉專主體") or "").strip()
+    grp = str(d.get("社團主體") or "").strip()
+    if len(fb) < MIN_FB or len(grp) < MIN_GRP:
+        raise RuntimeError(
+            f"{who} 回了空殼文案（粉專 {len(fb)} 字／社團 {len(grp)} 字，"
+            f"門檻 {MIN_FB}／{MIN_GRP}）——多半是額度用完或模型拒答"
+        )
+    return raw
+
+
 def find_json(text: str) -> str | None:
     """從 codex 的輸出裡撈出文案 JSON。
 
@@ -125,12 +153,13 @@ def call_codex(prompt: str) -> str:
         input=prompt, capture_output=True, text=True,
         encoding="utf-8", errors="replace",
         timeout=CODEX_TIMEOUT, shell=(os.name == "nt"),
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,  # 不然每次都彈黑視窗
     )
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
     found = find_json(out)
     if not found:
         raise RuntimeError(f"codex 沒吐出可解析的文案 JSON（exit={proc.returncode}）")
-    return found
+    return validate_copy(found, "codex")
 
 
 def call_gemini(prompt: str) -> str:
@@ -146,7 +175,9 @@ def call_gemini(prompt: str) -> str:
         timeout=60,
     )
     r.raise_for_status()
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    # 退路自己也要驗——Gemini 免費版撞到每日 20 次上限時同樣會回空殼，
+    # 沒驗就會把空文案當「退路成功」送出去，等於白做一層保險。
+    return validate_copy(r.json()["candidates"][0]["content"]["parts"][0]["text"], "gemini")
 
 
 def as_gemini_response(text: str, served_by: str) -> dict:
@@ -306,6 +337,37 @@ def point_n8n_at(target_url: str | None) -> None:
     log(f"已把 n8n 產文案指向：{target_url or 'Gemini（原廠）'}")
 
 
+# 廣告v3 掃描發文線每兩小時跑一班（09/11/13/15/17/19），跑起來的前 10 分鐘是「煞車 10 分鐘」
+# 窗口（見 README）。這段時間 deactivate+activate 有可能打斷正在跑的執行，之前只有人手動改
+# n8n 時會避開；現在健康探測也會自動 PATCH，必須一起守。
+_BRAKE_HOURS = (9, 11, 13, 15, 17, 19)
+
+
+def in_brake_window(now: datetime | None = None) -> bool:
+    now = now or datetime.now(TPE)
+    return now.hour in _BRAKE_HOURS and now.minute < 10
+
+
+def wait_until_safe_to_patch() -> None:
+    while in_brake_window():
+        log("⏸ 現在是煞車窗口（整點～整點過10分），延後寫回 n8n，60 秒後再檢查")
+        time.sleep(60)
+
+
+def probe_alive(public_url: str) -> bool:
+    """探測 public 網址是不是真的打得通——只看 cloudflared 行程死活會漏掉
+
+    「行程還在、但邊緣連線已經斷了」這種情況（2026-08-27 早上 09:00/11:00 兩班
+    就是死在這裡：process 沒死、log 一路寫「運作中」，但 n8n 連都連不上）。
+    """
+    import httpx
+    try:
+        r = httpx.get(f"{public_url}/health", timeout=10)
+        return r.status_code == 200
+    except Exception:      # noqa: BLE001 — 連線層的任何失敗都當作「打不通」
+        return False
+
+
 class SingleInstanceServer(ThreadingHTTPServer):
     """關掉 SO_REUSEADDR，讓「已經有一份在跑」變成開不起來，而不是兩份搶同一個 port。"""
     allow_reuse_address = False
@@ -323,6 +385,7 @@ def start_tunnel(port: int) -> tuple[subprocess.Popen, str]:
         [exe, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace", bufsize=1,
+        creationflags=subprocess.CREATE_NO_WINDOW,  # 不然 cloudflared 這個主控台程式會彈黑視窗
     )
     deadline = time.time() + 60
     while time.time() < deadline:
@@ -417,18 +480,33 @@ def main() -> int:
             point_n8n_at(public)
         log("運作中（Ctrl+C 停止）")
         backoff = 10
+        PROBE_EVERY = 120  # 秒——只看行程死活抓不到「活著但打不通」，要定期真的打一次
+        last_probe = time.time()
         while True:
             time.sleep(5)
-            if not (tunnel and tunnel.poll() is not None):
+            dead = tunnel is None or tunnel.poll() is not None
+            reason = "上次重開沒成功" if tunnel is None else "通道行程掉了"
+            if not dead and tunnel and time.time() - last_probe >= PROBE_EVERY:
+                last_probe = time.time()
+                if not probe_alive(public):
+                    dead, reason = True, "行程還活著但外部打不通"
+            if not dead:
                 continue
             # 門市每晚 00:00~07:22 固定斷網，通道一定會掉。這裡不能讓重連失敗把服務帶走——
             # 廣告線 09:00 才開始跑，睡一下重試就好，等網路回來自然接上。
-            log("⚠️ 通道掉了，重開並重新註冊")
+            log(f"⚠️ 通道掛了（{reason}），重開並重新註冊")
+            if tunnel:
+                try:
+                    tunnel.kill()
+                except Exception:      # noqa: BLE001
+                    pass
             try:
                 tunnel, public = start_tunnel(args.port)
                 log(f"通道已開：{public}")
+                wait_until_safe_to_patch()
                 point_n8n_at(public)
                 backoff = 10
+                last_probe = time.time()
             except Exception as e:      # noqa: BLE001
                 tunnel = None
                 log(f"⚠️ 重開失敗（{e}），{backoff} 秒後再試")

@@ -63,6 +63,11 @@ LOG_FILE = HERE / "clockin.log"
 NOTIFY_WEBHOOK = os.environ.get("CLOCKIN_NOTIFY_WEBHOOK", "").strip()
 HEADLESS_ENV = os.environ.get("CLOCKIN_HEADLESS", "1").strip() != "0"
 
+# Telegram 直推：跟 scripts/keis 共用同一支機器人/同一份 .env，不另存一份 token。
+load_dotenv(HERE.parent / "keis" / ".env")
+sys.path.insert(0, str(HERE.parent / "keis"))
+import notify_telegram  # noqa: E402
+
 # 簽到 = value 0；簽退 = value 1（頁面預設竟然是簽退，務必先勾簽到）
 SIGN_IN_RADIO = 'input[type=radio][name="LoginType"][value="0"]'
 # 確認鈕是 <a>文字「確 認」（中間有空白），用 xpath 去掉空白比對
@@ -80,7 +85,14 @@ def log(msg: str) -> None:
 
 
 def notify(ok: bool, detail: str = "", clock_time: str = "") -> None:
-    """推 LINE。webhook 沒設就只印。"""
+    """推 LINE（走 n8n webhook）＋ Telegram（直推），兩邊都推、互不影響。"""
+    icon = "✅" if ok else "⚠️"
+    tg_text = f"{icon} houseol 打卡\n時間：{clock_time or '（未送出）'}\n{detail}"
+    if notify_telegram.send(tg_text):
+        log("[notify] Telegram 已送出")
+    else:
+        log("[notify] Telegram 未送出（沒設 token 或送失敗）")
+
     if not NOTIFY_WEBHOOK:
         log(f"[notify skipped, no webhook] ok={ok} time={clock_time} {detail}")
         return

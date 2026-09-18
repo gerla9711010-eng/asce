@@ -77,7 +77,8 @@
         "chatId": "1890720012",
         "text": "={{ $json.text }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parseMode": "none"
         }
       },
       "type": "n8n-nodes-base.telegram",

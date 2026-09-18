@@ -8,10 +8,47 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
   git rebase origin/main || echo "⚠️ git rebase 失敗，需要手動處理衝突"
 fi
 
-# 每次 session 開場都自動跑一次分岔檢查，不用再靠人記得
+# 每次 session 開場都自動跑一次分岔檢查，不用再靠人記得。
+#
+# 但這支要跑 ~90 秒，而開機會同時開 3 個助理視窗（assistant1/2/3），
+# 三個各跑一次＝同樣的結果查三遍、三個視窗都卡著不能打字。
+# 所以改成「查一次、三個共用」：結果存快取，10 分鐘內直接讀快取。
+# 用 mkdir 當鎖（原子操作），同時開機時只有搶到鎖的那個真的去查，
+# 另外兩個秒開、讀上一份結果並標明時間，不會出現「以為沒問題其實沒查」的假安心。
+CACHE_DIR="$HOME/.claude/cache"
+CACHE_FILE="$CACHE_DIR/n8n_check.txt"
+LOCK_DIR="$CACHE_DIR/n8n_check.lock"
+CACHE_MAX_AGE=600   # 10 分鐘
+LOCK_MAX_AGE=300    # 鎖超過 5 分鐘視為當掉殘留，強制清掉
+
+mkdir -p "$CACHE_DIR"
+
+age_of() { [ -e "$1" ] && echo $(( $(date +%s) - $(stat -c %Y "$1") )) || echo 999999; }
+
 if command -v python >/dev/null 2>&1 && [ -f scripts/n8n_sync.py ]; then
   echo "=== n8n_sync.py --check ==="
-  python scripts/n8n_sync.py --check || echo "⚠️ n8n_sync.py --check 執行失敗，稍後手動確認"
+
+  # 清掉當掉留下的鎖，否則之後永遠不會重查
+  [ -d "$LOCK_DIR" ] && [ "$(age_of "$LOCK_DIR")" -gt "$LOCK_MAX_AGE" ] && rmdir "$LOCK_DIR" 2>/dev/null
+
+  CACHE_AGE=$(age_of "$CACHE_FILE")
+
+  if [ "$CACHE_AGE" -lt "$CACHE_MAX_AGE" ]; then
+    cat "$CACHE_FILE"
+    echo "（$((CACHE_AGE / 60)) 分鐘前查的，三個視窗共用同一份）"
+  elif mkdir "$LOCK_DIR" 2>/dev/null; then
+    N8N_OUT=$(python scripts/n8n_sync.py --check 2>&1) \
+      || N8N_OUT="$N8N_OUT
+⚠️ n8n_sync.py --check 執行失敗，稍後手動確認"
+    printf '%s\n' "$N8N_OUT" > "$CACHE_FILE"
+    printf '%s\n' "$N8N_OUT"
+    rmdir "$LOCK_DIR" 2>/dev/null
+  elif [ -f "$CACHE_FILE" ]; then
+    cat "$CACHE_FILE"
+    echo "⏳ 另一個視窗正在重新檢查中；以上是 $((CACHE_AGE / 60)) 分鐘前的結果"
+  else
+    echo "⏳ 另一個視窗正在跑檢查，這裡先跳過。要自己看：python scripts/n8n_sync.py --check"
+  fi
 fi
 
 # === 長度體檢 ===

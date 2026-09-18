@@ -124,9 +124,14 @@ n8n 2.x 把登入綁瀏覽器指紋，**用瀏覽器做寫入會 401 並把使�
 `行事曆`/`客戶` 也接受傳圖片（手寫便條、會議截圖、名片）→ 下游過 Gemini Vision 抽欄位。
 
 > **2026-07-23 退役**：`建檔 <網址>`、`發 YCxxx`、`生成文案 YCxxx` 已從 router 拔掉
-> （下游 `YC 建檔器 v2` / `YC 發文線` / `文案重產器` 三支 workflow 一併停用）。
-> 要復原：三支開回 active，router 的 `解析 LINE 指令` 節點加回 create/publish/rewrite 三行對應
-> （Switch 分支與轉發節點都還在）。原始 router JSON 備份在 `backup/n8n-router-v3-before-2026-07-23.json`。
+> （下游 `YC 建檔器 v2` / `YC 發文線` / `文案重產器` 三支 workflow 一併停用，
+> **2026-09-15 已從 n8n 刪除**，JSON 取回方式見下）。
+> ⚠️ `backup/` 有 gitignore，那份只在門市電腦本機。**跨機器要取回一律走 git 歷史**：
+> `git show fa81093^:workflows/yc-fb-publish.json > yc-fb-publish.json`
+> （另三支換檔名：`line-news-push.json` / `yc-property-create.json` / `yc-rewrite-copy.json`）
+> 要復原：先開新空白 workflow 匯入那三份 JSON，再把 router 的 `解析 LINE 指令` 節點
+> 加回 create/publish/rewrite 三行對應（Switch 分支與轉發節點都還在）。
+> 原始 router JSON 備份在 `backup/n8n-router-v3-before-2026-07-23.json`。
 > ⚠️「戰果」是搶單專用關鍵字，廣告不要用。
 
 ---
@@ -166,7 +171,7 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發（分不出時預設客戶）
 - **KEIS 待聯絡提醒**：每天 09:00 查搶單名單 → 挑「未聯絡 且 搶到滿 7 天剩≤2 天」→ 有才推 LINE。搭配 Notion 視圖「🔔 待聯絡」
   ⚠️ **在 Notion 手動刪名單是沒用的**：`audit_notion` 拿 `grabbed.csv` 當唯一真相，刪掉＝它眼中的缺漏 → 補回來。**要讓一筆退場一律改「聯絡狀態」**
-- ~~物件建檔器 / 文案重產器 / YC 發文線~~：2026-07-23 停用，功能由線 A + `/yc-ad` skill 取代
+- ~~物件建檔器（v2） / 文案重產器 / YC 發文線 / LINE 新聞推播~~：2026-07-23 停用、**2026-09-15 刪除**，功能由線 A + `/yc-ad` skill 取代。取回 JSON 見上面 LINE 指令區的 `git show` 指令（`YC 建檔器 v3` 保留為停用狀態）
 - ~~撤除回報器 / YC 下架偵測線（舊）~~：2026-07-23 刪除，功能由線 B 取代。JSON 備份在 `backup/n8n-deleted-2026-07-23/`
 
 ---
@@ -475,6 +480,26 @@ n8n 整台燒掉它照樣會叫。**
 | log | `桌面\keis\logs\ad-watchdog.log`；狀態 `ad_watchdog_state.json` |
 | 測試 | `python ad_watchdog.py --dry`（只印不推、**不寫狀態檔**）|
 
+⚠️ **這支現有的三個判斷不涵蓋「AI 語意審核被吞錯」**——判斷三只抓格式壞掉（JSON殘骸/`\n`），
+數字對不對交給 n8n 自己的「數字守門員」（同一執行裡就有 `_guardOk`/`_guardBad`，看得到但這支
+沒去讀）。真正只有 AI 審核能抓的是語意層（混到別間房子、憑空編造、自打架），這塊 2026-09-14
+評估過要不要補一支「文案審核後備檢查」，結論是**不建**，見下面「Cowork 雲端排程」那條的教訓。
+目前做法：n8n 的「靜默失敗巡邏」抓到「文案交叉審核」被跳過會推 Telegram，收到就轉貼給 Claude
+現查（2 分鐘內查得完，讀執行資料裡的「解析文案+footer」跟官方欄位比對即可，不用另外的自動化）。
+
+## Cowork 雲端排程（RemoteTrigger／`schedule` skill）：不能拿來做需要外部 API 金鑰的監控
+
+Cowork（`claude.ai/code/routines`）目前只有兩支在跑：「疑似同業每日網頁比對」「GitHub帳號停權
+檢查」，兩支都只靠 Notion MCP／WebFetch，**沒有用到任何外部服務的 API 金鑰**。這不是巧合——
+2026-09-14 想幫它加一支要讀 n8n API＋推 Telegram 的排程，撞到兩個死結：
+1. `job_config.ccr.environment_variables` 這個欄位**看起來能填，實際上 API 會靜靜丟掉**（create/
+   update 回應裡 echo 回來是空的），排程執行時完全拿不到金鑰。
+2. 改成把金鑰明碼寫進排程的 prompt 文字裡，兩次都被 Claude Code 的安全分類器擋下（判定為
+   「Credential Leakage」／「Credential Exploration」），**不該想辦法繞過去，這道防線是對的**。
+**結論**：Cowork 排程只適合用「Notion MCP／WebFetch／WebSearch」這種不需要自己帶金鑰的任務；
+只要工作需要 n8n API key、Telegram bot token 這類本機才有的憑證，一律留在本機（Task Scheduler
+讀 `.env`），不要浪費時間想辦法把金鑰塞進 Cowork。
+
 ---
 
 ## 獨立桌面工具（深度細節見各自 README）
@@ -483,7 +508,7 @@ n8n 整台燒掉它照樣會叫。**
 
 | 工具 | 狀態 | 深度文件 |
 |---|---|---|
-| **公買搶單** `scripts/keis/grab.py` | 🟢 上線。**搶單規則（2026-07-23 定案，別再改）**：只看編號最大的前 40 筆窗口（`WINDOW_SIZE`）＋建檔超過 10 天不搶（`MAX_AGE_DAYS`）＋二手回鍋不搶。**拉大窗口＝拆掉把關**（試過，10 分鐘誤搶一筆半年前的老案，已回退）。全池掃描每小時一次、輪流換帳號，只寫 `inventory.csv` 稽核總帳。篩選：只搶手機／排除公寓＋土地／預算<1000萬不搶／記行政區／`EXCLUDE_DISTRICTS` 排除美濃/六龜/岡山/路竹/大寮/橋頭/杉林/燕巢/林園/梓官。兩帳號（薛力瑜＋周珈伊）共 14 配額。空窗 ≥7 天回來前先跑 `--record`（只記錄不申請）補紀錄再開 `--watch`，否則會被判「基準快照」整批不搶。分層時段 07:00-10:00／10:00-17:30／17:30-24:00／00:00-07:00(等同停止)——**早上熱門檔起點 07:00 別改回 07:30**（輪詢間隔是睡前算一次不重算，門市網路約 07:22 恢復時若還在深夜檔會睡到 07:52）。回報固定三段式「新名單／符合條件／打中」。**防重複**：寫 Notion 前先查同電話（只留數字比對），來過就打勾 `重複電話`＋`同電話前一筆` relation 連回去、備註寫前幾筆資訊，舊那幾筆也一起打勾 | `scripts/keis/README.md`、`docs/keis-grab-hardening-and-filters.md` |
+| **公買搶單** `scripts/keis/grab.py` | 🟢 上線。**搶單規則（2026-07-23 定案，別再改）**：只看編號最大的前 40 筆窗口（`WINDOW_SIZE`）＋建檔超過 10 天不搶（`MAX_AGE_DAYS`）＋二手回鍋不搶。**拉大窗口＝拆掉把關**（試過，10 分鐘誤搶一筆半年前的老案，已回退）。全池掃描每 4 小時一次、輪流換帳號，只寫 `inventory.csv` 稽核總帳。篩選：只搶手機／排除公寓＋土地／預算<1000萬不搶／記行政區／`EXCLUDE_DISTRICTS` 排除美濃/六龜/岡山/路竹/大寮/橋頭/杉林/燕巢/林園/梓官/大社/旗山。兩帳號（薛力瑜＋周珈伊）共 14 配額。空窗 ≥7 天回來前先跑 `--record`（只記錄不申請）補紀錄再開 `--watch`，否則會被判「基準快照」整批不搶。分層時段 07:00-10:00／10:00-17:30／17:30-24:00／00:00-07:00(等同停止)——**早上熱門檔起點 07:00 別改回 07:30**（輪詢間隔是睡前算一次不重算，門市網路約 07:22 恢復時若還在深夜檔會睡到 07:52）。回報固定三段式「新名單／符合條件／打中」。**防重複**：寫 Notion 前先查同電話（只留數字比對），來過就打勾 `重複電話`＋`同電話前一筆` relation 連回去、備註寫前幾筆資訊，舊那幾筆也一起打勾 | `scripts/keis/README.md`、`docs/keis-grab-hardening-and-filters.md` |
 | **自動簽到** `scripts/clockin/` | 🟢 上線。jitter 0-60 分為常態分佈（中心 30 分）。⚠️ 2026-08-24 發現 Windows 工作排程被 Disabled（上次成功執行停在 08-09），已重新 Enable，下次跑 08-27 | `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-20 第 4 輪修完。**實際執行的是桌面 `工具\不動產售屋表工具_v3.4\zipinspect\`**（資料夾名是舊版號、內容才是新的），改完兩邊要同步。`template/*.xltx` 兩個 Excel 範本非它不可。⚠️ 待門市拿真實案件實測；塗銷防護只用模擬文字驗過 | `scripts/sale-form/README.md`、桌面 `售屋表v3.6實測清單.md` |
 | **租屋廣告文案** `scripts/rent-ad/` | 🟢 使用中（社宅／包租代管）。**桌面檔名是 `工具\國城\國城廣告文生產器.py`**，別只找「租屋」| `scripts/rent-ad/README.md` |

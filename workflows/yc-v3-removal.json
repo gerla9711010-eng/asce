@@ -46,7 +46,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ filter: { property: '狀態', select: { equals: '已發布' } }, page_size: 100 }) }}",
+        "jsonBody": "={{ JSON.stringify({ filter: $json.notionFilter, page_size: 100 }) }}",
         "options": {}
       },
       "id": "v3b-02-query",
@@ -118,7 +118,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 下架判定，兩套邏輯：\n//\n// (1) 有 KEIS廣告ID 的（v3 自己發的）→ 直接看 KEIS 廣告追蹤怎麼標。\n//     那個頁面本來就是拿來盯廣告死活的：KEIS 每天凌晨會去抓一輪 adcase_url，\n//     失效就把 url_invalid 設成 true、status_tags 加「案件下架」。實測新增時也會在 ~15 秒內抓一次。\n//     這比我們自己去打永慶網站準，也不用每筆手動確認。\n//\n// (2) 沒有 KEIS廣告ID 的（v2 時期用 LINE 手動建檔的舊資料，本來就不在 KEIS）\n//     → 退回雙重確認：property-management 查無 **而且** 永慶官網連結真的死了。\n//     只看其中一邊都會誤判：舊資料本來就不在 KEIS；物件還在賣時官網連結會正常回應。\n// ⚠️ 2026-08-05 改：原本二次確認打的是「來源連結」（＝KEIS official_url，houseol 網址）。\n//     houseol 的 sell_item 頁本來就會過期，實測全部 404 → 那道二次確認恆真、保險絲等於沒接。\n//     該欄位已刪除，改打「永慶官網連結」（線A 用物件編號反查出來的，KEIS 廣告也是拿它當 adcase_url）。\nconst items = $input.all();\n\nconst adMap = {};\ntry {\n  const raw = $('KEIS 撈廣告清單').first().json;\n  const body = raw.body ?? raw;\n  for (const a of (body.adcases || [])) adMap[a.adcase_id] = a;\n} catch (e) {}\n\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const inItem = $('展開結果').itemMatching(i).json || {};\n  const adId = Number(inItem.keisAdId || 0);\n  let isRemoved = false, reason = '';\n  // 降價重發用：KEIS 每天自己會拿廣告建檔價(adcase_price)去比官網現價(url_price)，\n  // 降了就掛「降價XX萬」標籤。我們不用自己算，直接沿用它的判斷。\n  let priceDropped = false, oldPrice = 0, newPrice = 0, dropAmount = 0;\n\n  if (adId > 0) {\n    const ad = adMap[adId];\n    if (!ad) {\n      reason = `KEIS 廣告追蹤查無 #${adId}（可能被手動刪掉）→ 略過`;\n    } else {\n      const tags = Array.isArray(ad.status_tags) ? ad.status_tags : [];\n      const tagDead = tags.some(t => String(t).includes('下架'));\n      if (ad.url_invalid === true || tagDead) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤標記官網連結已失效' + (tags.length ? `（${tags.join('、')}）` : '');\n      } else if (ad.is_expired === true) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤上這筆已結束';\n      } else {\n        reason = 'KEIS 廣告追蹤顯示連結正常';\n        // 還在架上 → 看看有沒有降價。降價要重發一篇新的（編輯舊貼文不會重新進動態消息，\n        // 等於沒人看得到），所以這裡只負責勾「要重發」，實際重發交給線 C。\n        const oldP = Number(ad.adcase_price || 0);\n        const newP = Number(ad.url_price || 0);\n        if (tags.some(t => String(t).includes('降價')) && oldP > 0 && newP > 0 && newP < oldP && inItem.fbPostUrl) {\n          priceDropped = true; oldPrice = oldP; newPrice = newP;\n          dropAmount = Math.round((oldP - newP) * 10) / 10;\n          reason += `；偵測到降價 ${dropAmount} 萬（${oldP} → ${newP}），排入重發`;\n        }\n      }\n    }\n  } else {\n    const r = items[i].json || {};\n    const status = Number(r.statusCode ?? r.status ?? 0);\n    const body = r.body ?? r;\n    let keisOk = false, keisGone = false;\n    if (status === 200 && body && typeof body === 'object') {\n      keisOk = true;\n      const items = body.items || body.data || [];\n      const total = body.total != null ? Number(body.total) : items.length;\n      if (total === 0) { keisGone = true; reason = '(舊資料) KEIS 查無此案'; }\n      else if (items[0] && items[0].is_active === false) { keisGone = true; reason = '(舊資料) KEIS is_active=false'; }\n      else { reason = '(舊資料) 仍在架上'; }\n    } else {\n      reason = `(舊資料) KEIS 暫時無法確認(HTTP ${status})，本次略過`;\n    }\n    if (keisOk && keisGone) {\n      const url = inItem.sourceUrl || '';\n      if (!url) {\n        reason += '；無永慶官網連結可二次確認 → 略過';\n      } else {\n        try {\n          const resp = await this.helpers.httpRequest({\n            url, json: false, timeout: 20000, returnFullResponse: true, ignoreHttpStatusErrors: true,\n            headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' } });\n          const code = Number(resp.statusCode || 0);\n          const html = String(resp.body || '');\n          const dead = code >= 400 || /已下架|物件不存在|已成交|查無此物件|查無此案/.test(html);\n          if (dead) { isRemoved = true; reason += `；永慶官網連結已失效(HTTP ${code}) → 判定下架`; }\n          else { reason += `；但永慶官網連結仍正常(HTTP ${code}) → 略過`; }\n        } catch (e) {\n          reason += '；永慶官網連結查詢失敗 → 略過';\n        }\n      }\n    }\n  }\n  out.push({ json: { ...inItem, isRemoved, reason, priceDropped, oldPrice, newPrice, dropAmount,\n    detectedAt: new Date().toISOString() } });\n}\nreturn out;"
+        "jsCode": "// 下架判定，兩套邏輯：\n//\n// (1) 有 KEIS廣告ID 的（v3 自己發的）→ 直接看 KEIS 廣告追蹤怎麼標。\n//     那個頁面本來就是拿來盯廣告死活的：KEIS 每天凌晨會去抓一輪 adcase_url，\n//     失效就把 url_invalid 設成 true、status_tags 加「案件下架」。實測新增時也會在 ~15 秒內抓一次。\n//     這比我們自己去打永慶網站準，也不用每筆手動確認。\n//\n// (2) 沒有 KEIS廣告ID 的（v2 時期用 LINE 手動建檔的舊資料，本來就不在 KEIS）\n//     → 退回雙重確認：property-management 查無 **而且** 永慶官網連結真的死了。\n//     只看其中一邊都會誤判：舊資料本來就不在 KEIS；物件還在賣時官網連結會正常回應。\n// ⚠️ 2026-08-05 改：原本二次確認打的是「來源連結」（＝KEIS official_url，houseol 網址）。\n//     houseol 的 sell_item 頁本來就會過期，實測全部 404 → 那道二次確認恆真、保險絲等於沒接。\n//     該欄位已刪除，改打「永慶官網連結」（線A 用物件編號反查出來的，KEIS 廣告也是拿它當 adcase_url）。\nconst items = $input.all();\n\n// ⚠️ 一定要 .all()：廣告清單節點已改成翻頁，一頁一個 item。\n// 用 .first() 只會拿到前 100 筆，2026-09-05 就是這樣漏掉 5 筆降價/漲價（見「挑要檢查的」註解）。\nconst adMap = {};\ntry {\n  for (const page of $('KEIS 撈廣告清單').all()) {\n    const body = page.json.body ?? page.json;\n    for (const a of (body.adcases || [])) adMap[a.adcase_id] = a;\n  }\n} catch (e) {}\n\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const inItem = $('展開結果').itemMatching(i).json || {};\n  const adId = Number(inItem.keisAdId || 0);\n  let isRemoved = false, reason = '';\n  // 調價重發用：KEIS 每天自己會拿廣告建檔價(adcase_price)去比官網現價(url_price)，\n  // 差了就掛「降價XX萬」/「漲價XX萬」標籤。我們不用自己算，直接沿用它的判斷。\n  let priceChanged = false, priceDir = '', oldPrice = 0, newPrice = 0, diffAmount = 0;\n\n  if (adId > 0) {\n    const ad = adMap[adId];\n    if (!ad) {\n      reason = `KEIS 廣告追蹤查無 #${adId}（可能被手動刪掉）→ 略過`;\n    } else {\n      const tags = Array.isArray(ad.status_tags) ? ad.status_tags : [];\n      const tagDead = tags.some(t => String(t).includes('下架'));\n      if (ad.url_invalid === true || tagDead) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤標記官網連結已失效' + (tags.length ? `（${tags.join('、')}）` : '');\n      } else if (ad.is_expired === true) {\n        isRemoved = true;\n        reason = 'KEIS 廣告追蹤上這筆已結束';\n      } else {\n        reason = 'KEIS 廣告追蹤顯示連結正常';\n        // 還在架上 → 看看有沒有降價。降價要重發一篇新的（編輯舊貼文不會重新進動態消息，\n        // 等於沒人看得到），所以這裡只負責勾「要重發」，實際重發交給線 C。\n        // 漲價也要重發（2026-09-05 加）：臉書掛著比官網低的舊價＝廣告不實，\n        // 比降價沒跟上更危險。文案上不寫「漲價」字樣，只把價格換成新價。\n        const oldP = Number(ad.adcase_price || 0);\n        const newP = Number(ad.url_price || 0);\n        const 降 = tags.some(t => String(t).includes('降價'));\n        const 漲 = tags.some(t => String(t).includes('漲價'));\n        if ((降 || 漲) && oldP > 0 && newP > 0 && newP !== oldP && inItem.fbPostUrl) {\n          priceChanged = true; priceDir = 降 ? '降價' : '漲價';\n          oldPrice = oldP; newPrice = newP;\n          diffAmount = Math.round(Math.abs(oldP - newP) * 10) / 10;\n          reason += `；偵測到${priceDir} ${diffAmount} 萬（${oldP} → ${newP}），排入重發`;\n        }\n      }\n    }\n  } else {\n    const r = items[i].json || {};\n    const status = Number(r.statusCode ?? r.status ?? 0);\n    const body = r.body ?? r;\n    let keisOk = false, keisGone = false;\n    if (status === 200 && body && typeof body === 'object') {\n      keisOk = true;\n      const items = body.items || body.data || [];\n      const total = body.total != null ? Number(body.total) : items.length;\n      if (total === 0) { keisGone = true; reason = '(舊資料) KEIS 查無此案'; }\n      else if (items[0] && items[0].is_active === false) { keisGone = true; reason = '(舊資料) KEIS is_active=false'; }\n      else { reason = '(舊資料) 仍在架上'; }\n    } else {\n      reason = `(舊資料) KEIS 暫時無法確認(HTTP ${status})，本次略過`;\n    }\n    if (keisOk && keisGone) {\n      const url = inItem.sourceUrl || '';\n      if (!url) {\n        reason += '；無永慶官網連結可二次確認 → 略過';\n      } else {\n        try {\n          const resp = await this.helpers.httpRequest({\n            url, json: false, timeout: 20000, returnFullResponse: true, ignoreHttpStatusErrors: true,\n            headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' } });\n          const code = Number(resp.statusCode || 0);\n          const html = String(resp.body || '');\n          const dead = code >= 400 || /已下架|物件不存在|已成交|查無此物件|查無此案/.test(html);\n          if (dead) { isRemoved = true; reason += `；永慶官網連結已失效(HTTP ${code}) → 判定下架`; }\n          else { reason += `；但永慶官網連結仍正常(HTTP ${code}) → 略過`; }\n        } catch (e) {\n          reason += '；永慶官網連結查詢失敗 → 略過';\n        }\n      }\n    }\n  }\n  out.push({ json: { ...inItem, isRemoved, reason, priceChanged, priceDir, oldPrice, newPrice, diffAmount,\n    detectedAt: new Date().toISOString() } });\n}\nreturn out;"
       },
       "id": "v3b-05-judge",
       "name": "判斷是否下架",
@@ -479,7 +479,7 @@
     },
     {
       "parameters": {
-        "url": "https://keis.kshouse.com.tw/api/v1/adcases?skip=0&limit=100",
+        "url": "https://keis.kshouse.com.tw/api/v1/adcases?limit=100",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -497,7 +497,25 @@
               "responseFormat": "json"
             }
           },
-          "timeout": 30000
+          "timeout": 30000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "skip",
+                    "value": "={{ $pageCount * 100 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ ($response.body.adcases || []).length < 100 }}",
+              "limitPagesFetched": true,
+              "maxRequests": 30
+            }
+          }
         }
       },
       "name": "KEIS 撈廣告清單",
@@ -686,7 +704,7 @@
     },
     {
       "id": "pricedrop-if-20260805",
-      "name": "有降價?",
+      "name": "有調價?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -705,7 +723,7 @@
           "conditions": [
             {
               "id": "pd-b1",
-              "leftValue": "={{ $json.priceDropped }}",
+              "leftValue": "={{ $json.priceChanged }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -813,6 +831,19 @@
       },
       "id": "2702da57-8c08-4ac2-a8c2-458c3dc9cee7",
       "webhookId": "3e1ec952-da76-4aca-acd0-5e8e739214af"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 從整份廣告清單挑出「今天需要跟 Notion 對帳的」，再拿去組 Notion 查詢條件。\n//\n// 為什麼要這一步（2026-09-05 加）：Notion 一次最多回 100 筆、KEIS 一次最多回 100 筆，\n// 這條線本來兩邊都是硬吃 100 筆就算了。實測當天 KEIS 有 184 筆廣告、Notion 有 171 筆已發布，\n// 結果 5 筆降價/漲價（含降價 700 萬那件）和 2 筆已標「案件下架」的，從頭到尾沒被檢查過，\n// 而且程式判定是「查無此廣告 → 略過」，靜悄悄地不告警。\n//   ⚠️ 使用者以為「有標籤的會被置頂到第一頁」——那是 ad-tracker 網頁自己排的，\n//      API 不帶排序參數回來的原始順序裡，降價 700 萬那筆排在第 164 位。\n// 廣告清單本身已改成翻頁撈滿，這裡再把 Notion 那邊從「整份 171 筆」縮成「只查有事的那幾筆」，\n// 兩個 100 筆天花板一次拆掉。\nconst pages = $input.all();\nconst ads = [];\nfor (const p of pages) {\n  const body = p.json.body ?? p.json;\n  for (const a of (body.adcases || [])) ads.push(a);\n}\n\n// 保險絲：分頁一旦失效（改版、KEIS 換 API、有人手動編輯掉設定），這條線會退回\n// 「只看得到前 100 筆 → 其餘一律略過」，而且長得跟「今天沒事」一模一樣——就是 09-05 那個 bug。\n// 只有一頁而且剛好滿 100 筆＝分頁沒跑。寧可整條線報錯（有 errorWorkflow 會推播），也不要靜靜地漏。\nif (pages.length === 1 && ads.length >= 100) {\n  throw new Error('廣告清單分頁沒生效：只回了 1 頁 ' + ads.length + ' 筆。'\n    + '確認「KEIS 撈廣告清單」節點 Settings→Pagination 還在（qs skip = $pageCount * 100，'\n    + '完成條件 $response.body.adcases.length < 100）。修好前下架偵測等於沒跑。');\n}\n\nconst 有事 = a => {\n  const tags = Array.isArray(a.status_tags) ? a.status_tags : [];\n  return a.url_invalid === true || a.is_expired === true\n      || tags.some(t => /下架|降價|漲價/.test(String(t)));\n};\n// 新到舊排，這樣萬一條件太多被砍，砍掉的是最老的（老的早就處理過了，安全的那一邊）\nlet 要查 = ads.filter(有事).sort((x, y) => Number(y.adcase_id) - Number(x.adcase_id));\nconst 上限 = 90;                       // Notion 一個 filter 最多 100 個條件，留 10 個緩衝\nconst 超出 = Math.max(0, 要查.length - 上限);\n要查 = 要查.slice(0, 上限);\n\nconst ors = 要查.map(a => ({ property: 'KEIS廣告ID', number: { equals: Number(a.adcase_id) } }));\n// v2 時期手動建的舊資料沒有 KEIS廣告ID，KEIS 廣告追蹤上根本沒有它們，\n// 一律帶進來走「KEIS 物件查無 + 永慶官網連結也死了」的雙重確認路徑\nors.push({ property: 'KEIS廣告ID', number: { is_empty: true } });\n\nreturn [{ json: {\n  notionFilter: { and: [ { property: '狀態', select: { equals: '已發布' } }, { or: ors } ] },\n  廣告總數: ads.length,\n  要查筆數: 要查.length,\n  超出上限: 超出,\n} }];\n"
+      },
+      "id": "pickcheck01",
+      "name": "挑要檢查的",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1080,
+        -32
+      ]
     }
   ],
   "connections": {
@@ -911,7 +942,7 @@
         ],
         [
           {
-            "node": "有降價?",
+            "node": "有調價?",
             "type": "main",
             "index": 0
           }
@@ -1017,7 +1048,7 @@
       "main": [
         [
           {
-            "node": "查 Notion 已發布",
+            "node": "挑要檢查的",
             "type": "main",
             "index": 0
           },
@@ -1101,7 +1132,7 @@
         ]
       ]
     },
-    "有降價?": {
+    "有調價?": {
       "main": [
         [
           {
@@ -1111,6 +1142,17 @@
           }
         ],
         []
+      ]
+    },
+    "挑要檢查的": {
+      "main": [
+        [
+          {
+            "node": "查 Notion 已發布",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
