@@ -1726,7 +1726,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 型態/屋齡分層（2026-09-19 使用者定案）\n//   硬性：只發 大樓 / 透天 / 華廈（土地、車位、其他一律不發）\n//   優先：屋齡 ≤ 25 年 且 總價 ≥ 1000 萬 → 其次 屋齡 ≤ 25 年的 800~999 萬\n//   遞補：上面湊不滿就從最新的往下拿（型態仍然要對，屋齡不限）\n// 為什麼在這裡做：property_type / age 只有「單筆詳情 API」有，列表 API 沒有，\n//   所以判重之後才抓詳情，再分層。列表 API 不吃任何篩選參數（2026-09-19 實測）。\nconst TYPE_OK = /大樓|透天|華廈/;\nconst MAX_AGE = 25;        // 年，含\nconst VIP_PRICE = 1000;    // 萬，含\n\nconst rank = new Map($('篩選候選').all().map((it, i) => [Number(it.json.keisId), i]));  // 新到舊名次\nconst rows = $input.all().map(i => (i.json.data || i.json)).filter(x => x && x.id);\n\n// 欄位體檢：整批都拿不到型態或屋齡＝KEIS 又砍欄位。這時退回改版前行為（照舊發），\n// 不能靜悄悄整班發不出去——2026-07-23 就是這樣空轉的。\nconst degraded = rows.length > 0 &&\n  (!rows.some(x => x.property_type) || !rows.some(x => x.age !== null && x.age !== undefined));\n\nconst pack = x => ({\n  keisId: x.id,\n  contract_no: String(x.contract_no || '').toUpperCase(),\n  case_name: x.case_name || '',\n  _type: x.property_type || '',\n  _age: (x.age === null || x.age === undefined) ? null : Number(x.age),\n  _price: Number(x.case_price) || 0,\n  _degraded: degraded,\n});\nconst byRank = (a, b) => (rank.has(a.keisId) ? rank.get(a.keisId) : 999) -\n                         (rank.has(b.keisId) ? rank.get(b.keisId) : 999);\n\nlet picked;\nif (degraded) {\n  picked = rows.map(pack).sort(byRank);\n} else {\n  const typed = rows.map(pack).filter(x => TYPE_OK.test(x._type));\n  const young = x => x._age !== null && x._age <= MAX_AGE;   // 屋齡抓不到＝不算年輕，只能當遞補\n  const t1 = typed.filter(x => young(x) && x._price >= VIP_PRICE).sort(byRank);\n  const t2 = typed.filter(x => young(x) && x._price < VIP_PRICE).sort(byRank);\n  const t3 = typed.filter(x => !young(x)).sort(byRank);\n  picked = [...t1, ...t2, ...t3];\n}\nreturn picked.map(json => ({ json }));\n"
+        "jsCode": "// 型態/屋齡分層（2026-09-19 使用者定案）\n//   硬性：只發 大樓 / 透天 / 華廈（土地、車位、其他一律不發）\n//   優先：屋齡 ≤ 25 年 且 總價 ≥ 1000 萬 → 其次 屋齡 ≤ 25 年的 800~999 萬\n//   遞補：上面湊不滿就從最新的往下拿（型態仍然要對，屋齡不限）\n// 為什麼在這裡做：property_type / age 只有「單筆詳情 API」有，列表 API 沒有，\n//   所以判重之後才抓詳情，再分層。列表 API 不吃任何篩選參數（2026-09-19 實測）。\nconst TYPE_OK = /大樓|透天|華廈/;\nconst MAX_AGE = 25;        // 年，含\nconst VIP_PRICE = 1000;    // 萬，含\n\nconst rank = new Map($('篩選候選').all().map((it, i) => [Number(it.json.keisId), i]));  // 新到舊名次\nconst rows = $input.all().map(i => (i.json.data || i.json)).filter(x => x && x.id);\n\n// 欄位體檢：整批都拿不到型態或屋齡＝KEIS 又砍欄位。這時退回改版前行為（照舊發），\n// 不能靜悄悄整班發不出去——2026-07-23 就是這樣空轉的。\n// 詳情整批打不回來（401/5xx/IP 擋）也算 degraded——不然這班會靜悄悄零產出還不告警\nconst dead = $input.all().length > 0 && rows.length === 0;\nconst degraded = dead || (rows.length > 0 &&\n  (!rows.some(x => x.property_type) || !rows.some(x => x.age !== null && x.age !== undefined)));\n\nconst pack = x => ({\n  keisId: x.id,\n  contract_no: String(x.contract_no || '').toUpperCase(),\n  case_name: x.case_name || '',\n  _type: x.property_type || '',\n  _age: (x.age === null || x.age === undefined) ? null : Number(x.age),\n  _price: Number(x.case_price) || 0,\n  _degraded: degraded,\n});\nconst byRank = (a, b) => (rank.has(a.keisId) ? rank.get(a.keisId) : 999) -\n                         (rank.has(b.keisId) ? rank.get(b.keisId) : 999);\n\nlet picked;\nif (degraded) {\n  // 退回改版前行為：照原本的新到舊名次發，型態/屋齡不篩\n  picked = dead ? $('只留未建過').all().map(i => ({ ...i.json, _degraded: true })).sort(byRank)\n                : rows.map(pack).sort(byRank);\n} else {\n  const typed = rows.map(pack).filter(x => TYPE_OK.test(x._type));\n  const young = x => x._age !== null && x._age <= MAX_AGE;   // 屋齡抓不到＝不算年輕，只能當遞補\n  const t1 = typed.filter(x => young(x) && x._price >= VIP_PRICE).sort(byRank);\n  const t2 = typed.filter(x => young(x) && x._price < VIP_PRICE).sort(byRank);\n  const t3 = typed.filter(x => !young(x)).sort(byRank);\n  picked = [...t1, ...t2, ...t3];\n}\nreturn picked.map(json => ({ json }));\n"
       },
       "id": "v3a-tier",
       "name": "型態屋齡分層",
@@ -1765,7 +1765,7 @@
       "id": "v3a-deg-if",
       "name": "型態欄位還在?",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "typeVersion": 2,
       "position": [
         -480,
         340
@@ -2537,18 +2537,12 @@
         ],
         [
           {
-            "node": "Telegram 詳情欄位告警",
+            "node": "取候補 3 件",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Telegram 詳情欄位告警": {
-      "main": [
-        [
+          },
           {
-            "node": "取候補 3 件",
+            "node": "Telegram 詳情欄位告警",
             "type": "main",
             "index": 0
           }
