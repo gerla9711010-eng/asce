@@ -41,9 +41,10 @@
   const rawSleep = (ms) => (TW ? TW(ms) : new Promise((r) => setTimeout(r, ms)));
   const rand = (min, max) => min + Math.random() * (max - min);
   /* 擬人化：每個等待都乘上 0.7~1.5 的隨機抖動，避免固定節奏被當成腳本。 */
-  const sleep = (ms) => rawSleep(rand(ms * 0.7, ms * 1.5));
-  /* 給明確的「人在停頓」情境用（客需之間、長休息），不吃上面的倍率、直接給範圍。 */
-  const pause = (min, max) => rawSleep(rand(min, max));
+  let SLOW = 3; // 全域減速倍率，FDBM.run({slow:N}) 可覆蓋
+  const sleep = (ms) => rawSleep(rand(ms * 0.7, ms * 1.5) * SLOW);
+  /* 給明確的「人在停頓」情境用（客需之間、長休息），直接給範圍，只吃減速倍率。 */
+  const pause = (min, max) => rawSleep(rand(min, max) * SLOW);
 
   const R = {
     log: [], done: 0, total: 0, cards: 0, expanded: 0, skipped: 0,
@@ -215,6 +216,7 @@
   /* ---------- 主流程 ---------- */
   async function run(opts) {
     opts = opts || {};
+    if (opts.slow > 0) SLOW = opts.slow;
     if (R.running) return;
     R.running = true;
     R.mode = opts.full ? 'full' : 'incremental';

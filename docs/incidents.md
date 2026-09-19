@@ -6,6 +6,37 @@
 
 ---
 
+## 2026-09-18｜GitHub 帳號 08-26 停權正式解除，官方回覆成因
+
+**症狀**：`git fetch`/`gh api user` 09-18 早上恢復正常，同一時間收到 GitHub Support 官方回信
+（Sep 17, 2026 11:28 PM UTC，工單 `[NNXWX5-X7Y47]`，客服 Ciro）。
+
+**GitHub 官方說法**（原文摘要）：「Sometimes our abuse detecting systems highlight accounts that
+need to be manually reviewed. We've cleared the restrictions from your account.」——**自動濫用偵測
+系統標記、人工審核後解除**，沒有具體點名是哪個行為觸發（沒有回答「實際觸發原因」那個追問）。
+
+**停權時長**：08-26 15:32 ～ 09-17 23:28 UTC，將近 23 天。
+
+**處理方式**：復權後一次性打包 54 筆停權期間的本機 commit 成單一 PR（#236）、`gh pr merge` 一次合併，
+之後就沒再動 git（見「PR節流」那條）。
+
+**學到什麼**：
+1. 「根因不明」是官方給的答案，不是我們沒查到——GitHub 自己也只講「automated abuse detecting
+   systems」，沒有更細的觸發條件。之後不用再追這個問題的「標準答案」。
+2. 使用者 2026-09-18 已決定：維持 `gh pr merge` 自動合併，但把節流從「2個/天」收緊到
+   **跨 session 每天最多 1 個 PR**（完整規則見 Claude 的 `github-account-suspension-recurring` 記憶）。
+   這是最佳猜測不是保證，下次如果照樣被停權，不代表這條規則沒用，可能是別的觸發源。
+
+**09-18 事後量化分析**（用 `gh api repos/.../pulls?state=closed` 拉全部 236 個 PR 的時間戳查的）：
+單日 PR 數不是關鍵——07-23 那天 26 個 PR（史上最高）反而沒事，比兩次觸發日都多。
+真正的共同點是**連續 3~4 天的堆疊期**：07-30 那次是 07-27(8)→07-28(12)→07-29(13)→07-30(4才炸)
+4天累積37個；08-26 那次是 08-24(6)→08-25(13)→08-26(3才炸)3天累積22個。另外每個 PR 從建立到
+合併幾乎都在 5~15 秒內（機器節奏），但這個特徵從 5 月就一直如此、不是觸發當天才有，單獨看也
+不是決定因素。**這是相關性不是因果**——GitHub 沒給規則，「1個PR/天」能打斷「連續多天堆疊」
+這個模式，但不保證有效。
+
+---
+
 ## 2026-09-18｜搶到的客戶姓名帶 `*`，把 Telegram 搶單通知炸掉
 
 **症狀**：n8n 執行失敗通知，卡在「Telegram 搶單通知」節點，`Bad request - please check your parameters`。
