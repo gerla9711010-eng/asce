@@ -138,4 +138,4 @@
 - **未來候補**：多開一個 IG 帳號專發廣告。使用者要先自己把 IG 轉商業帳號＋綁粉專開權限，
   之後才接 n8n。卡在帳號還沒建，不用主動催
 - **09-15 夾帶別的視窗未完成的改動**（[[parallel-claude-sessions]]，本次沒動邏輯只是一起 commit）：
-  `buyer-match/collect.js` v5→v6（擬人化隨機停頓）、`clockin.py` 加 Telegram 直推——都還沒實測過
+  `buyer-match/collect.js` v5→v6（擬人化隨機停頓＋預設慢3倍 `SLOW`，`run({slow:N})` 可調）、`clockin.py` 加 Telegram 直推——都還沒實測過
