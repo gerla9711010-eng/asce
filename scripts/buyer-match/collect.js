@@ -13,7 +13,9 @@
  * 2. 一律用 textContent，不用 innerText —— innerText 會強迫整頁重新排版，
  *    卡片一多就把主執行緒卡死（v2 就是這樣停擺的）。
  * 3. 卡片展開後「關不掉」（App 把 mat-expansion-panel 的收合鎖住了）。
- *    所以每 3~5 張卡（隨機）就切到別的客需再切回來，讓 Angular 重新渲染清單 = 全部歸零。
+ *    所以要切到別的客需再切回來，讓 Angular 重新渲染清單 = 全部歸零。但每次切換都是額外搜尋、
+ *    會撞「超過查詢次數限制」，所以現在改成盡量一次展開 20~28 張（MAXOPEN=30）才重置，
+ *    頁面變慢（LAG_MS）才提前重置。⚠️ 展開很多張會不會卡，2026-09-19 改的當下還沒實測。
  * 4. 「本次銷售刊登」一頁只有 5 筆，會分頁；不翻頁會漏掉永慶/台慶的連結。
  * 5. 官網判定用「徽章文字」(永慶/台慶/永義/有巢氏)，不用網域白名單 —— 網域用猜的會靜靜漏件。
  * 6. 下架判定：物件如果不再出現在該客需的搜尋結果裡，就從結果移除。
@@ -24,7 +26,8 @@
 (function () {
   const OFFICIAL = ['永慶', '台慶', '永義', '有巢氏'];
   const FOLDERS = ['A買', 'B買', 'C買'];
-  const MAXOPEN = 8;      // 展開中的卡超過這個數就提前重置
+  const MAXOPEN = 30;     // 展開中的卡超過這個數就提前重置（原 8，那是保險不是量出來的；每次重置＝額外搜尋，會撞查詢上限）
+  const LAG_MS = 1500;    // 讀一張卡的同步解析超過這個毫秒＝頁面變慢，提前重置
   const STATE_KEY = 'FDBM_STATE';
   /* 背景分頁會被 Chrome 把 setTimeout 降速 4~5 倍（看起來像卡住）。
      Worker 裡的計時器不受節流 → 一律走 Worker，建不起來才退回 setTimeout。 */
@@ -49,7 +52,7 @@
   const R = {
     log: [], done: 0, total: 0, cards: 0, expanded: 0, skipped: 0,
     hostsSeen: {}, out: [], running: false, mode: '',
-    startedAt: null, finishedAt: null, cur: '', idx: 0,
+    startedAt: null, finishedAt: null, cur: '', idx: 0, stop: false, limitText: '', lag: 0,
   };
 
   const T = (el, sel) => { const e = el.querySelector(sel); return e ? e.textContent.trim() : ''; };
@@ -58,6 +61,15 @@
     .map((e) => e.textContent.trim());
   const openCount = () => document.querySelectorAll('fd-property-detail').length;
   const note = (m) => { R.log.push(new Date().toTimeString().slice(0, 8) + ' ' + m); if (R.log.length > 500) R.log.splice(0, 250); };
+
+  /* 撞上限時網站右上角會跳提示條「超過查詢次數限制 請升級專業會員或聯絡客服」（2026-09-19 實見）。
+     字樣直接掃整個 body，不依賴提示條的容器 class；碰到就要停手，不然腳本會照樣一張張點下去。 */
+  function limitHit() {
+    const t = document.body.textContent || '';
+    const m = t.match(/超過查詢次數限制.{0,30}/);
+    if (m) { R.limitText = m[0]; return true; }
+    return false;
+  }
 
   function resultCount() {
     const e = document.querySelector('.result-summary');
@@ -191,11 +203,17 @@
   }
 
   async function readCard(p, items) {
+    if (limitHit()) throw new Error('上限訊息：' + R.limitText);
     if (!p.querySelector('fd-property-detail')) {
       (p.querySelector('mat-expansion-panel-header') || p.querySelector('fd-property-summary')).click();
       for (let w = 0; w < 25; w++) { await sleep(300); if (p.querySelector('fd-property-detail')) break; }
     }
     await sleep(600);
+    if (limitHit()) throw new Error('上限訊息：' + R.limitText);
+    if (!p.querySelector('fd-property-detail')) throw new Error('卡片展不開（疑似撞上限）');
+    const t0 = performance.now();
+    summary(p); listingRows(p);
+    R.lag = performance.now() - t0;
     const s = summary(p), rows = await allListingRows(p), fp = fingerprint(p);
     rows.forEach((r) => { if (r.host) R.hostsSeen[r.host] = (R.hostsSeen[r.host] || 0) + 1; });
     rows.filter((r) => OFFICIAL.includes(r.badge) && r.url).forEach((o) => items.push({
@@ -218,7 +236,7 @@
     opts = opts || {};
     if (opts.slow > 0) SLOW = opts.slow;
     if (R.running) return;
-    R.running = true;
+    R.running = true; R.stop = false;
     R.mode = opts.full ? 'full' : 'incremental';
     R.startedAt = new Date().toISOString();
     R.out = []; R.done = 0; R.cards = 0; R.expanded = 0; R.skipped = 0;
@@ -232,11 +250,14 @@
     /* only:['客需名','客需名'] → 只重跑指定客需（補漏用，其餘 state 原封不動） */
     if (opts.only && opts.only.length) list = list.filter((t) => opts.only.includes(t.demand));
     R.total = list.length;
+    if (!list.length) { note('讀不到任何客需（客需樹沒展開？），中止，不動 state'); return; }
 
     const state = opts.full ? { demands: {} } : loadState();
     const breakEvery = 8 + Math.floor(Math.random() * 3); // 每 8~10 個客需長休息一次
 
-    for (let k = opts.from || 0; k < list.length; k++) {
+    for (let k = opts.from || 0; k < Math.min(list.length, opts.to || list.length); k++) {
+      if (R.stop) { note('收到停止指令'); break; }
+      if (limitHit()) { R.stop = true; note('偵測到上限訊息，停手：' + R.limitText); break; }
       const t = list[k];
       R.idx = k;
       R.cur = keyOf(t);
@@ -297,19 +318,21 @@
         } else {
           const fresh = [];
           for (let ti = 0; ti < targets.length; ) {
-            const chunk = 3 + Math.floor(Math.random() * 3); // 3~5，別用固定值
+            if (R.stop) throw new Error('已停止，此客需不存檔');
+            const chunk = 20 + Math.floor(Math.random() * 9); // 20~28，別用固定值
             if (ti > 0) { await load(alt); await load(t.id); }
             const end = Math.min(ti + chunk, targets.length);
             const need = targets[end - 1] + 1;
             await ensureCards(need);
             const panels = [...document.querySelectorAll('fd-property-panel')];
-            for (let j = ti; j < end; j++) {
+            let j = ti;
+            for (; j < end; j++) {
               const p = panels[targets[j]];
               if (!p) continue;
-              try { await readCard(p, fresh); } catch (e) { note('卡片錯誤 ' + e.message); }
-              if (openCount() >= MAXOPEN) break;
+              await readCard(p, fresh);
+              if (openCount() >= MAXOPEN || R.lag > LAG_MS) { j++; break; }
             }
-            ti = end;
+            ti = j;
           }
           fresh.forEach((i) => { i.isNew = !!prev; });
           items = kept.concat(fresh);
@@ -324,6 +347,7 @@
       } catch (e) {
         R.out.push(Object.assign({}, t, { error: String((e && e.message) || e), cards: fps, items: [] }));
         note('客需失敗 ' + t.demand + ': ' + e);
+        if (total == null || /上限|展不開/.test(String((e && e.message) || e))) { R.stop = true; note('疑似撞查詢上限，自動停手（此客需不存檔）'); }
       }
       R.done++;
       saveState(state);
@@ -331,7 +355,7 @@
 
     /* 這次樹上已經沒有的客需 → 從 state 清掉，避免舊資料復活
        （只重跑部分客需時不能清，否則會把沒跑到的全砍掉） */
-    if (!(opts.only && opts.only.length)) {
+    if (!(opts.only && opts.only.length) && !R.stop) {
       const alive = new Set(list.map(keyOf));
       Object.keys(state.demands).forEach((k) => { if (!alive.has(k)) delete state.demands[k]; });
     }
@@ -350,9 +374,10 @@
       return {
         mode: R.mode, done: R.done, total: R.total, cards: R.cards, skipped: R.skipped,
         items: R.out.reduce((a, o) => a + (o.items ? o.items.length : 0), 0),
-        running: R.running, cur: R.cur, err: R.log.slice(-2),
+        running: R.running, stop: R.stop, limitText: R.limitText, cur: R.cur, err: R.log.slice(-2),
       };
     },
+    stop() { R.stop = true; return 'stopping'; },
     reset() { localStorage.removeItem(STATE_KEY); return 'state cleared'; },
     dump() { return btoa(unescape(encodeURIComponent(JSON.stringify(R)))); },
     /* 產頁面一律用這支：R.out 每次 run() 會清空，中斷就沒了；state 是逐個客需存下來的 */

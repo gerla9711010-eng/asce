@@ -7,5 +7,6 @@ ad_watchdog_state.json
 
 # 買方配案：抓下來的客戶名單與物件資料（含客戶姓名，個資法不上 git）
 scripts/buyer-match/data.json
+scripts/buyer-match/state-*.json
 scripts/buyer-match/*.html
 scripts/buyer-match/state-backup*.json
