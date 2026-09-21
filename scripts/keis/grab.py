@@ -75,6 +75,14 @@ MAX_BUDGET = None            # 預算上限(萬)，None=不限
 MAX_APPLY_PER_RUN = None     # 單次執行最多搶幾筆；None = 搶到當日配額用完為止
 DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 
+# ====== 額度不夠搶完時的優先順序（2026-09-21 加）======
+# 用途：符合篩選的名單數超過當日剩餘配額時，決定「先搶哪些」。
+# 三個條件各佔 1 分，符合越多分越高、越優先；分數相同再比建檔時間（新的優先）。
+# 這只影響「額度不夠、要挑誰」的順序，不影響 matches() 的收/不收判斷。
+PRIORITY_DISTRICTS = ["左營區", "鼓山區", "三民區"]   # 需求區域命中其一加 1 分
+PRIORITY_BUDGET_MIN = 2000                          # 預算上限(萬)超過此門檻加 1 分
+PRIORITY_TYPES = ["大樓", "透天"]                     # 物件類型命中其一加 1 分
+
 # ====== 品質控管篩選（2026-07-22 加）======
 ONLY_MOBILE = True            # True=只搶號碼是手機的，市話/空號一律不搶
 EXCLUDE_TYPES = ["公寓", "土地"]      # 這些類型不搶；類型空白 / "-" 不受影響照收
@@ -512,8 +520,21 @@ def age_days(rec: dict) -> float:
     return 0.0
 
 
+def priority_score(r: dict) -> int:
+    """額度不夠搶完時的優先分數，0~3。見 CONFIG 的 PRIORITY_* 三項。"""
+    score = 0
+    if any(d in a for a in (r.get("target_areas") or []) for d in PRIORITY_DISTRICTS):
+        score += 1
+    ceiling = r.get("budget_end") or r.get("budget_start") or 0
+    if ceiling and ceiling > PRIORITY_BUDGET_MIN:
+        score += 1
+    if r.get("property_category") in PRIORITY_TYPES:
+        score += 1
+    return score
+
+
 def pick_candidates(body: dict):
-    """挑出符合篩選條件、狀態可申請的名單（建檔新→舊）。
+    """挑出符合篩選條件、狀態可申請的名單（優先分數高→低，同分建檔新→舊）。
 
     這裡只做「條件符合」的過濾，**不判斷新舊**——新舊一律交給總帳的 is_truly_new()，
     定義只有一條（編號沒在總帳出現過＝剛進池）。不要再在這裡加建檔日期之類的閘門，
@@ -522,7 +543,7 @@ def pick_candidates(body: dict):
     quota = body.get("new_case_quota_remaining")
     quota = quota if quota is not None else 0
     cands = [r for r in records if matches(r)]
-    cands.sort(key=lambda r: r.get("start_time", ""), reverse=True)
+    cands.sort(key=lambda r: (priority_score(r), r.get("start_time", "")), reverse=True)
     return cands, quota
 
 
