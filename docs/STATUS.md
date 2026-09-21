@@ -101,14 +101,20 @@
 兩條規則已寫進 SKILL.md（使用者裁示，不用再問）：①**開價圖上不會有本案**——會需要銷報書就代表
 屋主還沒定價，別猜哪個 pin 是；②**土地持分拿不到就整欄留空白**，不寫「待查」不寫解釋，也不拿它推價格。
 
-### 1.5 🟢 買方配案系統（09-21 全 43 客需補完，桌面 `買方配案.html` 已更新）
+### 1.5 🟡 買方配案系統（09-21 補完 43 客需＋新增雙擊 GUI，GUI 還沒被真人登入實測過）
 
-`scripts/buyer-match/`：`collect.js` 貼進房地物件頁 Console → `FDBM.run()`（增量）/`FDBM.run({only:[...]})`
-（補漏）→ `FDBM.dumpState()` 或直接下載 `localStorage.FDBM_STATE` → 轉成 `data.json` →
-`node build_page.js`。43/43 客需、423 筆官網連結，`79842黃敏哲透天`、`杏湖社區`（合法 0 筆）都補齊。
-撞查詢上限的右上角提示條「超過查詢次數限制…」腳本會自動偵測停手、不存半成品；`MAXOPEN` 8→30、
-`resultCount()` 認得「找不到符合的物件」避免誤判成撞上限（09-21 修，杏湖社區踩過）。仍是手動半自動流程，
-**不要自動排程**。⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html` 已 gitignore。
+`scripts/buyer-match/`：手動貼 Console 的流程仍在（`collect.js` → `FDBM.run()` → `dumpState()` →
+`build_page.js`），09-21 全 43 客需、423 筆官網連結補完，含首跑漏的 `79842黃敏哲透天`、`杏湖社區`。
+撞查詢上限的提示條「超過查詢次數限制…」腳本會自動偵測停手不存半成品；`MAXOPEN` 8→30；
+`resultCount()` 認得「找不到符合的物件」避免誤判成撞上限（杏湖社區踩過的坑）。
+
+**新增**：桌面雙擊 `買方配案更新.bat` → 開 `scripts/buyer-match/gui.py`（tkinter），按「開始更新」
+自動跑完 `worker.py`（Playwright 開獨立瀏覽器 profile `browser-profile/`）→ 收集 → 產頁 → 覆蓋桌面
+`買方配案.html`，全程不用找 Claude。**只跑到「開瀏覽器、正確顯示要求登入」這步用自動化測過，
+真人登入後的完整收集流程還沒被實測**，第一次用要盯著看有沒有正常跑完。
+`worker.py` 的登入判斷、撞上限判斷、頁面重整重試都是照 `collect.js` 的邏輯抄的，理論上一致。
+**不要排程自動觸發，維持人手動雙擊。** ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/
+`browser-profile/` 已 gitignore。
 
 ### 2. FB 補救分支還沒被真實事件走完：收到「❌ 廣告沒發出去」就看該班 `判斷補救方式` 的 `mode`
 
