@@ -73,9 +73,14 @@
 
   function resultCount() {
     const e = document.querySelector('.result-summary');
-    if (!e) return null;
-    const m = e.textContent.match(/共\s*([\d,]+)\s*筆/);
-    return m ? parseInt(m[1].replace(/,/g, ''), 10) : null;
+    if (e) {
+      const m = e.textContent.match(/共\s*([\d,]+)\s*筆/);
+      if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+    }
+    /* 真的 0 筆時（常見於關鍵字搜尋）畫面不會渲染 .result-summary，
+       只會顯示這句話——沒有這道判斷會被當成撞上限，誤判成失敗（2026-09-21 杏湖社區踩到）。 */
+    if ((document.querySelector('div.main-body-container')?.textContent || '').includes('找不到符合的物件')) return 0;
+    return null;
   }
 
   /* ---------- 客需側欄 ---------- */
