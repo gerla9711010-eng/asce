@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-09-21 20:38 自動產生）
+# n8n 線上現況（2026-09-21 20:47 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -11,7 +11,7 @@
 | 🟢 | KEIS 心跳接收（極簡） | `KEIS-心跳接收極簡.json` | 1 | 2026-09-21T12:37 success |
 | 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | — |
 | 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | — |
-| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 4 | 2026-09-21T06:04 success |
+| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 4 | 2026-09-21T12:39 success |
 | 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 16 | — |
 | 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | — |
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | — |
