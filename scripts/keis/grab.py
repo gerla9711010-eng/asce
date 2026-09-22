@@ -931,14 +931,19 @@ track_top_id.last_alert = 0.0
 # 它同時是「二手貨判定」的唯一依據（見 CONFIG 的 ONLY_TRULY_NEW）：
 #   來源=新出現 → 第一次看到就是 Available、之前沒看過它 → 真新單，會搶
 #   來源=基準快照 → 建立總帳當下就已經躺在池子裡的，來歷不明 → 不搶
-#   曾冷卻=Y → 我們看過它是 CoolingDown（別人拿過），之後就算變回 Available 也是二手貨 → 不搶
+#   曾冷卻=Y   → 我們看過它是 CoolingDown（**別人**拿過），之後變回 Available 也是二手貨 → 不搶
+#   我方搶過=Y → **我們自己**申請過（查詢帳號看不到自己申請的，7 天到期回鍋會像全新單）→ 不搶
 INVENTORY_CSV = _LOCAL / "inventory.csv"     # 放本機、不進 OneDrive（怕又被同步弄壞）
 INVENTORY_SAVE_SEC = 120                     # 最快多久寫一次檔（有新單號一定立刻寫）
 MAX_INVENTORY_BAD_LINES = 200                # 壞行超過這個數就當整份總帳失敗，別硬撐著用殘骸
 INVENTORY_MIN_PARSE_RATIO = 0.9              # 讀出來的筆數至少要有檔案行數的九成，否則視為壞掉
 INVENTORY_COLS = ["summary_id", "首次看到", "首次狀態", "首次符合篩選", "來源", "曾冷卻", "最後看到",
                   "最後狀態", "建檔時間", "縣市", "行政區", "類型", "預算", "電話", "app_time",
-                  "符合篩選", "不符原因", "我方動作", "我方帳號"]
+                  "符合篩選", "不符原因", "我方動作", "我方帳號", "我方搶過"]
+# 2026-09-22：「曾冷卻」原本一欄兩用——既表示「別人拿過」也表示「我方搶過」，
+# 害對帳時完全分不出來（那天查 7 筆搶到的單，全是 Y，一度以為過濾漏掉二手貨）。
+# 拆成兩欄：曾冷卻＝別人拿過、我方搶過＝我們自己申請過。兩者都算二手貨不搶，行為不變。
+# 新欄位放在最後，舊的 inventory.csv 少這一欄也照樣讀得動。
 
 
 # ---------- 每日健檢：帳號 + 開盤守門（2026-08-04 加）----------
@@ -1342,13 +1347,15 @@ def is_truly_new(inv: dict, rec: dict) -> bool:
 
       沒紀錄              → 剛進池的真新單，可搶（未釋出的名單不會出現在 query 裡）
       來源=新出現+首次Available → 我們親眼看到它進池、當時沒人碰 → 可搶
-      曾冷卻=Y            → 二手貨（別人或我方拿過又回鍋），不搶
+      曾冷卻=Y／我方搶過=Y → 二手貨（別人拿過／我方自己搶過又回鍋），不搶
       來源=基準快照        → 建總帳之前就在池子裡＝來歷不明，不搶
                             （不用建檔日期救，那會把躺 7 天的舊貨誤判成新單）"""
     row = inv.get(rec.get("summary_id"))
     if row is None:
         return True                                   # 沒紀錄=這一刻剛進池
     if str(row.get("曾冷卻", "")).upper() == "Y":
+        return False
+    if str(row.get("我方搶過", "")).upper() == "Y":
         return False
     if row.get("來源") == "基準快照":
         return False
@@ -1361,10 +1368,11 @@ def mark_inventory_grabbed(inv: dict, sid, account: str, action: str = "搶到")
         row["我方動作"] = action
         row["我方帳號"] = account
         if action == "搶到":
-            # 自己搶到的也要蓋「曾冷卻」章。原因：查詢帳號看不到自己申請過的名單，
-            # 所以我方搶走的那筆不會被觀測到 CoolingDown；7 天到期回鍋、app_time 又被
-            # 洗掉時，它看起來就像一筆全新單 → 會拿配額去搶自己七天前搶過的東西。
-            row["曾冷卻"] = "Y"
+            # 自己搶到的要蓋「我方搶過」章（2026-09-22 前是跟「曾冷卻」共用一欄，分不出誰拿的）。
+            # 原因：查詢帳號看不到自己申請過的名單，所以我方搶走的那筆不會被觀測到 CoolingDown；
+            # 7 天到期回鍋、app_time 又被洗掉時，它看起來就像一筆全新單 → 會拿配額去搶
+            # 自己七天前搶過的東西。
+            row["我方搶過"] = "Y"
 
 
 def seed_inventory_from_grabbed(inv: dict) -> int:
@@ -1388,7 +1396,7 @@ def seed_inventory_from_grabbed(inv: dict) -> int:
                     inv[sid] = {"summary_id": sid, "首次看到": row[0], "首次狀態": "(我方搶到)",
                                 "來源": "我方歷史搶單", "最後看到": now_s}
                     n += 1
-                inv[sid]["曾冷卻"] = "Y"
+                inv[sid]["我方搶過"] = "Y"   # 歷史搶單是「我方搶過」，不是別人拿過
                 if not inv[sid].get("我方動作"):
                     inv[sid]["我方動作"] = "搶到"
                     inv[sid]["我方帳號"] = row[1] if len(row) > 1 else ""
