@@ -386,6 +386,28 @@ def quota_bump(n: int = 1) -> int:
     return _quota["queries"]
 
 
+def quota_mark_paused(until_ts: float, why: str) -> None:
+    """記下「程式是故意不動，不是死了」。
+
+    2026-09-22 踩到：被限流睡著時，ad_watchdog.py 的存活檢查（它只看觀測檔有沒有被更新）
+    判定成「搶單沒在動了」，推 LINE 叫使用者去雙擊 run.bat——照做會開出第二個實例，
+    兩個一起打 KEIS 把配額問題弄更糟。所以停下來時一定要留痕給看門狗看。
+    """
+    global _quota
+    quota_used()
+    _quota["paused_until"] = float(until_ts)
+    _quota["paused_why"] = why
+    _save_quota(_quota)
+
+
+def quota_clear_paused() -> None:
+    global _quota
+    quota_used()
+    if _quota.pop("paused_until", None) is not None:
+        _quota.pop("paused_why", None)
+        _save_quota(_quota)
+
+
 def quota_mark_deep_sweep() -> None:
     global _quota
     quota_used()
@@ -2348,10 +2370,13 @@ def run_watch(clients: list, dry_run: bool) -> int:
                             "text": f"🛑 KEIS 搶單：今日查詢預算用完（{used}/{DAILY_QUERY_BUDGET} 次，"
                                     f"KEIS 上限 300/天是整間門市共用），已暫停輪詢，明天自動恢復"})
                     quota_exhausted_logged_day = today
+                quota_mark_paused(time.time() + QUOTA_EXHAUSTED_SLEEP, "自訂的每日查詢預算用完")
                 time.sleep(QUOTA_EXHAUSTED_SLEEP)
                 continue
             body = query_any(clients)          # 主帳號一逾時就換下一個查，別整輪全盲
-            ratelimit_hits = 0                 # 查得動就代表限流解除了
+            if ratelimit_hits:
+                ratelimit_hits = 0             # 查得動就代表限流解除了
+                quota_clear_paused()
             if quota_left() == int(DAILY_QUERY_BUDGET * (1 - QUOTA_WARN_RATIO)):
                 log(f"⚠ 今日查詢已用 {quota_used()}/{DAILY_QUERY_BUDGET} 次，剩 {quota_left()} 次")
             if consecutive_errors >= ERROR_ESCALATE_AFTER:
@@ -2580,6 +2605,8 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 nap = min(6 * 3600.0, 3600.0 * (2 ** (ratelimit_hits - 2)))
             log(f"   下次試探：{fmt_countdown(nap)} 後（第 {ratelimit_hits} 次被擋，"
                 f"刻意拉長間隔，避免「冷卻期內再碰就重置倒數」的限流做法）")
+            # 留痕給 ad_watchdog.py：這是「故意不動」，不是死掉，別叫使用者去雙擊 run.bat
+            quota_mark_paused(time.time() + nap, "KEIS 查詢配額被限流")
             time.sleep(nap)
         except IPBlocked:
             if time.time() - last_alert > 1800:
