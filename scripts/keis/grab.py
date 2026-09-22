@@ -105,7 +105,7 @@ PAGE_SIZE = 100               # 全池掃描每頁抓幾筆（API 上限 100，�
 DEEP_SWEEP_SEC = 14400        # （仍給 --record 等非 watch 路徑用）全池掃描最短間隔。
                               # 2026-09-05 從 3600 改 14400（4 小時）：它是唯一「一次十幾二十個請求」
                               # 的動作，一天 16 次占掉全天請求 2~3 成，而池子真正大變動只有早上那批。
-# 2026-09-21：KEIS 開始限制「公買查詢每天最多 300 次／綁 IP」。全池掃描一次要翻 35 頁
+# 2026-09-21：KEIS 開始限制「公買查詢每天最多 300 次／每個帳號各自算」。全池掃描一次要翻 35 頁
 # （池子 3438 筆 ÷ 每頁 100），一天 4 次就吃掉 140 次，而它只負責寫 inventory.csv 給人稽核、
 # 不影響搶單。所以 watch 模式改成**一週只掃一次**，其餘時間完全不掃。
 DEEP_SWEEP_WEEKDAY = 6        # 一週在哪天做全池掃描（Python：週一=0 … 週日=6）。使用者指定週日。
@@ -156,8 +156,11 @@ MAX_AGE_DAYS = 10             # 建檔超過幾天的一律不搶（不管它在
 # 07:52 才醒，等於熱門檔開頭 22 分鐘全空(07-23~07-26 連續四天都這樣，實測紀錄可查)。
 # 邊界挪到 07:00 後，網路恢復當下就已落在熱門檔，不會再拿到 1800 秒。
 # 其餘三個換檔點睡前間隔只有 5/5/60 秒，最多晚 1 分鐘開工，無感，故不動邏輯。
-# 2026-09-21 重新分配：KEIS 開始限制「公買查詢每天最多 300 次／綁 IP」，而且那 300 次是
-# 跟門市同事手動查共用的。使用者決定程式只用其中 150 次，另一半留給人工。
+# 2026-09-21 重新分配：KEIS 開始限制「公買查詢每天最多 300 次」。
+# ⚠️ 是**每個帳號各自 300**，不是整個 IP 共用（2026-09-22 17:34 實測：同一台電腦相隔 3 秒，
+# 先打周珈伊回 429、再打薛力瑜卻通過。共用一份配額不可能有這種結果。門市同事用自己的帳號，
+# 不受我們影響）。輪詢固定用 clients[0]＝薛力瑜，所以真正的瓶頸是薛力瑜那 300 次。
+# 使用者決定程式只用其中 150 次，另一半留給他自己手動用這個帳號查。
 # 配法的原則：火力全押 08:00~08:05 那個真正放貨的窗口，其餘時段大幅降頻。
 # （一天只能申請 14 件，用不著整天每分鐘掃；看得慢一點不會少搶。）
 WATCH_TIERS = [
@@ -333,9 +336,16 @@ class RateLimited(Exception):
 
 
 # ── 每日查詢預算 ────────────────────────────────────────────────
-# KEIS 的上限是 300/天（綁 IP，跟門市同事手動查共用）。我們自己只用一半，剩下留給人工。
+# KEIS 的上限是每個帳號 300/天。輪詢只用 clients[0]，所以瓶頸是那一個帳號。只用一半，留一半給人工。
 # 這個計數器的重點是「撞牆前就自己降頻」，而不是像 2026-09-21 那樣撞到 429 才知道。
-DAILY_QUERY_BUDGET = 150      # 程式一天最多打幾次公買查詢
+DAILY_QUERY_BUDGET = 150      # 程式一個「配額日」最多打幾次公買查詢
+# ⚠️ KEIS 的 300 次**不是午夜歸零**，是每天 17:10 前後歸零
+# （2026-09-22 實測：07:31 和 10:15 都還被擋，17:15 已恢復；也因此排除了
+#  「冷卻期內再碰就重置倒數」那個假設——那兩次碰觸並沒有把恢復時間往後推）。
+# 我們的計數器必須跟它對齊，否則會變成：17:10~午夜用掉 150、午夜我方歸零、
+# 隔天到 17:10 再用 150 → 在 KEIS 的同一個窗口內剛好 300 撞頂，再加上同事手動查就爆。
+# 抓 17:00 而不是 17:10，是因為真正的邊界只知道落在 10:15~17:15 之間，取早一點比較保守。
+QUOTA_RESET_HOUR = 17         # 配額日的起點（幾點換日）
 QUOTA_WARN_RATIO = 0.8        # 用掉這個比例就寫一行 log 提醒
 QUOTA_EXHAUSTED_SLEEP = 1800  # 預算用完後多久再看一次（等於實質停止輪詢）
 GRAB_DONE_INTERVAL_SEC = 1800 # 14 件配額搶滿之後的輪詢間隔：已經沒東西可搶，別再燒查詢次數
@@ -345,16 +355,23 @@ def _quota_state_path():
     return _LOCAL / "query_quota.json"
 
 
+def quota_day() -> str:
+    """現在屬於哪個「配額日」。QUOTA_RESET_HOUR 之前算前一天。"""
+    now = datetime.now()
+    d = now.date() if now.hour >= QUOTA_RESET_HOUR else (now - timedelta(days=1)).date()
+    return str(d)
+
+
 def _load_quota() -> dict:
     """讀今天用掉幾次。要落地是因為 run.bat 會在程式掛掉時自動重開，
     計數器若只放記憶體，重開一次就歸零，等於沒有保護。"""
     try:
         d = json.loads(_quota_state_path().read_text(encoding="utf-8"))
-        if d.get("date") == str(date.today()):
+        if d.get("date") == quota_day():
             return d
     except Exception:
         pass
-    return {"date": str(date.today()), "queries": 0, "deep_sweep_date": ""}
+    return {"date": quota_day(), "queries": 0, "deep_sweep_date": ""}
 
 
 def _save_quota(d: dict) -> None:
@@ -369,7 +386,7 @@ _quota = None            # 進程內快取，避免每次查詢都讀檔
 
 def quota_used() -> int:
     global _quota
-    if _quota is None or _quota.get("date") != str(date.today()):
+    if _quota is None or _quota.get("date") != quota_day():
         _quota = _load_quota()
     return int(_quota.get("queries", 0))
 
@@ -411,7 +428,7 @@ def quota_clear_paused() -> None:
 def quota_mark_deep_sweep() -> None:
     global _quota
     quota_used()
-    _quota["deep_sweep_date"] = str(date.today())
+    _quota["deep_sweep_date"] = str(date.today())   # 這個用真的日曆日（配合「週日掃」）
     _save_quota(_quota)
 
 
@@ -2587,7 +2604,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
                         f"（{midnight.strftime('%m/%d %H:%M')}）；retry-after={e.retry_after}s "
                         f"是固定值，每次問都一樣，不能當真")
             msg = (f"API 限流：{e.detail or '查詢次數超過限制'}。{when}。"
-                   f"（本程式今日已用 {quota_used()} 次；KEIS 上限綁 IP，跟門市手動查共用）")
+                   f"（本程式今日已用 {quota_used()} 次；KEIS 上限是每個帳號 300/天）")
             log("🛑 " + msg)
             if time.time() - last_alert > 1800:
                 notify({"event": "alert", "text": "🛑 KEIS 搶單：" + msg})
