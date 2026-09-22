@@ -2550,9 +2550,18 @@ def run_watch(clients: list, dry_run: bool) -> int:
             now_dt = datetime.now()
             midnight = (now_dt + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             to_midnight = (midnight - now_dt).total_seconds()
-            msg = (f"API 限流：{e.detail or '查詢次數超過限制'}。"
-                   f"若是每日午夜歸零，還要等 {fmt_countdown(to_midnight)}（{midnight.strftime('%m/%d %H:%M')}）；"
-                   f"KEIS 自己回的 retry-after 是固定的 24 小時，每次問都一樣，不能當真。"
+            # ⭐ 一定要把 retry-after 的原始值印出來。它一直是 86400 就是沒資訊量的固定值，
+            # 但只要哪次回的是別的數字，那就是真的剩餘時間，歸零時點當場就知道了。
+            # （2026-09-22 之前沒印，白白浪費了兩次被擋的機會。）
+            if e.retry_after and e.retry_after != 86400:
+                eta = now_dt + timedelta(seconds=e.retry_after)
+                when = (f"⭐ retry-after={e.retry_after}s，不是那個固定的 86400——"
+                        f"這次是真的剩餘時間，約 {eta.strftime('%m/%d %H:%M')} 解除")
+            else:
+                when = (f"若是每日午夜歸零，還要等 {fmt_countdown(to_midnight)}"
+                        f"（{midnight.strftime('%m/%d %H:%M')}）；retry-after={e.retry_after}s "
+                        f"是固定值，每次問都一樣，不能當真")
+            msg = (f"API 限流：{e.detail or '查詢次數超過限制'}。{when}。"
                    f"（本程式今日已用 {quota_used()} 次；KEIS 上限綁 IP，跟門市手動查共用）")
             log("🛑 " + msg)
             if time.time() - last_alert > 1800:

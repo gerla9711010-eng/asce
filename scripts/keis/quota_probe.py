@@ -20,7 +20,7 @@
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -54,6 +54,7 @@ def main() -> int:
     import notify_telegram
 
     now = datetime.now()
+    retry_after = None      # KEIS 回的原始 retry-after，用來分辨固定值還是真倒數
     accts = grab.load_accounts()
     if not accts:
         print("讀不到帳號")
@@ -65,17 +66,38 @@ def main() -> int:
                           f"不用做任何事：晚上本來就不放貨，搶單程式明天 00:01 會自己醒來，"
                           f"08:00 那班正常。想馬上恢復監控才需要重開 run.bat。")
     except grab.RateLimited as e:
+        retry_after = e.retry_after
+        # ⚠️ 一定要把 retry-after 的原始值留下來。它若一直是 86400 就是個沒資訊量的固定值；
+        # 但只要哪一次回的是別的數字（尤其是遞減的），那就是真正的剩餘時間，答案直接出來。
+        # 2026-09-22 之前沒記這個值，白白浪費了兩次探測機會。
+        hint = ""
+        if e.retry_after and e.retry_after != 86400:
+            eta = now + timedelta(seconds=e.retry_after)
+            hint = (f" ⭐ retry-after={e.retry_after}s（不是固定的 86400！這是真的剩餘時間，"
+                    f"約 {eta.strftime('%m/%d %H:%M')} 解除）")
+        else:
+            hint = f"（retry-after={e.retry_after}s，還是那個固定值，沒有資訊量）"
         ok, text = False, (f"⛔ KEIS 配額還沒恢復（{now.strftime('%m/%d %H:%M')} 探測）："
-                           f"{e.detail}。今天不再試探，下一個時段再看。")
+                           f"{e.detail}{hint}。今天不再試探，下一個時段再看。")
     except Exception as e:
         ok, text = False, (f"⚠ KEIS 配額探測失敗（{now.strftime('%m/%d %H:%M')}）："
                            f"{type(e).__name__}: {str(e)[:120]}")
 
     print(text)
     try:
+        hist = []
+        if MARKER.exists():
+            try:
+                old = json.loads(MARKER.read_text(encoding="utf-8"))
+                hist = old.get("history") or []
+            except Exception:
+                hist = []
+        hist.append({"at": now.isoformat(timespec="seconds"), "ok": ok,
+                     "retry_after": retry_after})
         MARKER.write_text(json.dumps(
-            {"at": now.isoformat(timespec="seconds"), "ok": ok, "text": text},
-            ensure_ascii=False), encoding="utf-8")
+            {"at": now.isoformat(timespec="seconds"), "ok": ok, "text": text,
+             "retry_after": retry_after, "history": hist[-20:]},
+            ensure_ascii=False, indent=1), encoding="utf-8")
     except Exception:
         pass
     if notify_telegram.enabled():
