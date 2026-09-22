@@ -43,7 +43,7 @@ import re
 import shutil
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -75,6 +75,14 @@ MAX_BUDGET = None            # 預算上限(萬)，None=不限
 MAX_APPLY_PER_RUN = None     # 單次執行最多搶幾筆；None = 搶到當日配額用完為止
 DRY_RUN = True               # True=只列出不送出；--apply 會把它關掉
 
+# ====== 額度不夠搶完時的優先順序（2026-09-21 加）======
+# 用途：符合篩選的名單數超過當日剩餘配額時，決定「先搶哪些」。
+# 三個條件各佔 1 分，符合越多分越高、越優先；分數相同再比建檔時間（新的優先）。
+# 這只影響「額度不夠、要挑誰」的順序，不影響 matches() 的收/不收判斷。
+PRIORITY_DISTRICTS = ["左營區", "鼓山區", "三民區"]   # 需求區域命中其一加 1 分
+PRIORITY_BUDGET_MIN = 2000                          # 預算上限(萬)超過此門檻加 1 分
+PRIORITY_TYPES = ["大樓", "透天"]                     # 物件類型命中其一加 1 分
+
 # ====== 品質控管篩選（2026-07-22 加）======
 ONLY_MOBILE = True            # True=只搶號碼是手機的，市話/空號一律不搶
 EXCLUDE_TYPES = ["公寓", "土地"]      # 這些類型不搶；類型空白 / "-" 不受影響照收
@@ -94,9 +102,13 @@ WINDOW_SIZE = 70              # 搶單決策的窗口：只看編號最大的前
                                # 08-03 另外加了「漏接偵測」（見 update_inventory 的 missed）：真的還是
                                # 被視窗排除掉的合格名單，會自動 LINE 通知，不用再靠這個數字硬猜。
 PAGE_SIZE = 100               # 全池掃描每頁抓幾筆（API 上限 100，超過會回 0 筆）
-DEEP_SWEEP_SEC = 14400        # 全池掃描間隔。它只負責寫 inventory.csv 給人稽核，不影響搶單。
+DEEP_SWEEP_SEC = 14400        # （仍給 --record 等非 watch 路徑用）全池掃描最短間隔。
                               # 2026-09-05 從 3600 改 14400（4 小時）：它是唯一「一次十幾二十個請求」
                               # 的動作，一天 16 次占掉全天請求 2~3 成，而池子真正大變動只有早上那批。
+# 2026-09-21：KEIS 開始限制「公買查詢每天最多 300 次／每個帳號各自算」。全池掃描一次要翻 35 頁
+# （池子 3438 筆 ÷ 每頁 100），一天 4 次就吃掉 140 次，而它只負責寫 inventory.csv 給人稽核、
+# 不影響搶單。所以 watch 模式改成**一週只掃一次**，其餘時間完全不掃。
+DEEP_SWEEP_WEEKDAY = 6        # 一週在哪天做全池掃描（Python：週一=0 … 週日=6）。使用者指定週日。
 DEEP_SWEEP_MAX_PAGES = 40     # 全池掃描最多翻幾頁，防呆用
 DEEP_SWEEP_ROTATE = True      # 全池掃描輪流換帳號（帳號看不到自己申請過的，固定一個會有盲區）
 
@@ -144,12 +156,18 @@ MAX_AGE_DAYS = 10             # 建檔超過幾天的一律不搶（不管它在
 # 07:52 才醒，等於熱門檔開頭 22 分鐘全空(07-23~07-26 連續四天都這樣，實測紀錄可查)。
 # 邊界挪到 07:00 後，網路恢復當下就已落在熱門檔，不會再拿到 1800 秒。
 # 其餘三個換檔點睡前間隔只有 5/5/60 秒，最多晚 1 分鐘開工，無感，故不動邏輯。
+# 2026-09-21 重新分配：KEIS 開始限制「公買查詢每天最多 300 次」。
+# ⚠️ 是**每個帳號各自 300**，不是整個 IP 共用（2026-09-22 17:34 實測：同一台電腦相隔 3 秒，
+# 先打周珈伊回 429、再打薛力瑜卻通過。共用一份配額不可能有這種結果。門市同事用自己的帳號，
+# 不受我們影響）。輪詢固定用 clients[0]＝薛力瑜，所以真正的瓶頸是薛力瑜那 300 次。
+# 使用者決定程式只用其中 150 次，另一半留給他自己手動用這個帳號查。
+# 配法的原則：火力全押 08:00~08:05 那個真正放貨的窗口，其餘時段大幅降頻。
+# （一天只能申請 14 件，用不著整天每分鐘掃；看得慢一點不會少搶。）
 WATCH_TIERS = [
-    ("07:00", "07:59", 60),    # 一般：等開盤，1 分鐘一次
-    ("07:59", "08:03", 5),     # 熱門：唯一的高頻窗口，KEIS 約 08:01 放貨(2026-09-04 從
-                               # 07:00~10:00 收窄成這 4 分鐘，晚上 17:30~24:00 那檔一併降頻)
-    ("08:03", "24:00", 60),    # 一般：其餘白天+晚上都 1 分鐘一次
-    ("00:00", "07:00", 1800),  # 深夜：30 分鐘一次，純安全網(等同停止監控)
+    ("07:00", "08:00", 600),   # 等開盤：10 分鐘一次（程式實際 07:31 才啟動，這段只會跑到 2~3 次）
+    ("08:00", "08:05", 5),     # 熱門：唯一的高頻窗口，KEIS 約 08:01 放貨。約 60 次
+    ("08:05", "24:00", 1200),  # 其餘白天+晚上：20 分鐘一次。約 48 次
+    ("00:00", "07:00", 1800),  # 深夜：電腦 00:30 關機，這段實際上跑不到，留著當安全網
 ]
 POLL_JITTER_SEC = 3          # 每次再隨機 ±這個秒數，別像節拍器（越大越不規律）
 
@@ -302,6 +320,134 @@ class IPBlocked(Exception):
     """不在門市網路，被 IP 鎖擋下"""
 
 
+class RateLimited(Exception):
+    """KEIS 回 429：公買查詢的每日次數用完了。
+
+    2026-09-21 第一次遇到，訊息是「每天最多查詢 300 次」、`retry-after: 86400`。
+    **這不是斷線**——舊版把它跟逾時歸成同一類「暫時性錯誤」，連續 10 次就報「疑似斷線」，
+    然後每 5 分鐘重試一次打到天亮都不會好，而且每次重試都可能再記一次帳。
+    綁的是 IP 不是帳號（實測：沒查過的副帳號也一樣被擋），所以換帳號沒用。
+    """
+
+    def __init__(self, detail: str = "", retry_after: int = 0):
+        super().__init__(detail or "查詢次數超過限制")
+        self.detail = detail
+        self.retry_after = retry_after      # 秒；KEIS 回的 retry-after header
+
+
+# ── 每日查詢預算 ────────────────────────────────────────────────
+# KEIS 的上限是每個帳號 300/天。輪詢只用 clients[0]，所以瓶頸是那一個帳號。只用一半，留一半給人工。
+# 這個計數器的重點是「撞牆前就自己降頻」，而不是像 2026-09-21 那樣撞到 429 才知道。
+DAILY_QUERY_BUDGET = 150      # 程式一個「配額日」最多打幾次公買查詢
+# ⚠️ KEIS 的 300 次**不是午夜歸零**，是每天 17:10 前後歸零
+# （2026-09-22 實測：07:31 和 10:15 都還被擋，17:15 已恢復；也因此排除了
+#  「冷卻期內再碰就重置倒數」那個假設——那兩次碰觸並沒有把恢復時間往後推）。
+# 我們的計數器必須跟它對齊，否則會變成：17:10~午夜用掉 150、午夜我方歸零、
+# 隔天到 17:10 再用 150 → 在 KEIS 的同一個窗口內剛好 300 撞頂，再加上同事手動查就爆。
+# 抓 17:00 而不是 17:10，是因為真正的邊界只知道落在 10:15~17:15 之間，取早一點比較保守。
+QUOTA_RESET_HOUR = 17         # 配額日的起點（幾點換日）
+QUOTA_WARN_RATIO = 0.8        # 用掉這個比例就寫一行 log 提醒
+QUOTA_EXHAUSTED_SLEEP = 1800  # 預算用完後多久再看一次（等於實質停止輪詢）
+GRAB_DONE_INTERVAL_SEC = 1800 # 14 件配額搶滿之後的輪詢間隔：已經沒東西可搶，別再燒查詢次數
+
+
+def _quota_state_path():
+    return _LOCAL / "query_quota.json"
+
+
+def quota_day() -> str:
+    """現在屬於哪個「配額日」。QUOTA_RESET_HOUR 之前算前一天。"""
+    now = datetime.now()
+    d = now.date() if now.hour >= QUOTA_RESET_HOUR else (now - timedelta(days=1)).date()
+    return str(d)
+
+
+def _load_quota() -> dict:
+    """讀今天用掉幾次。要落地是因為 run.bat 會在程式掛掉時自動重開，
+    計數器若只放記憶體，重開一次就歸零，等於沒有保護。"""
+    try:
+        d = json.loads(_quota_state_path().read_text(encoding="utf-8"))
+        if d.get("date") == quota_day():
+            return d
+    except Exception:
+        pass
+    return {"date": quota_day(), "queries": 0, "deep_sweep_date": ""}
+
+
+def _save_quota(d: dict) -> None:
+    try:
+        _quota_state_path().write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass      # 記帳失敗不能擋住搶單
+
+
+_quota = None            # 進程內快取，避免每次查詢都讀檔
+
+
+def quota_used() -> int:
+    global _quota
+    if _quota is None or _quota.get("date") != quota_day():
+        _quota = _load_quota()
+    return int(_quota.get("queries", 0))
+
+
+def quota_left() -> int:
+    return max(0, DAILY_QUERY_BUDGET - quota_used())
+
+
+def quota_bump(n: int = 1) -> int:
+    global _quota
+    quota_used()                       # 確保 _quota 是今天的
+    _quota["queries"] = int(_quota.get("queries", 0)) + n
+    _save_quota(_quota)
+    return _quota["queries"]
+
+
+def quota_mark_paused(until_ts: float, why: str) -> None:
+    """記下「程式是故意不動，不是死了」。
+
+    2026-09-22 踩到：被限流睡著時，ad_watchdog.py 的存活檢查（它只看觀測檔有沒有被更新）
+    判定成「搶單沒在動了」，推 LINE 叫使用者去雙擊 run.bat——照做會開出第二個實例，
+    兩個一起打 KEIS 把配額問題弄更糟。所以停下來時一定要留痕給看門狗看。
+    """
+    global _quota
+    quota_used()
+    _quota["paused_until"] = float(until_ts)
+    _quota["paused_why"] = why
+    _save_quota(_quota)
+
+
+def quota_clear_paused() -> None:
+    global _quota
+    quota_used()
+    if _quota.pop("paused_until", None) is not None:
+        _quota.pop("paused_why", None)
+        _save_quota(_quota)
+
+
+def quota_mark_deep_sweep() -> None:
+    global _quota
+    quota_used()
+    _quota["deep_sweep_date"] = str(date.today())   # 這個用真的日曆日（配合「週日掃」）
+    _save_quota(_quota)
+
+
+def quota_deep_swept_today() -> bool:
+    quota_used()
+    return _quota.get("deep_sweep_date") == str(date.today())
+
+
+def fmt_countdown(seconds: float) -> str:
+    """把秒數講成人看得懂的「還有 X 小時 Y 分」。"""
+    s = max(0, int(seconds))
+    h, m = s // 3600, (s % 3600) // 60
+    if h and m:
+        return f"{h} 小時 {m} 分"
+    if h:
+        return f"{h} 小時"
+    return f"{m} 分鐘" if m else "不到 1 分鐘"
+
+
 class Keis:
     """KEIS API client：自動登入 + 帶 bearer token，token 過期自動重登。
     每個實例綁一個帳號（多帳號各自一份 client / token / 配額）。"""
@@ -352,6 +498,19 @@ class Keis:
             r = self.c.get(f"{API}{path}", headers=self._auth())
         if r.status_code == 403:
             raise IPBlocked()
+        if r.status_code == 429:
+            # 公買查詢的每日次數用完。單獨拉出來，別讓它混進「暫時性錯誤」被誤判成斷線。
+            detail = ""
+            try:
+                j = r.json()
+                detail = j.get("detail") or j.get("message") or ""
+            except Exception:
+                detail = (r.text or "")[:120]
+            try:
+                wait = int(r.headers.get("retry-after", "0"))
+            except ValueError:
+                wait = 0
+            raise RateLimited(detail, wait)
         r.raise_for_status()
         return r.json()
 
@@ -367,6 +526,8 @@ class Keis:
             "start_date": f"{year}-01-01 00:00:00", "end_date": f"{year}-12-31 23:59:59",
             "target_area": "", "property_category": "",
         }
+        # 每次公買查詢都記帳。query_deep 是一頁頁呼叫這裡，所以翻幾頁就記幾次。
+        quota_bump()
         return self._get(f"/call-purchase/query?{urlencode(params)}")
 
     def query_deep(self, max_pages: int = DEEP_SWEEP_MAX_PAGES) -> dict:
@@ -402,6 +563,7 @@ class Keis:
             "start_date": f"{year}-01-01 00:00:00", "end_date": f"{year}-12-31 23:59:59",
             "target_area": "", "property_category": "",
         }
+        quota_bump()      # 「我的申請」走的是同一支端點，一樣算進每日次數
         return self._get(f"/call-purchase/query?{urlencode(params)}").get("data", [])
 
 
@@ -512,8 +674,21 @@ def age_days(rec: dict) -> float:
     return 0.0
 
 
+def priority_score(r: dict) -> int:
+    """額度不夠搶完時的優先分數，0~3。見 CONFIG 的 PRIORITY_* 三項。"""
+    score = 0
+    if any(d in a for a in (r.get("target_areas") or []) for d in PRIORITY_DISTRICTS):
+        score += 1
+    ceiling = r.get("budget_end") or r.get("budget_start") or 0
+    if ceiling and ceiling > PRIORITY_BUDGET_MIN:
+        score += 1
+    if r.get("property_category") in PRIORITY_TYPES:
+        score += 1
+    return score
+
+
 def pick_candidates(body: dict):
-    """挑出符合篩選條件、狀態可申請的名單（建檔新→舊）。
+    """挑出符合篩選條件、狀態可申請的名單（優先分數高→低，同分建檔新→舊）。
 
     這裡只做「條件符合」的過濾，**不判斷新舊**——新舊一律交給總帳的 is_truly_new()，
     定義只有一條（編號沒在總帳出現過＝剛進池）。不要再在這裡加建檔日期之類的閘門，
@@ -522,7 +697,7 @@ def pick_candidates(body: dict):
     quota = body.get("new_case_quota_remaining")
     quota = quota if quota is not None else 0
     cands = [r for r in records if matches(r)]
-    cands.sort(key=lambda r: r.get("start_time", ""), reverse=True)
+    cands.sort(key=lambda r: (priority_score(r), r.get("start_time", "")), reverse=True)
     return cands, quota
 
 
@@ -756,14 +931,19 @@ track_top_id.last_alert = 0.0
 # 它同時是「二手貨判定」的唯一依據（見 CONFIG 的 ONLY_TRULY_NEW）：
 #   來源=新出現 → 第一次看到就是 Available、之前沒看過它 → 真新單，會搶
 #   來源=基準快照 → 建立總帳當下就已經躺在池子裡的，來歷不明 → 不搶
-#   曾冷卻=Y → 我們看過它是 CoolingDown（別人拿過），之後就算變回 Available 也是二手貨 → 不搶
+#   曾冷卻=Y   → 我們看過它是 CoolingDown（**別人**拿過），之後變回 Available 也是二手貨 → 不搶
+#   我方搶過=Y → **我們自己**申請過（查詢帳號看不到自己申請的，7 天到期回鍋會像全新單）→ 不搶
 INVENTORY_CSV = _LOCAL / "inventory.csv"     # 放本機、不進 OneDrive（怕又被同步弄壞）
 INVENTORY_SAVE_SEC = 120                     # 最快多久寫一次檔（有新單號一定立刻寫）
 MAX_INVENTORY_BAD_LINES = 200                # 壞行超過這個數就當整份總帳失敗，別硬撐著用殘骸
 INVENTORY_MIN_PARSE_RATIO = 0.9              # 讀出來的筆數至少要有檔案行數的九成，否則視為壞掉
 INVENTORY_COLS = ["summary_id", "首次看到", "首次狀態", "首次符合篩選", "來源", "曾冷卻", "最後看到",
                   "最後狀態", "建檔時間", "縣市", "行政區", "類型", "預算", "電話", "app_time",
-                  "符合篩選", "不符原因", "我方動作", "我方帳號"]
+                  "符合篩選", "不符原因", "我方動作", "我方帳號", "我方搶過"]
+# 2026-09-22：「曾冷卻」原本一欄兩用——既表示「別人拿過」也表示「我方搶過」，
+# 害對帳時完全分不出來（那天查 7 筆搶到的單，全是 Y，一度以為過濾漏掉二手貨）。
+# 拆成兩欄：曾冷卻＝別人拿過、我方搶過＝我們自己申請過。兩者都算二手貨不搶，行為不變。
+# 新欄位放在最後，舊的 inventory.csv 少這一欄也照樣讀得動。
 
 
 # ---------- 每日健檢：帳號 + 開盤守門（2026-08-04 加）----------
@@ -1167,13 +1347,15 @@ def is_truly_new(inv: dict, rec: dict) -> bool:
 
       沒紀錄              → 剛進池的真新單，可搶（未釋出的名單不會出現在 query 裡）
       來源=新出現+首次Available → 我們親眼看到它進池、當時沒人碰 → 可搶
-      曾冷卻=Y            → 二手貨（別人或我方拿過又回鍋），不搶
+      曾冷卻=Y／我方搶過=Y → 二手貨（別人拿過／我方自己搶過又回鍋），不搶
       來源=基準快照        → 建總帳之前就在池子裡＝來歷不明，不搶
                             （不用建檔日期救，那會把躺 7 天的舊貨誤判成新單）"""
     row = inv.get(rec.get("summary_id"))
     if row is None:
         return True                                   # 沒紀錄=這一刻剛進池
     if str(row.get("曾冷卻", "")).upper() == "Y":
+        return False
+    if str(row.get("我方搶過", "")).upper() == "Y":
         return False
     if row.get("來源") == "基準快照":
         return False
@@ -1186,10 +1368,11 @@ def mark_inventory_grabbed(inv: dict, sid, account: str, action: str = "搶到")
         row["我方動作"] = action
         row["我方帳號"] = account
         if action == "搶到":
-            # 自己搶到的也要蓋「曾冷卻」章。原因：查詢帳號看不到自己申請過的名單，
-            # 所以我方搶走的那筆不會被觀測到 CoolingDown；7 天到期回鍋、app_time 又被
-            # 洗掉時，它看起來就像一筆全新單 → 會拿配額去搶自己七天前搶過的東西。
-            row["曾冷卻"] = "Y"
+            # 自己搶到的要蓋「我方搶過」章（2026-09-22 前是跟「曾冷卻」共用一欄，分不出誰拿的）。
+            # 原因：查詢帳號看不到自己申請過的名單，所以我方搶走的那筆不會被觀測到 CoolingDown；
+            # 7 天到期回鍋、app_time 又被洗掉時，它看起來就像一筆全新單 → 會拿配額去搶
+            # 自己七天前搶過的東西。
+            row["我方搶過"] = "Y"
 
 
 def seed_inventory_from_grabbed(inv: dict) -> int:
@@ -1213,7 +1396,7 @@ def seed_inventory_from_grabbed(inv: dict) -> int:
                     inv[sid] = {"summary_id": sid, "首次看到": row[0], "首次狀態": "(我方搶到)",
                                 "來源": "我方歷史搶單", "最後看到": now_s}
                     n += 1
-                inv[sid]["曾冷卻"] = "Y"
+                inv[sid]["我方搶過"] = "Y"   # 歷史搶單是「我方搶過」，不是別人拿過
                 if not inv[sid].get("我方動作"):
                     inv[sid]["我方動作"] = "搶到"
                     inv[sid]["我方帳號"] = row[1] if len(row) > 1 else ""
@@ -2071,6 +2254,8 @@ def run_watch(clients: list, dry_run: bool) -> int:
     seen_day = None                  # 唯一的「今天是哪天」狀態，跨日時一次重置所有日累計
     done_accounts: set = set()       # 今日已用完配額的帳號 label
     all_done_logged_day = None
+    quota_exhausted_logged_day = None   # 「今日查詢預算用完」一天只報一次
+    ratelimit_hits = 0                  # 連續被 429 擋幾次；用來拉長試探間隔
     last_alert = 0.0
     # 今日戰果累計（跨日歸零）。counted_today 專門給「新名單計數」用，跟搶單的 seen 分開——
     # seen 只在真的搶到/明確被拒才標，才能讓逾時中斷的單留給下一輪補搶；日累計不能干擾它。
@@ -2199,7 +2384,26 @@ def run_watch(clients: list, dry_run: bool) -> int:
             # 【搶單只看這個窗口】編號最大的前 WINDOW_SIZE 筆。窗口本身就是「只搶新單」的
             # 把關（池子照編號由大到小排，最前面幾乎必然是剛進池的）。全池掃描另外做，
             # 而且**只寫總帳、絕不進搶單流程**——2026-07-23 就是把兩者混在一起才誤搶老案。
+            # 撞牆前先自己停：把最後的次數留給門市同事手動查。
+            # （2026-09-21 之前沒有這道，結果是查到被 KEIS 擋才知道用完了。）
+            if quota_left() <= 0:
+                if quota_exhausted_logged_day != today:
+                    used = quota_used()
+                    log(f"🛑 今日查詢預算用完（{used}/{DAILY_QUERY_BUDGET}），"
+                        f"暫停輪詢到明天，剩下的次數留給人工查詢")
+                    notify({"event": "alert",
+                            "text": f"🛑 KEIS 搶單：今日查詢預算用完（{used}/{DAILY_QUERY_BUDGET} 次，"
+                                    f"KEIS 上限 300/天是整間門市共用），已暫停輪詢，明天自動恢復"})
+                    quota_exhausted_logged_day = today
+                quota_mark_paused(time.time() + QUOTA_EXHAUSTED_SLEEP, "自訂的每日查詢預算用完")
+                time.sleep(QUOTA_EXHAUSTED_SLEEP)
+                continue
             body = query_any(clients)          # 主帳號一逾時就換下一個查，別整輪全盲
+            if ratelimit_hits:
+                ratelimit_hits = 0             # 查得動就代表限流解除了
+                quota_clear_paused()
+            if quota_left() == int(DAILY_QUERY_BUDGET * (1 - QUOTA_WARN_RATIO)):
+                log(f"⚠ 今日查詢已用 {quota_used()}/{DAILY_QUERY_BUDGET} 次，剩 {quota_left()} 次")
             if consecutive_errors >= ERROR_ESCALATE_AFTER:
                 log(f"✅ 網路恢復（先前連續失敗 {consecutive_errors} 次），回到正常監控頻率")
                 # 只有「斷線警告真的推出去過」才推恢復通知：每晚必斷的時段推不出警告
@@ -2232,7 +2436,13 @@ def run_watch(clients: list, dry_run: bool) -> int:
                 # 2026-08-04 修：舊版把兩者混在一起算，09:01 那次全池掃描補到 8 筆
                 # 建檔 1~6 月的老案，就讓 LINE 的「新名單」憑空多 8 筆。
                 new_arrivals = list(newly_seen)
-                deep_due = (time.time() - last_deep_sweep >= DEEP_SWEEP_SEC
+                # 2026-09-21：改成一週一次（使用者指定週日）。理由見 DEEP_SWEEP_WEEKDAY：
+                # 一次要翻 35 頁，在 150 次的每日預算下，一天跑 4 次會把預算整碗端走，
+                # 而它只寫稽核檔、不影響搶單。用日期判斷而不是「距上次幾秒」，
+                # 因為 run.bat 會自動重開程式，用秒數判斷會變成每次重開都掃一輪。
+                deep_due = (now.weekday() == DEEP_SWEEP_WEEKDAY
+                            and not quota_deep_swept_today()
+                            and quota_left() > DEEP_SWEEP_MAX_PAGES
                             and not in_expected_offline(now))
                 if deep_due or not inventory_ready:
                     order = clients
@@ -2242,6 +2452,7 @@ def run_watch(clients: list, dry_run: bool) -> int:
                         deep_sweep_turn += 1
                     deep_records = query_any(order, deep=True).get("data", [])
                     last_deep_sweep = time.time()
+                    quota_mark_deep_sweep()      # 記在檔案裡，重開程式也不會同一天再掃一次
                     deep_new, deep_missed = update_inventory(inventory, deep_records,
                                                               baseline=not inventory_ready)
                     newly_seen += deep_new
@@ -2321,9 +2532,14 @@ def run_watch(clients: list, dry_run: bool) -> int:
             interval = current_tier_interval(now)  # 全天分層：熱門時段5秒、一般1分鐘、深夜5分鐘
 
             active = [c for c in clients if c.label not in done_accounts]
-            if not active:                    # 所有帳號配額都用完
+            if not active:                    # 所有帳號配額都用完（14 件搶滿）
+                # 2026-09-21：搶滿之後還用 5 秒一次純粹是燒查詢次數——已經沒東西可搶了。
+                # 降到 GRAB_DONE_INTERVAL_SEC，把剩下的每日次數留給同事手動查。
+                interval = max(interval, GRAB_DONE_INTERVAL_SEC)
                 if all_done_logged_day != today:
-                    log("🈵 所有帳號配額用完，改為純觀測上架時間（不搶）")
+                    log(f"🈵 所有帳號配額用完（14 件搶滿），改為純觀測上架時間（不搶），"
+                        f"輪詢降到每 {int(interval // 60)} 分鐘一次。今日查詢已用 "
+                        f"{quota_used()}/{DAILY_QUERY_BUDGET} 次")
                     all_done_logged_day = today
                 track_top_id(body.get("data", []))  # 每輪記錄page1最新單號，供事後判斷輪詢間隔有沒有漏接
                 time.sleep(interval)   # 繼續依分層頻率觀測，不離開
@@ -2373,6 +2589,50 @@ def run_watch(clients: list, dry_run: bool) -> int:
         except KeyboardInterrupt:
             log("👋 手動停止監控")
             return 0
+        except RateLimited as e:
+            # 429：KEIS 的每日查詢次數用完，不是斷線。舊版把它算進 consecutive_errors、
+            # 報「疑似斷線」，然後每 5 分鐘打一次空包彈到天亮（2026-09-21 實際發生過）。
+            consecutive_errors = 0          # 不要污染斷線判斷
+            # ⚠️ KEIS 的 retry-after 固定回 86400（24 小時），**不是真的剩餘時間**：
+            # 2026-09-21 22:15 問回 86400、22:50 再問還是 86400，等於每次都說「從現在起 24 小時」。
+            # 拿它算「幾點解除」會愈問愈晚，反而誤導。所以只把它當「今天別再打了」的訊號，
+            # 真正的倒數用「到午夜」來估（最可能的歸零時點），並把兩種講法都寫清楚。
+            now_dt = datetime.now()
+            midnight = (now_dt + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            to_midnight = (midnight - now_dt).total_seconds()
+            # ⭐ 一定要把 retry-after 的原始值印出來。它一直是 86400 就是沒資訊量的固定值，
+            # 但只要哪次回的是別的數字，那就是真的剩餘時間，歸零時點當場就知道了。
+            # （2026-09-22 之前沒印，白白浪費了兩次被擋的機會。）
+            if e.retry_after and e.retry_after != 86400:
+                eta = now_dt + timedelta(seconds=e.retry_after)
+                when = (f"⭐ retry-after={e.retry_after}s，不是那個固定的 86400——"
+                        f"這次是真的剩餘時間，約 {eta.strftime('%m/%d %H:%M')} 解除")
+            else:
+                when = (f"若是每日午夜歸零，還要等 {fmt_countdown(to_midnight)}"
+                        f"（{midnight.strftime('%m/%d %H:%M')}）；retry-after={e.retry_after}s "
+                        f"是固定值，每次問都一樣，不能當真")
+            msg = (f"API 限流：{e.detail or '查詢次數超過限制'}。{when}。"
+                   f"（本程式今日已用 {quota_used()} 次；KEIS 上限是每個帳號 300/天）")
+            log("🛑 " + msg)
+            if time.time() - last_alert > 1800:
+                notify({"event": "alert", "text": "🛑 KEIS 搶單：" + msg})
+                last_alert = time.time()
+            # ⚠️ 被擋期間**不可以頻繁試探**。有一種常見的限流做法是「冷卻期內每碰一次就重置倒數」，
+            # 我們無法從 429 的回應分辨 KEIS 是不是這一種（retry-after 永遠是固定的 86400，
+            # 兩種做法看起來一模一樣）。既然分辨不出來，就採對兩種都安全的做法：
+            #   第一次被擋 → 睡到下一個午夜（最可能的歸零時點）才試一次
+            #   過了午夜還是被擋 → 代表不是午夜歸零，改成 1、2、4 小時遞增，最多 6 小時試一次
+            # 寧可晚幾小時恢復，也不要因為每 30 分鐘戳一下而永遠解不開。
+            ratelimit_hits += 1
+            if ratelimit_hits == 1:
+                nap = max(300.0, to_midnight + 60)     # 午夜過一分鐘再試
+            else:
+                nap = min(6 * 3600.0, 3600.0 * (2 ** (ratelimit_hits - 2)))
+            log(f"   下次試探：{fmt_countdown(nap)} 後（第 {ratelimit_hits} 次被擋，"
+                f"刻意拉長間隔，避免「冷卻期內再碰就重置倒數」的限流做法）")
+            # 留痕給 ad_watchdog.py：這是「故意不動」，不是死掉，別叫使用者去雙擊 run.bat
+            quota_mark_paused(time.time() + nap, "KEIS 查詢配額被限流")
+            time.sleep(nap)
         except IPBlocked:
             if time.time() - last_alert > 1800:
                 notify({"event": "alert", "text": "⚠ KEIS 搶單：IP 被擋（離開門市網路了？）"})

@@ -384,6 +384,22 @@ def check_db_disk(state: dict, now: datetime, dry: bool) -> None:
         log(f"🚨 已告警：資料庫 {pct:.0f}%")
 
 
+def grab_paused() -> tuple[datetime | None, str]:
+    """grab.py 是不是「刻意不動」（例如被 KEIS 限流、每日查詢預算用完）。
+
+    讀 grab.py 落地的 query_quota.json，一樣完全不碰網路。
+    回 (預計恢復時間, 原因)；沒有暫停就回 (None, "")。
+    """
+    try:
+        d = json.loads((GRAB_LOCAL / "query_quota.json").read_text(encoding="utf-8"))
+        ts = d.get("paused_until")
+        if ts:
+            return datetime.fromtimestamp(float(ts), TPE), str(d.get("paused_why") or "")
+    except Exception:
+        pass
+    return None, ""
+
+
 def grab_last_seen() -> datetime | None:
     """grab.py 最後一次真的做事是什麼時候（讀觀測檔的修改時間，完全不碰網路）。"""
     best = None
@@ -411,6 +427,17 @@ def check_grab_alive(state: dict, now: datetime, dry: bool) -> None:
     last = grab_last_seen()
     if last is None:
         log(f"搶單存活檢查：{GRAB_LOCAL} 裡找不到觀測檔，跳過（沒在這台跑就是正常）")
+        return
+
+    # 2026-09-22：grab.py 被 KEIS 限流時會刻意睡很久（睡到午夜、之後 1/2/4 小時遞增），
+    # 這種「故意不動」以前會被判成死掉，推 LINE 叫使用者雙擊 run.bat——照做會開出第二個
+    # 實例，兩個一起打 KEIS 把配額問題弄更糟。所以先看 grab.py 有沒有留下暫停的紀錄。
+    paused_until, paused_why = grab_paused()
+    if paused_until and paused_until > now:
+        if state.pop("grab_dead_alerted", None):
+            log("搶單存活檢查：先前告警過，但現在是刻意暫停，清掉告警狀態")
+        log(f"搶單存活檢查：grab.py 刻意暫停中（{paused_why}），"
+            f"預計 {paused_until:%m-%d %H:%M} 後再試，不告警")
         return
 
     idle_min = (now - last).total_seconds() / 60

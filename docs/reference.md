@@ -360,6 +360,12 @@ push 型（不是系統日誌型），只是 LINE 節點還沒換 Telegram、而
 照片是 `被停?` 之後才下載的，中間插一個節點不影響資料流。三個 Telegram 節點都設
 `onError=continueRegularOutput`，推播掛掉不會連累發文本身。
 
+⚠️ **`incident-watch/watch.py` 只查 `status=error`**：被容錯吞掉的失敗它看不到，
+那一類要靠 n8n 的 `靜默失敗巡邏` 發 🔕 告警。兩者不重疊，別以為裝了一個就夠。
+
+⚠️ **裝完任何常駐自動化，要去 `shell:startup` 實地看一眼捷徑在不在**——
+2026-08-29～09-02 就是捷徑沒生效，空跑了 4 天沒人發現。
+
 ⚠️ **煞車「停 XXX」只有 LINE 收得到**：`廣告v3 煞車（停）` 是 `LINE 指令分流器 v3` 打進去的
 webhook，全 repo **沒有任何 `telegramTrigger`**。所以 `組預告` 的文字已改成
 「到 LINE 回『停 XXX』（Telegram 回沒用）」。要 Telegram 也能喊停＝另外做一支 Telegram trigger。

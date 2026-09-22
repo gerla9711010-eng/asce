@@ -10,3 +10,4 @@ scripts/buyer-match/data.json
 scripts/buyer-match/state-*.json
 scripts/buyer-match/*.html
 scripts/buyer-match/state-backup*.json
+scripts/buyer-match/browser-profile/
