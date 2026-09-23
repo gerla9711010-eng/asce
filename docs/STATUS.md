@@ -133,6 +133,7 @@
 
 - 🟡 **Telegram 訊息一律要轉義**（09-23 事故，經過見 `incidents.md`）：`keis-contact-reminder`
   已改 `parse_mode=HTML` ＋ 程式端轉義 `& < >` 並重新啟用，**等 09-24 09:00 那班確認推得出去**。
+  ⚠️ 這兩個改動是綁在一起的，只留一個還是會炸（UI 手動存檔可能把 `additionalFields` 洗回預設）。
   其餘 **15 個 Telegram 節點仍是預設 Markdown**，客戶姓名/物件標題只要有 `*` `_` `[` 就整包炸掉，
   待掃（`yc-v3-scan-publish` 線上常有別人改動，掃之前先 `n8n_sync.py --check`）。
 
