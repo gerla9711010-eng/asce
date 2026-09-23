@@ -161,6 +161,12 @@ def patch_workflow(wf: dict, jobs) -> list:
 def check(wf: dict) -> list:
     """回傳這支 workflow 不合規的地方。"""
     bad = []
+    # 有沒有人在產 _tg。少了這個檢查，code 節點被手改掉 `_tg` 會變成 Telegram 收到空字串
+    # （400 message text is empty），而且是在「負責報告其他故障」的那條線上無聲死掉
+    has_producer = any(
+        n["type"].endswith(".code") and "_tg:" in n["parameters"].get("jsCode", "")
+        for n in wf["nodes"]
+    )
     for n in wf["nodes"]:
         if not n["type"].endswith(".telegram"):
             continue
@@ -172,6 +178,8 @@ def check(wf: dict) -> list:
             continue
         if p.get("text") != "={{ $json._tg }}":
             bad.append(f"{wf['name']} / {n['name']}：text 沒讀轉義過的 $json._tg（現在是 {p.get('text')!r}）")
+        elif not has_producer:
+            bad.append(f"{wf['name']} / {n['name']}：讀 $json._tg 但整支 workflow 沒有 code 節點在產 _tg（會推出空訊息）")
     return bad
 
 

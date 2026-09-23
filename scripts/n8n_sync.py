@@ -28,7 +28,8 @@ from pathlib import Path
 
 import httpx
 
-from n8n_telegram_html import check as telegram_check  # 同資料夾，檢查 Telegram 節點有沒有走 HTML
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 不管從哪個目錄被叫都找得到隔壁的腳本
+from n8n_telegram_html import check as telegram_check  # noqa: E402（檢查 Telegram 節點有沒有走 HTML）
 
 # Windows 主控台是 cp950，印到 ⚠ 這種字會整支炸掉。印不出來的字換成 ? 就好
 if hasattr(sys.stdout, "reconfigure"):
