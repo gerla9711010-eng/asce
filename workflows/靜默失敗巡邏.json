@@ -119,7 +119,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst d = $input.first().json;\nconst lines = d.items.map(f =>\n  `・${f.wfName} → ${f.node}\\n　執行 #${f.execId}\\n　${f.msg}`).join('\\n\\n');\nconst text = `🔕 有動作失敗了但流程沒報錯（${d.count} 筆）\\n\\n`\n  + `這些節點設了容錯，失敗會被吞掉、執行狀態還是「成功」，所以不會觸發一般的錯誤告警。\\n\\n`\n  + lines + `\\n\\n`\n  + `⚠️ 廣告線出現這種，先確認貼文／Notion／KEIS 三邊有沒有對上。`;\nreturn [{ json: { text } }];\n"
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\n\nconst d = $input.first().json;\nconst lines = d.items.map(f =>\n  `・${f.wfName} → ${f.node}\\n　執行 #${f.execId}\\n　${f.msg}`).join('\\n\\n');\nconst text = `🔕 有動作失敗了但流程沒報錯（${d.count} 筆）\\n\\n`\n  + `這些節點設了容錯，失敗會被吞掉、執行狀態還是「成功」，所以不會觸發一般的錯誤告警。\\n\\n`\n  + lines + `\\n\\n`\n  + `⚠️ 廣告線出現這種，先確認貼文／Notion／KEIS 三邊有沒有對上。`;\nreturn [{ json: { text, _tg: esc(text) } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -133,9 +133,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",

@@ -131,11 +131,10 @@
 
 ## 其他待辦
 
-- 🟡 **Telegram 訊息一律要轉義**（09-23 事故，經過見 `incidents.md`）：`keis-contact-reminder`
-  已改 `parse_mode=HTML` ＋ 程式端轉義 `& < >` 並重新啟用，**等 09-24 09:00 那班確認推得出去**。
-  ⚠️ 這兩個改動是綁在一起的，只留一個還是會炸（UI 手動存檔可能把 `additionalFields` 洗回預設）。
-  其餘 **15 個 Telegram 節點仍是預設 Markdown**，客戶姓名/物件標題只要有 `*` `_` `[` 就整包炸掉，
-  待掃（`yc-v3-scan-publish` 線上常有別人改動，掃之前先 `n8n_sync.py --check`）。
+- 🟡 **Telegram 全面改 HTML 模式**（09-23 事故，經過見 `incidents.md`）：線上 16 個 Telegram
+  節點全部改完並重新啟用，體檢已接進 `n8n_sync.py`（不合規會在 `n8n-live.md` 分岔檢查報出來）。
+  新增 Telegram 節點照抄：`parse_mode=HTML` ＋ 讀上游 code 節點產的 `$json._tg`（轉義過的訊息）。
+  **只剩實跑驗證**：09-24 09:00 待聯絡提醒、下一班廣告發布通知／搶單通知有正常進來就成立。
 
 - 🔴 「疑似同業每日網頁比對」（08:30）**查無≠乾淨**：WebSearch 查不到手機 Google 秒出的仲介名片頁
   （驗收基準＝0989808766/許聖賢）。09-04 已申請 Google CSE（key/cx 進兩份 `keis/.env`），

@@ -1,4 +1,4 @@
-# n8n 線上現況（2026-09-23 09:51 自動產生）
+# n8n 線上現況（2026-09-23 10:08 自動產生）
 
 > 這份是 `python scripts/n8n_sync.py` 產的，**不要手改**。
 > 它反映的是 n8n 上真正在跑的東西，跟 STATUS.md 的說法對不上時，以這份為準。
@@ -8,10 +8,10 @@
 | 狀態 | 名稱 | 檔案 | 節點 | 最近執行 |
 |---|---|---|---|---|
 | 🟢 | KEIS 待聯絡提醒 | `keis-contact-reminder.json` | 6 | 2026-09-23T01:00 error |
-| 🟢 | KEIS 心跳接收（極簡） | `KEIS-心跳接收極簡.json` | 1 | 2026-09-23T01:32 success |
+| 🟢 | KEIS 心跳接收（極簡） | `KEIS-心跳接收極簡.json` | 1 | 2026-09-23T02:02 success |
 | 🟢 | KEIS 情資週報 | `market-report-notify.json` | 7 | — |
 | 🟢 | KEIS 戰果查詢 | `keis-battle-report.json` | 5 | — |
-| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 4 | 2026-09-23T00:02 success |
+| 🟢 | KEIS 搶單 LINE 通知 | `keis-grab-notify.json` | 4 | 2026-09-23T02:02 success |
 | 🟢 | LINE 指令分流器 v3 | `line-command-router.json` | 16 | — |
 | 🟢 | 圖片分流器（LINE 傳圖自動分類） | `line-image-dispatcher.json` | 9 | — |
 | 🟢 | 客戶建檔器 | `line-customer-create.json` | 13 | — |
@@ -66,3 +66,4 @@
 
 - git 與 n8n 檔案一致
 - Notion 欄位都有對應的寫入來源
+- Telegram 節點都走 HTML 模式且訊息有轉義

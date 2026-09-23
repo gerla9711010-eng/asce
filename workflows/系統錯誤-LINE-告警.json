@@ -14,7 +14,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// Error Trigger 進來的資料：{ execution:{id,url,error{message},lastNodeExecuted,mode}, workflow:{id,name} }\nconst d = $input.first().json;\nconst wf = d.workflow || {};\nconst ex = d.execution || d.trigger || {};\nconst err = ex.error || {};\n\n// 這些是「外部服務打嗝」型的錯誤，講白話讓人一眼知道不是自己系統壞掉\nconst raw = String(err.message || '未知錯誤');\nlet hint = '';\nif (/50\\d|522|ECONNABORTED|ETIMEDOUT|ECONNRESET|timeout/i.test(raw)) {\n  hint = '\\n💡 看起來是對方服務暫時打嗝，通常下一班會自己好';\n} else if (/401|403|token|credential/i.test(raw)) {\n  hint = '\\n💡 可能是登入權杖過期，要人工處理';\n}\n\nconst text = [\n  '🚨 n8n 執行失敗',\n  `📋 ${wf.name || wf.id || '未知流程'}`,\n  ex.lastNodeExecuted ? `🔻 卡在：${ex.lastNodeExecuted}` : null,\n  `💬 ${raw.slice(0, 300)}`,\n  ex.url ? `🔗 ${ex.url}` : null,\n].filter(Boolean).join('\\n') + hint;\n\nreturn [{ json: { userId: \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\", text } }];\n"
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\n\n// Error Trigger 進來的資料：{ execution:{id,url,error{message},lastNodeExecuted,mode}, workflow:{id,name} }\nconst d = $input.first().json;\nconst wf = d.workflow || {};\nconst ex = d.execution || d.trigger || {};\nconst err = ex.error || {};\n\n// 這些是「外部服務打嗝」型的錯誤，講白話讓人一眼知道不是自己系統壞掉\nconst raw = String(err.message || '未知錯誤');\nlet hint = '';\nif (/50\\d|522|ECONNABORTED|ETIMEDOUT|ECONNRESET|timeout/i.test(raw)) {\n  hint = '\\n💡 看起來是對方服務暫時打嗝，通常下一班會自己好';\n} else if (/401|403|token|credential/i.test(raw)) {\n  hint = '\\n💡 可能是登入權杖過期，要人工處理';\n}\n\nconst text = [\n  '🚨 n8n 執行失敗',\n  `📋 ${wf.name || wf.id || '未知流程'}`,\n  ex.lastNodeExecuted ? `🔻 卡在：${ex.lastNodeExecuted}` : null,\n  `💬 ${raw.slice(0, 300)}`,\n  ex.url ? `🔗 ${ex.url}` : null,\n].filter(Boolean).join('\\n') + hint;\n\nreturn [{ json: { userId: \"Ufab42c56b2eb9b9a9ff18c367b85a6dd\", text, _tg: esc(text) } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -70,9 +70,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",

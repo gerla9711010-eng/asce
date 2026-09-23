@@ -21,9 +21,15 @@
 2. `組訊息（標重複）` 最後把 `& < >` 轉義（`&` 要先換否則二次轉義）
 3. PUT 回 n8n 後 deactivate + activate（排程線必做，否則跑舊版）
 
+**同日已全面掃完**：`scripts/n8n_telegram_html.py --fix` 把線上 **16 個 Telegram 節點**全部改成
+HTML 模式，13 個上游 code 節點多產一個 `_tg`（＝轉義過的訊息），Telegram 節點只讀 `_tg`
+（不覆蓋原本的 `text`/`summaryText`，才不會影響 LINE 回覆、寫 Notion 那些去處）。
+7 支 active workflow 都 deactivate+activate 過。同一支腳本不帶參數就是體檢，已接進
+`n8n_sync.py`，以後每次同步都會檢查，不合規會在 `n8n-live.md` 的「分岔檢查」報出來。
+
 **學到什麼**：
 1. 客戶姓名/備註是使用者輸入，**任何把它塞進 Telegram 的節點都要當成不可信字串**。
-   其餘 15 個 Telegram 節點目前仍是預設 Markdown，同一顆地雷還在（待掃）。
+   新增 Telegram 節點時照抄現有寫法：`parse_mode=HTML` ＋ 讀 `$json._tg`。
 2. Telegram 節點的 400 一律去 `/api/v1/executions/<id>?includeData=true` 撈 `error.description`，
    不要信畫面上那句話。
 

@@ -50,6 +50,9 @@ Claude Code 每次開 session 會自動建新 branch，基礎點不一定是最�
 ## 禁止事項
 - 不要讓 STATUS.md 越來越長（目標 ~120 行；**超過 150 行 session-start hook 會當場叫**，
   當次就要把事故經過搬去 incidents.md、查表搬去 reference.md，不要留給下一個 session）
+- 新增 Telegram 節點不要用預設 parse_mode（＝Markdown，客戶姓名一個 `*` 就整包推不出去，
+  2026-09-23 踩過）：一律 `parse_mode=HTML` ＋ 讀上游 code 節點轉義過的 `$json._tg`；
+  體檢跑 `python scripts/n8n_telegram_html.py`（`--fix` 直接修）
 - 不要從 Notion 讀取狀態，那邊已停止維護
 - 不要在現有 workflow 裡直接 Import JSON，會覆蓋；一律開新空白 workflow 再匯入
 - 不要手改 `docs/n8n-live.md` 和 `workflows/_map.json`，那是 n8n_sync.py 產的

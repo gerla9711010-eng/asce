@@ -428,7 +428,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 數字守門員 v2：\n// (1) 文案裡的每個數字都要在官方事實裡找得到\n// (2) 官方沒有的欄位（屋齡/學區），文案裡連提都不准提——擋 AI 自己腦補\nconst j = $input.first().json;\n\nconst facts = new Set();\nconst push = v => {\n  if (v === null || v === undefined || v === '') return;\n  const n = String(v).replace(/,/g, '');\n  facts.add(n);\n  if (/^\\d+\\.\\d+$/.test(n)) { facts.add(String(Math.round(Number(n)))); facts.add(n.split('.')[0]); }\n  if (/^\\d+$/.test(n)) facts.add(String(Number(n)));\n};\n[j['總價萬'], j['單價'], j['主建坪'], j['建物坪'], j['屋齡']].forEach(push);\nconst raw = [j['格局'], j['樓層'], j['地址'], j['案名'], j['社區'], j['車位'], j['學區'],\n  ...(j['賣點'] || []), ...Object.values(j['機能'] || {})].join(' ');\n(raw.match(/\\d+(?:\\.\\d+)?/g) || []).forEach(push);\n['0912877583', '11034791100', '417208', '111'].forEach(push);\n// 調價重發時，文案會多出「舊價」和「幅度」兩個數字，它們的出處是 Notion 上一版與 KEIS 現價，\n// 不是 AI 掰的，要放行；但「殘留舊價」（該換沒換到）仍然要擋。\nconst dz = j['_調價'];\nif (dz) { [dz['舊價'], dz['新價'], dz['幅度']].forEach(push); }\n\nconst fb = String(j['粉專文案'] || '');\nconst grp = String(j['社團文案'] || '');\nconst body = fb + '\\n' + grp;\n\n// (1) 數字檢查（先把網址拿掉，LINE 連結的亂碼裡有數字，不是文案在講的數字）\nconst scan = body.replace(/https?:\\/\\/\\S+/g, ' ');\nconst used = [...new Set((scan.match(/\\d+(?:\\.\\d+)?/g) || []))];\nlet badNums = used.filter(n => !facts.has(n) && !facts.has(String(Number(n))));\n\n// (2) 沒資料就不准提\nlet banned = [];\nif (j['屋齡'] === null || j['屋齡'] === undefined || j['屋齡'] === '') {\n  if (/屋齡|年新|新成屋|中古/.test(body)) banned.push('屋齡（官方沒這筆資料）');\n}\nif (!j['學區']) {\n  if (/學區|國小|國中/.test(body)) banned.push('學區（官方沒這筆資料）');\n}\nif (!j['格局'] && /\\d+房\\d+廳/.test(body)) banned.push('格局（官方沒這筆資料）');\nif (!j['樓層'] && /\\d+\\s*\\/\\s*\\d+\\s*樓|樓層/.test(body)) banned.push('樓層（官方沒這筆資料）');\n\n// 調價重發是拿「上一版已經過守門員的文案」原封不動改價，只有降價那句是新的。\n// 若拿今天的 KEIS／官網資料回頭重審整篇，只要官網又砍欄位（砍過不只一次）就會誤擋一篇合法的重發。\n// 所以這裡改成只審「這一版新冒出來的東西」：舊文案本來就有的數字與描述視同已審過，\n// 真正該擋的「價格沒換乾淨」由 _調價.殘留舊價 獨立把關，不受這段放寬影響。\nif (dz) {\n  const 舊數 = new Set(((String(dz['舊文'] || '').replace(/https?:\\/\\/\\S+/g, ' ')).match(/\\d+(?:\\.\\d+)?/g) || []));\n  badNums = badNums.filter(n => !舊數.has(n) && !舊數.has(String(Number(n))));\n  banned = [];\n}\n\nconst ctx = n => {\n  const i = body.indexOf(n);\n  return i < 0 ? '' : body.slice(Math.max(0, i - 12), i + 12).replace(/\\n/g, ' ');\n};\n// (3) 出貨前形狀檢查（2026-08-03 加）：\n// AI 回傳格式壞掉時，整包 JSON 會被當文案發出去。這裡是最後一道，寧可不發也不要貼垃圾。\nconst len = j['_主體長度'] || {};\nconst 殘骸 = [];\nif (/\"粉專主體\"|\"社團主體\"|\\\\n|```/.test(body)) 殘骸.push('文案裡有 JSON／程式殘骸，AI 回傳格式壞掉');\nif (typeof len.fb === 'number' && len.fb < 60) 殘骸.push(`粉專主體只有 ${len.fb} 字，不像正常文案`);\nif (typeof len.grp === 'number' && len.grp < 15) 殘骸.push(`社團主體只有 ${len.grp} 字，不像正常文案`);\nif (dz && dz['殘留舊價']) 殘骸.push(`${dz['方向']}重發但文案裡還看得到舊價 ${dz['舊價']} 萬，價格沒換乾淨`);\n\nconst ok = badNums.length === 0 && banned.length === 0 && 殘骸.length === 0;\nconst msg = ok ? '' :\n  `⚠️ ${j.contract_no} 這篇沒發，文案沒過檢查：\\n` +\n  (badNums.length ? `・查無出處的數字：${badNums.map(n => `${n}（…${ctx(n)}…）`).join('；')}\\n` : '') +\n  (banned.length ? `・不該提的項目：${banned.join('、')}\\n` : '') +\n  (殘骸.length ? `・文案本身壞掉：${殘骸.join('、')}\\n` : '') +\n  `Notion 沒有建列，要發請手動處理。`;\n\nreturn [{ json: { ...j, _guardOk: ok, _guardBad: badNums, _guardBanned: banned, _guardJunk: 殘骸, _guardMsg: msg } }];\n"
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\n// 數字守門員 v2：\n// (1) 文案裡的每個數字都要在官方事實裡找得到\n// (2) 官方沒有的欄位（屋齡/學區），文案裡連提都不准提——擋 AI 自己腦補\nconst j = $input.first().json;\n\nconst facts = new Set();\nconst push = v => {\n  if (v === null || v === undefined || v === '') return;\n  const n = String(v).replace(/,/g, '');\n  facts.add(n);\n  if (/^\\d+\\.\\d+$/.test(n)) { facts.add(String(Math.round(Number(n)))); facts.add(n.split('.')[0]); }\n  if (/^\\d+$/.test(n)) facts.add(String(Number(n)));\n};\n[j['總價萬'], j['單價'], j['主建坪'], j['建物坪'], j['屋齡']].forEach(push);\nconst raw = [j['格局'], j['樓層'], j['地址'], j['案名'], j['社區'], j['車位'], j['學區'],\n  ...(j['賣點'] || []), ...Object.values(j['機能'] || {})].join(' ');\n(raw.match(/\\d+(?:\\.\\d+)?/g) || []).forEach(push);\n['0912877583', '11034791100', '417208', '111'].forEach(push);\n// 調價重發時，文案會多出「舊價」和「幅度」兩個數字，它們的出處是 Notion 上一版與 KEIS 現價，\n// 不是 AI 掰的，要放行；但「殘留舊價」（該換沒換到）仍然要擋。\nconst dz = j['_調價'];\nif (dz) { [dz['舊價'], dz['新價'], dz['幅度']].forEach(push); }\n\nconst fb = String(j['粉專文案'] || '');\nconst grp = String(j['社團文案'] || '');\nconst body = fb + '\\n' + grp;\n\n// (1) 數字檢查（先把網址拿掉，LINE 連結的亂碼裡有數字，不是文案在講的數字）\nconst scan = body.replace(/https?:\\/\\/\\S+/g, ' ');\nconst used = [...new Set((scan.match(/\\d+(?:\\.\\d+)?/g) || []))];\nlet badNums = used.filter(n => !facts.has(n) && !facts.has(String(Number(n))));\n\n// (2) 沒資料就不准提\nlet banned = [];\nif (j['屋齡'] === null || j['屋齡'] === undefined || j['屋齡'] === '') {\n  if (/屋齡|年新|新成屋|中古/.test(body)) banned.push('屋齡（官方沒這筆資料）');\n}\nif (!j['學區']) {\n  if (/學區|國小|國中/.test(body)) banned.push('學區（官方沒這筆資料）');\n}\nif (!j['格局'] && /\\d+房\\d+廳/.test(body)) banned.push('格局（官方沒這筆資料）');\nif (!j['樓層'] && /\\d+\\s*\\/\\s*\\d+\\s*樓|樓層/.test(body)) banned.push('樓層（官方沒這筆資料）');\n\n// 調價重發是拿「上一版已經過守門員的文案」原封不動改價，只有降價那句是新的。\n// 若拿今天的 KEIS／官網資料回頭重審整篇，只要官網又砍欄位（砍過不只一次）就會誤擋一篇合法的重發。\n// 所以這裡改成只審「這一版新冒出來的東西」：舊文案本來就有的數字與描述視同已審過，\n// 真正該擋的「價格沒換乾淨」由 _調價.殘留舊價 獨立把關，不受這段放寬影響。\nif (dz) {\n  const 舊數 = new Set(((String(dz['舊文'] || '').replace(/https?:\\/\\/\\S+/g, ' ')).match(/\\d+(?:\\.\\d+)?/g) || []));\n  badNums = badNums.filter(n => !舊數.has(n) && !舊數.has(String(Number(n))));\n  banned = [];\n}\n\nconst ctx = n => {\n  const i = body.indexOf(n);\n  return i < 0 ? '' : body.slice(Math.max(0, i - 12), i + 12).replace(/\\n/g, ' ');\n};\n// (3) 出貨前形狀檢查（2026-08-03 加）：\n// AI 回傳格式壞掉時，整包 JSON 會被當文案發出去。這裡是最後一道，寧可不發也不要貼垃圾。\nconst len = j['_主體長度'] || {};\nconst 殘骸 = [];\nif (/\"粉專主體\"|\"社團主體\"|\\\\n|```/.test(body)) 殘骸.push('文案裡有 JSON／程式殘骸，AI 回傳格式壞掉');\nif (typeof len.fb === 'number' && len.fb < 60) 殘骸.push(`粉專主體只有 ${len.fb} 字，不像正常文案`);\nif (typeof len.grp === 'number' && len.grp < 15) 殘骸.push(`社團主體只有 ${len.grp} 字，不像正常文案`);\nif (dz && dz['殘留舊價']) 殘骸.push(`${dz['方向']}重發但文案裡還看得到舊價 ${dz['舊價']} 萬，價格沒換乾淨`);\n\nconst ok = badNums.length === 0 && banned.length === 0 && 殘骸.length === 0;\nconst msg = ok ? '' :\n  `⚠️ ${j.contract_no} 這篇沒發，文案沒過檢查：\\n` +\n  (badNums.length ? `・查無出處的數字：${badNums.map(n => `${n}（…${ctx(n)}…）`).join('；')}\\n` : '') +\n  (banned.length ? `・不該提的項目：${banned.join('、')}\\n` : '') +\n  (殘骸.length ? `・文案本身壞掉：${殘骸.join('、')}\\n` : '') +\n  `Notion 沒有建列，要發請手動處理。`;\n\nreturn [{ json: { ...j, _guardOk: ok, _guardBad: badNums, _guardBanned: banned, _guardJunk: 殘骸, _guardMsg: msg, _tg: esc(msg) } }];\n"
       },
       "id": "v3c-g1",
       "name": "數字守門員",
@@ -724,9 +724,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json._guardMsg }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -747,7 +748,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const p = $('取貼文結果').first().json;\nconst o = $('挑一件重發').first().json;\nconst text = `🔁 已重發 ${p.contract_no}\\n${p.permalink || '（連結未取得，請到粉專確認）'}\\n\\n`\n  + (o.oldPermalink ? `舊貼文已刪：${o.oldPermalink}\\n\\n` : '')\n  + `━ 社團版（複製貼原生文）━\\n${p['社團文案'] || ''}`;\nreturn [{ json: { text } }];\n",
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\nconst p = $('取貼文結果').first().json;\nconst o = $('挑一件重發').first().json;\nconst text = `🔁 已重發 ${p.contract_no}\\n${p.permalink || '（連結未取得，請到粉專確認）'}\\n\\n`\n  + (o.oldPermalink ? `舊貼文已刪：${o.oldPermalink}\\n\\n` : '')\n  + `━ 社團版（複製貼原生文）━\\n${p['社團文案'] || ''}`;\nreturn [{ json: { text, _tg: esc(text) } }];\n",
         "mode": "runOnceForAllItems"
       },
       "type": "n8n-nodes-base.code",
@@ -762,9 +763,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -820,7 +822,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 走到這裡＝下架偵測線看到 KEIS 廣告追蹤標了降價/漲價，把這件勾了「要重發」，\n// 但重發線去讀 KEIS 物件資料時，價格跟 Notion 上一版一模一樣＝KEIS 物件那邊還沒改到價。\n//\n// 這時候兩個價格都不能用：\n//   ・用 KEIS 物件價（舊價）→ 等於原封不動再發一次，發完又把舊價寫回廣告追蹤，\n//     KEIS 明天再標一次降價，無限迴圈。2026-09-05 抓到高鐵植物園那件就這樣重發了 3 次。\n//   ・用 url_price（KEIS 爬官網得到的）→ 那是爬蟲數字，會被塞進「總價萬」這個鎖死的官方事實，\n//     整篇文案的數字都是拿它去驗的，風險比不發更大。\n// 所以：不發、出聲，等人去 KEIS 把物件價格改對。「要重發」取消勾選避免卡住整條隊伍，\n// 明天 08:00 下架偵測線看到標籤還在會再勾一次。\nconst ctx = $('挑一件重發').first().json;\nconst j = $input.first().json;\nconst text = '⚠️ ' + ctx.contract_no + ' 暫不重發：KEIS 物件價格還沒跟上\\n\\n'\n  + '廣告追蹤已經標了調價標籤，但 KEIS 物件資料上的總價還是 ' + j['總價萬'] + ' 萬，\\n'\n  + '跟粉專上那篇一樣，重發等於原封不動再貼一次。\\n\\n'\n  + '請到 KEIS 把這件的總價改成現在的售價，明天 08:00 會自動再排一次。';\nreturn [{ json: { alertText: text, contract_no: ctx.contract_no, notionPageId: ctx.notionPageId } }];\n"
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\n// 走到這裡＝下架偵測線看到 KEIS 廣告追蹤標了降價/漲價，把這件勾了「要重發」，\n// 但重發線去讀 KEIS 物件資料時，價格跟 Notion 上一版一模一樣＝KEIS 物件那邊還沒改到價。\n//\n// 這時候兩個價格都不能用：\n//   ・用 KEIS 物件價（舊價）→ 等於原封不動再發一次，發完又把舊價寫回廣告追蹤，\n//     KEIS 明天再標一次降價，無限迴圈。2026-09-05 抓到高鐵植物園那件就這樣重發了 3 次。\n//   ・用 url_price（KEIS 爬官網得到的）→ 那是爬蟲數字，會被塞進「總價萬」這個鎖死的官方事實，\n//     整篇文案的數字都是拿它去驗的，風險比不發更大。\n// 所以：不發、出聲，等人去 KEIS 把物件價格改對。「要重發」取消勾選避免卡住整條隊伍，\n// 明天 08:00 下架偵測線看到標籤還在會再勾一次。\nconst ctx = $('挑一件重發').first().json;\nconst j = $input.first().json;\nconst text = '⚠️ ' + ctx.contract_no + ' 暫不重發：KEIS 物件價格還沒跟上\\n\\n'\n  + '廣告追蹤已經標了調價標籤，但 KEIS 物件資料上的總價還是 ' + j['總價萬'] + ' 萬，\\n'\n  + '跟粉專上那篇一樣，重發等於原封不動再貼一次。\\n\\n'\n  + '請到 KEIS 把這件的總價改成現在的售價，明天 08:00 會自動再排一次。';\nreturn [{ json: { alertText: text, contract_no: ctx.contract_no, notionPageId: ctx.notionPageId, _tg: esc(text) } }];\n"
       },
       "id": "stalemsg01",
       "name": "組價格未同步告警",
@@ -834,9 +836,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.alertText }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "id": "staletg01",
