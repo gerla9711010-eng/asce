@@ -6,6 +6,27 @@
 
 ---
 
+## 2026-09-23｜待聯絡提醒整包推不出去：客戶姓名叫「*小姐」
+
+**症狀**：09-23 09:00 排程跑到 `Telegram 告警` 節點 400 失敗（execution 11151），LINE/Telegram
+只收到「Bad request - please check your parameters」，當天 20 幾筆待聯絡提醒全部沒送出。
+
+**成因**：n8n Telegram 節點沒設 `parse_mode` 時預設走 **Markdown**。名單裡有一筆客戶姓名是
+`*小姐`，單獨一個 `*` 讓 Telegram 解析不到結尾。API 撈執行紀錄才看得到真正的錯誤訊息：
+`can't parse entities: Can't find end of the entity starting at byte offset 2346`
+——n8n 畫面上那句 Bad request 是通用訊息，看它會找錯方向。
+
+**怎麼修**（PR 見 commit）：
+1. `Telegram 告警` 節點 `additionalFields.parse_mode = HTML`（訊息本來就沒用粗體斜體，外觀不變）
+2. `組訊息（標重複）` 最後把 `& < >` 轉義（`&` 要先換否則二次轉義）
+3. PUT 回 n8n 後 deactivate + activate（排程線必做，否則跑舊版）
+
+**學到什麼**：
+1. 客戶姓名/備註是使用者輸入，**任何把它塞進 Telegram 的節點都要當成不可信字串**。
+   其餘 15 個 Telegram 節點目前仍是預設 Markdown，同一顆地雷還在（待掃）。
+2. Telegram 節點的 400 一律去 `/api/v1/executions/<id>?includeData=true` 撈 `error.description`，
+   不要信畫面上那句話。
+
 ## 2026-09-18｜GitHub 帳號 08-26 停權正式解除，官方回覆成因
 
 **症狀**：`git fetch`/`gh api user` 09-18 早上恢復正常，同一時間收到 GitHub Support 官方回信
