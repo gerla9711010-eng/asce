@@ -10,6 +10,8 @@
 1. 把 n8n 上全部 workflow 拉回 workflows/，git 從此等於 n8n（不用再手動匯出）
 2. 產 docs/n8n-live.md：誰 active、最近執行時間、Notion 每個欄位被哪支 workflow 寫
 3. 對出「n8n 有但 git 沒有」「git 有但 n8n 已刪」「Notion 有欄位但沒人寫」三種分岔
+4. 體檢每個 Telegram 節點是不是 HTML 模式＋訊息有轉義（2026-09-23 事故，Markdown 模式
+   遇到「*小姐」這種客戶姓名會整包推不出去；要修跑 scripts/n8n_telegram_html.py --fix）
 
 金鑰讀 .env 的 N8N_URL / N8N_API_KEY，Notion 欄位那段讀 scripts/keis/.env 的
 KEIS_NOTION_TOKEN（沒有就跳過那段，不會壞）。
@@ -25,6 +27,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 不管從哪個目錄被叫都找得到隔壁的腳本
+from n8n_telegram_html import check as telegram_check  # noqa: E402（檢查 Telegram 節點有沒有走 HTML）
 
 # Windows 主控台是 cp950，印到 ⚠ 這種字會整支炸掉。印不出來的字換成 ? 就好
 if hasattr(sys.stdout, "reconfigure"):
@@ -143,10 +148,12 @@ def main() -> int:
 
     name_map: dict[str, str] = json.loads(MAP_FILE.read_text(encoding="utf-8")) if MAP_FILE.exists() else {}
     changed, added, unchanged = [], [], []
+    tg_bad: list[str] = []
 
     for w in lst:
         wid = w["id"]
         full = n8n.workflow(wid)
+        tg_bad += telegram_check(full)
         body = {k: full[k] for k in KEEP if k in full}
         fname = name_map.get(wid) or slugify(full["name"])
         if wid not in name_map:
@@ -226,6 +233,13 @@ def main() -> int:
             )
         else:
             L.append("- Notion 欄位都有對應的寫入來源")
+    if tg_bad:
+        L.append("- ⚠️ **Telegram 節點沒走 HTML 轉義**（Markdown 模式會被客戶姓名的 `*` 炸掉，"
+                 "見 incidents.md 2026-09-23）：")
+        L += [f"  - {b}" for b in tg_bad]
+        L.append("  - 修：`python scripts/n8n_telegram_html.py --fix`")
+    else:
+        L.append("- Telegram 節點都走 HTML 模式且訊息有轉義")
     L.append("")
 
     if not args.check:
@@ -239,6 +253,10 @@ def main() -> int:
         print(f"  新認識的 workflow：{'、'.join(added)}")
     if orphans:
         print(f"  ⚠ git 有但 n8n 沒有：{'、'.join(orphans)}（確認是不是該刪掉）")
+    if tg_bad:
+        print(f"  ⚠ Telegram 節點沒走 HTML 轉義：{len(tg_bad)} 個 → 修：python scripts/n8n_telegram_html.py --fix")
+        for b in tg_bad:
+            print(f"      · {b}")
     if not args.check:
         print(f"  現況表 → {REPORT.relative_to(ROOT)}")
     return 0

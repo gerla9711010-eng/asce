@@ -565,7 +565,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// 只有「粉專貼文自動刪除失敗」才會走到這。把連結附上讓使用者點進去直接刪。\nconst rows = $input.all().map(i => i.json);\nconst lines = rows.map(r => {\n  const tail = r.markRemoved\n    ? '　→ Notion 已標下架，系統不會再試，請自己刪這篇'\n    : '　→ Notion 還是「已發布」，下一班會自動再試一次';\n  return `・${r.caseName}（${r.contract_no}）\\n　${r.fbPostUrl || '(Notion 沒存連結，請到粉專找)'}\\n　錯誤：${r.fbDeleteError || '未知'}\\n${tail}`;\n}).join('\\n\\n');\nconst text = `⚠️ 粉專貼文自動刪除失敗（${rows.length} 筆）\\n\\n`\n  + `物件已下架但貼文還掛在粉專上，點連結進去手動刪：\\n\\n${lines}\\n\\n`\n  + `如果連續幾天都收到同一筆「下一班會再試」，代表 FB 權杖有問題，要重新產。`;\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text } }];\n"
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\n\n// 只有「粉專貼文自動刪除失敗」才會走到這。把連結附上讓使用者點進去直接刪。\nconst rows = $input.all().map(i => i.json);\nconst lines = rows.map(r => {\n  const tail = r.markRemoved\n    ? '　→ Notion 已標下架，系統不會再試，請自己刪這篇'\n    : '　→ Notion 還是「已發布」，下一班會自動再試一次';\n  return `・${r.caseName}（${r.contract_no}）\\n　${r.fbPostUrl || '(Notion 沒存連結，請到粉專找)'}\\n　錯誤：${r.fbDeleteError || '未知'}\\n${tail}`;\n}).join('\\n\\n');\nconst text = `⚠️ 粉專貼文自動刪除失敗（${rows.length} 筆）\\n\\n`\n  + `物件已下架但貼文還掛在粉專上，點連結進去手動刪：\\n\\n${lines}\\n\\n`\n  + `如果連續幾天都收到同一筆「下一班會再試」，代表 FB 權杖有問題，要重新產。`;\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text, _tg: esc(text) } }];\n"
       },
       "name": "組刪文失敗通知",
       "type": "n8n-nodes-base.code",
@@ -611,7 +611,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// KEIS 撈不到資料 → 今天的下架偵測等於沒跑，要讓使用者知道（不然是靜悄悄地壞掉）。\nconst r = $input.first().json || {};\nconst code = r.statusCode ?? '無回應';\nconst text = `🔧 廣告下架偵測今天沒跑成功\\n\\n`\n  + `KEIS 廣告追蹤撈不到資料（HTTP ${code}）。\\n`\n  + `今天不會有任何自動下架動作，明天 08:00 會再試。\\n\\n`\n  + `連續兩天收到就要查 KEIS 帳密或系統狀態。`;\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text } }];"
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\n\n// KEIS 撈不到資料 → 今天的下架偵測等於沒跑，要讓使用者知道（不然是靜悄悄地壞掉）。\nconst r = $input.first().json || {};\nconst code = r.statusCode ?? '無回應';\nconst text = `🔧 廣告下架偵測今天沒跑成功\\n\\n`\n  + `KEIS 廣告追蹤撈不到資料（HTTP ${code}）。\\n`\n  + `今天不會有任何自動下架動作，明天 08:00 會再試。\\n\\n`\n  + `連續兩天收到就要查 KEIS 帳密或系統狀態。`;\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', summaryText: text, _tg: esc(text) } }];"
       },
       "name": "組 KEIS 故障通知",
       "type": "n8n-nodes-base.code",
@@ -787,9 +787,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.summaryText }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -811,9 +812,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.summaryText }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",

@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://ever-appointment-competent-future.trycloudflare.com",
+        "url": "https://constraints-participate-confident-lined.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -297,7 +297,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const src = $('解析文案+footer').first().json;\nconst pageId = $input.first().json.id;\nconst preview = String(src['粉專文案']||'').split('\\n').slice(0,6).join('\\n');\nconst text = `🕐 準備發廣告（10 分鐘後自動發）\\n\\n🏷 ${src.contract_no}　💰 ${src['總價萬']} 萬\\n📋 ${src['案名']}\\n📍 ${src['地址']}\\n\\n不想發這件 → 到 LINE 回「停 ${src.contract_no}」或「停」（Telegram 回沒用）\\n\\n━━ 粉專預覽 ━━\\n${preview}…`;\nreturn [{ json: { ...src, notionPageId: pageId, pushText: text } }];"
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\nconst src = $('解析文案+footer').first().json;\nconst pageId = $input.first().json.id;\nconst preview = String(src['粉專文案']||'').split('\\n').slice(0,6).join('\\n');\nconst text = `🕐 準備發廣告（10 分鐘後自動發）\\n\\n🏷 ${src.contract_no}　💰 ${src['總價萬']} 萬\\n📋 ${src['案名']}\\n📍 ${src['地址']}\\n\\n不想發這件 → 到 LINE 回「停 ${src.contract_no}」或「停」（Telegram 回沒用）\\n\\n━━ 粉專預覽 ━━\\n${preview}…`;\nreturn [{ json: { ...src, notionPageId: pageId, pushText: text, _tg: esc(text) } }];"
       },
       "id": "v3a-13-buildpre",
       "name": "組預告",
@@ -1091,7 +1091,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst src = $('收集 media id').first().json;\nconst mode = (() => { try { return $('判斷補救方式').first().json.mode; } catch (e) { return ''; } })();\nconst why = mode === 'retry'\n  ? '已確認沒發出去並自動重發一次，仍然失敗。'\n  : '無法向 FB 確認到底發出去了沒，為了避免重複貼文，這次不重發。';\nconst text = [\n  '❌ 廣告沒發出去（Facebook 那邊出錯）',\n  '',\n  `🏷 ${src.contract_no}　💰 ${src['總價萬']} 萬`,\n  `📋 ${src['案名'] || ''}`,\n  `📍 ${src['地址'] || ''}`,\n  '',\n  why,\n  'ℹ️ 已把 Notion 待發列撤掉，下一班會自動重抓這件，不用手動處理。',\n].join('\\n');\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', text } }];\n"
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\n\nconst src = $('收集 media id').first().json;\nconst mode = (() => { try { return $('判斷補救方式').first().json.mode; } catch (e) { return ''; } })();\nconst why = mode === 'retry'\n  ? '已確認沒發出去並自動重發一次，仍然失敗。'\n  : '無法向 FB 確認到底發出去了沒，為了避免重複貼文，這次不重發。';\nconst text = [\n  '❌ 廣告沒發出去（Facebook 那邊出錯）',\n  '',\n  `🏷 ${src.contract_no}　💰 ${src['總價萬']} 萬`,\n  `📋 ${src['案名'] || ''}`,\n  `📍 ${src['地址'] || ''}`,\n  '',\n  why,\n  'ℹ️ 已把 Notion 待發列撤掉，下一班會自動重抓這件，不用手動處理。',\n].join('\\n');\nreturn [{ json: { userId: 'Ufab42c56b2eb9b9a9ff18c367b85a6dd', text, _tg: esc(text) } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -1434,7 +1434,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 候補全部跑完都沒發成功時的收尾：如果是因為「查無永慶連結」被跳過，講一聲；\n// 單純沒有新案可發（跳過清單是空的）就安靜結束，不要每 2 小時洗一則 LINE。\nconst seen = new Set();\nconst sk = [];\nfor (let i = 0; i < 6; i++) {\n  let items;\n  try { items = $('跳過無連結').all(0, i); } catch (e) { break; }\n  if (!items || !items.length) break;\n  for (const it of items) {\n    const j = it.json || {};\n    if (j.contract_no && !seen.has(j.contract_no)) { seen.add(j.contract_no); sk.push(j); }\n  }\n}\nif (!sk.length) return [];\nconst text = `⏭ 這班沒發成品：${sk.length} 件都查不到永慶官網連結\\n\\n`\n  + sk.map(x => `・${x.contract_no} ${x['案名'] || ''}\\n　${x.ycNote}`).join('\\n')\n  + `\\n\\n沒有官網連結就建不了 KEIS 廣告追蹤，寧可不發。下一班會再試一次。`;\nreturn [{ json: { text } }];\n",
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\n// 候補全部跑完都沒發成功時的收尾：如果是因為「查無永慶連結」被跳過，講一聲；\n// 單純沒有新案可發（跳過清單是空的）就安靜結束，不要每 2 小時洗一則 LINE。\nconst seen = new Set();\nconst sk = [];\nfor (let i = 0; i < 6; i++) {\n  let items;\n  try { items = $('跳過無連結').all(0, i); } catch (e) { break; }\n  if (!items || !items.length) break;\n  for (const it of items) {\n    const j = it.json || {};\n    if (j.contract_no && !seen.has(j.contract_no)) { seen.add(j.contract_no); sk.push(j); }\n  }\n}\nif (!sk.length) return [];\nconst text = `⏭ 這班沒發成品：${sk.length} 件都查不到永慶官網連結\\n\\n`\n  + sk.map(x => `・${x.contract_no} ${x['案名'] || ''}\\n　${x.ycNote}`).join('\\n')\n  + `\\n\\n沒有官網連結就建不了 KEIS 廣告追蹤，寧可不發。下一班會再試一次。`;\nreturn [{ json: { text, _tg: esc(text) } }];\n",
         "mode": "runOnceForAllItems"
       },
       "id": "a1f0c3d2-8b41-4f77-9c22-6d5e1a90b003",
@@ -1544,9 +1544,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -1570,7 +1571,8 @@
         "chatId": "1890720012",
         "text": "={{ 'KEIS 列表少了欄位 ' + ($json._missing || []).join('、') + '（撈到 ' + $json._count + ' 筆）。這輪沒發，要修程式。' }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -1592,9 +1594,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -1616,9 +1619,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.pushText }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -1640,7 +1644,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const p = $('取貼文結果').first().json;\nconst k = $('取 KEIS 廣告ID').first().json;\nconst text = `✅ 已發布 ${p.contract_no}\\n${p.permalink || '（連結未取得，請到粉專確認）'}\\n\\n`\n  + `━ 社團版（複製貼原生文）━\\n${p['社團文案'] || ''}\\n\\n撒網社團按這篇的「分享」即可。\\n\\n`\n  + `📊 KEIS 廣告追蹤：${k.keisNote || '未執行'}${k.skipNote || ''}`;\nreturn [{ json: { text } }];\n",
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\nconst p = $('取貼文結果').first().json;\nconst k = $('取 KEIS 廣告ID').first().json;\nconst text = `✅ 已發布 ${p.contract_no}\\n${p.permalink || '（連結未取得，請到粉專確認）'}\\n\\n`\n  + `━ 社團版（複製貼原生文）━\\n${p['社團文案'] || ''}\\n\\n撒網社團按這篇的「分享」即可。\\n\\n`\n  + `📊 KEIS 廣告追蹤：${k.keisNote || '未執行'}${k.skipNote || ''}`;\nreturn [{ json: { text, _tg: esc(text) } }];\n",
         "mode": "runOnceForAllItems"
       },
       "type": "n8n-nodes-base.code",
@@ -1655,9 +1659,10 @@
     {
       "parameters": {
         "chatId": "1890720012",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json._tg }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -1776,7 +1781,8 @@
         "chatId": "1890720012",
         "text": "KEIS 詳情 API 拿不到 property_type / age，型態＋屋齡篩選這班停用，先照舊發。要修程式。",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "id": "v3a-deg-tg",
