@@ -27,6 +27,10 @@ HTML 模式，13 個上游 code 節點多產一個 `_tg`（＝轉義過的訊息
 7 支 active workflow 都 deactivate+activate 過。同一支腳本不帶參數就是體檢，已接進
 `n8n_sync.py`，以後每次同步都會檢查，不合規會在 `n8n-live.md` 的「分岔檢查」報出來。
 
+**09-25 實跑驗收通過**（結案）：09-24、09-25 兩班待聯絡提醒都 success，Telegram 回傳的
+`result.text` 裡確實有「・🟡今天到期｜*小姐｜…」那行；同期 `Telegram 搶單通知`（318 字）、
+`Telegram 預告`／`發布通知`（220／287 字）也都正常送出，`_tg` 路徑沒有推出空訊息。
+
 **學到什麼**：
 1. 客戶姓名/備註是使用者輸入，**任何把它塞進 Telegram 的節點都要當成不可信字串**。
    新增 Telegram 節點時照抄現有寫法：`parse_mode=HTML` ＋ 讀 `$json._tg`。
