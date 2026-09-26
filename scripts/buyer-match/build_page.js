@@ -60,24 +60,27 @@ for (const o of R.out || []) {
 }
 const ORDER = ['A買', 'B買', 'C買'];
 
-let totalItems = 0, totalDemands = 0, totalClients = 0;
+let totalItems = 0, totalDemands = 0, totalClients = 0, totalNew = 0;
+const newBadge = (n) => n ? `<span class="newn">NEW ${n}</span>` : '';
 let body = '';
 for (const fname of ORDER) {
   const f = folders[fname];
   if (!f) continue;
   const clientNames = Object.keys(f);
-  let fCount = 0, fHtml = '';
+  let fCount = 0, fNew = 0, fHtml = '';
   for (const cname of clientNames) {
     totalClients++;
     const demands = f[cname];
-    let cCount = 0, cHtml = '';
+    let cCount = 0, cNew = 0, cHtml = '';
     for (const dname of Object.keys(demands)) {
       totalDemands++;
       const items = demands[dname].slice().sort((a, b) => a.whenDays - b.whenDays);
       cCount += items.length;
+      const dNew = items.filter((it) => it.isNew).length;
+      cNew += dNew;
       const rows = items.map((it) => {
         const t = copyText(it);
-        return `<li class="item" data-copy="${esc(t)}">
+        return `<li class="item${it.isNew ? ' isnew' : ''}" data-copy="${esc(t)}">
   <div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>
   <div class="meta">
     <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name || '(無案名)')}</a>${it.isNew ? '<span class="new">NEW</span>' : ''}
@@ -88,24 +91,26 @@ for (const fname of ORDER) {
   <div class="right"><span class="when">${esc(it.when)}</span><button class="cp" type="button">複製</button></div>
 </li>`;
       }).join('\n');
-      cHtml += `<section class="demand">
-  <h4>${esc(dname)} <span class="n">${items.length}</span>
+      cHtml += `<section class="demand${dNew ? ' hasnew' : ''}">
+  <h4>${esc(dname)} <span class="n">${items.length}</span>${newBadge(dNew)}
     <button class="cp grp" type="button" data-copy="${esc(items.map(copyText).join('\n\n'))}">複製這組</button></h4>
   <ul class="items">${rows}</ul>
 </section>`;
     }
     totalItems += cCount;
     fCount += cCount;
-    fHtml += `<details class="client">
-  <summary>${esc(cname)} <span class="n">${cCount}</span></summary>
+    fNew += cNew;
+    totalNew += cNew;
+    fHtml += `<details class="client${cNew ? ' hasnew' : ''}">
+  <summary>${esc(cname)} <span class="n">${cCount}</span>${newBadge(cNew)}</summary>
   <div class="cbody">
     <button class="cp grp" type="button" data-copy="${esc(Object.keys(demands).map((d) => demands[d].map(copyText).join('\n\n')).join('\n\n'))}">複製此客戶全部</button>
     ${cHtml}
   </div>
 </details>`;
   }
-  body += `<details class="folder" open>
-  <summary><b>${esc(fname)}</b> <span class="n">${clientNames.length} 位客戶 · ${fCount} 筆</span></summary>
+  body += `<details class="folder${fNew ? ' hasnew' : ''}">
+  <summary><b>${esc(fname)}</b> <span class="n">${clientNames.length} 位客戶 · ${fCount} 筆</span>${newBadge(fNew)}</summary>
   ${fHtml}
 </details>`;
 }
@@ -153,6 +158,9 @@ summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 .name{color:var(--fg);font-weight:600;text-decoration:none;word-break:break-all}
 .name:hover{color:var(--accent)}
 .new{background:#e8590c;color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:2px}
+.newn{background:#e8590c;color:#fff;font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:8px}
+.item.isnew{border-left:4px solid #e8590c;padding-left:8px;background:#e8590c12}
+.demand.hasnew>h4{border-left:4px solid #e8590c;padding-left:8px}
 .sub{color:var(--dim);font-size:12.5px}
 .price{font-weight:700;margin-top:2px}
 .unit{font-weight:400;color:var(--dim);font-size:12.5px}
@@ -165,7 +173,7 @@ summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 </style>
 <div class="top">
   <h1>買方配案</h1>
-  <div class="stat">${totalClients} 位客戶 · ${totalDemands} 個客需 · <b>${totalItems}</b> 筆官網連結　|　更新 ${esc(localTime(R.finishedAt || R.startedAt))}</div>
+  <div class="stat">${totalClients} 位客戶 · ${totalDemands} 個客需 · <b>${totalItems}</b> 筆官網連結${totalNew ? ' · <span class="newn" style="margin-left:0">本次新增 ' + totalNew + '</span>' : ''}　|　更新 ${esc(localTime(R.finishedAt || R.startedAt))}</div>
   <div style="margin-top:7px"><button class="cp primary" type="button" data-copy="${esc(allText.join('\n\n'))}">一鍵全部複製</button></div>
 </div>
 ${body || '<p class="stat">沒有抓到任何官網連結。</p>'}
