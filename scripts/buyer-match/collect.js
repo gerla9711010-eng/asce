@@ -108,6 +108,27 @@
     return out;
   }
 
+  /* 資料夾/客戶收合時子節點不在 DOM 裡 → 先把 aria-expanded="false" 的都點開，
+     讀完發現少資料夾就中止（09-23 自動更新只讀到 A買，B/C 靜靜略過） */
+  async function expandAll() {
+    for (let round = 0; round < 4; round++) {
+      const closed = [...document.querySelectorAll('mat-nested-tree-node[aria-expanded="false"]')];
+      if (!closed.length) break;
+      for (const n of closed) {
+        const t = n.querySelector(':scope > .tree-node-row button, :scope > .tree-node-row');
+        if (t) t.click();
+        await sleep(300);
+      }
+      await sleep(600);
+    }
+  }
+  async function readFullTree() {
+    await expandAll();
+    const t = readTree();
+    const miss = FOLDERS.filter((x) => !t.some((f) => f.folder === x));
+    return { tree: t, miss };
+  }
+
   async function load(id) {
     await openPanel();
     const n = document.getElementById(id);
@@ -249,7 +270,9 @@
     try {
     await openPanel();
     let list = [];
-    readTree().filter((f) => FOLDERS.includes(f.folder))
+    const rt = await readFullTree();
+    if (rt.miss.length) { note('客需樹少了資料夾：' + rt.miss.join('、') + '（收合沒展開？），中止，不動 state'); return; }
+    rt.tree.filter((f) => FOLDERS.includes(f.folder))
       .forEach((f) => f.clients.forEach((c) => c.entries.forEach((e) =>
         list.push({ folder: f.folder, client: c.client, demand: e.demand, id: e.id }))));
     /* only:['客需名','客需名'] → 只重跑指定客需（補漏用，其餘 state 原封不動） */
