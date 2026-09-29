@@ -175,6 +175,8 @@ def fill_excel(data: dict, output_path: str, is_rental: bool = False, log=print)
     bt = data.get('building_type')
     fill({'透天': 'N8', '大樓': 'N10', '公寓': 'N12', '其他': 'N14'}.get(bt))
     flh = data.get('floor_low_high')   # 例如 B4/24，來自 104
+    if not flh and bt == '透天':
+        flh = data.get('floor_range')  # 透天且104沒資料時，退回謄本算出的所在層/總樓層
     if flh:
         put({'透天': 'Q8', '大樓': 'Q10', '公寓': 'Q12'}.get(bt, 'Q10'), flh)
 
