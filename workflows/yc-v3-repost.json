@@ -8,6 +8,14 @@
             {
               "field": "cronExpression",
               "expression": "30 9,11,13,15,17,19 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 30 22 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 0 10 * * *"
             }
           ]
         }
