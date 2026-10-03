@@ -112,7 +112,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 一次撈回整批已建過的案件編號，比對候選（原本是每個候選打一次 Notion，40 次 → 1 次）\nconst res = $input.first().json;\nconst built = new Set(\n  (res.results || [])\n    .map(p => (p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '').toUpperCase().trim())\n    .filter(Boolean)\n);\nreturn $('篩選候選').all().map(i => {\n  const c = i.json;\n  const no = String(c.contract_no || '').toUpperCase().trim();\n  return { json: { ...c, _exists: !no || built.has(no) } };\n});\n"
+        "jsCode": "// 一次撈回整批已建過的案件編號，比對候選（原本是每個候選打一次 Notion，40 次 → 1 次）\nconst res = $input.first().json;\nconst built = new Set(\n  (res.results || [])\n    .map(p => (p.properties?.['案件編號']?.rich_text?.[0]?.plain_text || '').toUpperCase().trim())\n    .filter(Boolean)\n);\nconst MAX_SKIPS = 2;\nconst skipCounts = $getWorkflowStaticData('global').skipCounts || {};\nreturn $('篩選候選').all().map(i => {\n  const c = i.json;\n  const no = String(c.contract_no || '').toUpperCase().trim();\n  // 2026-10-03 使用者定案：查無永慶官網連結連續跳過 2 次就放棄，不再嘗試（計數在「跳過無連結」節點）\n  return { json: { ...c, _exists: !no || built.has(no) || (Number(skipCounts[no]) || 0) >= MAX_SKIPS } };\n});\n"
       },
       "id": "v3a-05-mark",
       "name": "標記是否已存在",
@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://seriously-treasurer-surf-ellis.trycloudflare.com",
+        "url": "https://waters-gym-slowly-media.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -1420,7 +1420,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 沒有永慶官網連結就整件不發：FB 發了但 KEIS 廣告追蹤建不起來，會變成沒登錄的孤兒廣告，\n// 是會被開罰的風險。這裡只記下來、直接回「逐件嘗試」換候補下一件，全自動不卡人。\n// 不建 Notion 列 → 下一班還會再抓到同一件；新案的官網頁面常常晚幾小時才上，讓它自己重試。\nconst j = $input.first().json;\nreturn [{ json: {\n  contract_no: j.contract_no,\n  案名: j['案名'] || '',\n  ycNote: j.ycNote || '',\n  skippedAt: new Date().toISOString(),\n} }];\n",
+        "jsCode": "// 沒有永慶官網連結就整件不發：FB 發了但 KEIS 廣告追蹤建不起來，會變成沒登錄的孤兒廣告，\n// 是會被開罰的風險。這裡只記下來、直接回「逐件嘗試」換候補下一件，全自動不卡人。\n// 不建 Notion 列 → 下一班還會再抓到同一件；新案的官網頁面常常晚幾小時才上，讓它自己重試。\nconst j = $input.first().json;\n// 2026-10-03 使用者定案：連續跳過 2 次就放棄（「標記是否已存在」會把達標的當成已建過濾掉）。\n// 要重新開放某件：清掉 workflow staticData.skipCounts 裡那個編號。\nconst sd = $getWorkflowStaticData('global');\nsd.skipCounts = sd.skipCounts || {};\nconst no = String(j.contract_no || '').toUpperCase().trim();\nconst cnt = (Number(sd.skipCounts[no]) || 0) + 1;\nif (no) sd.skipCounts[no] = cnt;\nconst giveUp = cnt >= 2 ? '（已連續跳過 ' + cnt + ' 次，不再嘗試，需手動處理）' : '（第 ' + cnt + ' 次）';\nreturn [{ json: {\n  contract_no: j.contract_no,\n  案名: j['案名'] || '',\n  ycNote: (j.ycNote || '') + giveUp,\n  skippedAt: new Date().toISOString(),\n} }];\n",
         "mode": "runOnceForAllItems"
       },
       "id": "a1f0c3d2-8b41-4f77-9c22-6d5e1a90b002",
