@@ -113,7 +113,10 @@ def main():
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             str(PROFILE_DIR), headless=False,
-            viewport={"width": 1280, "height": 900},
+            # 不鎖死 viewport、固定縮放 1：Windows 文字大小 191% 時，鎖 1280x900 會讓頁面
+            # 超出螢幕一半、Ctrl- 也縮不回來，LINE 登入 QR code 掃不到（2026-10-05 踩過）
+            no_viewport=True,
+            args=["--start-maximized", "--force-device-scale-factor=1"],
         )
         page = context.pages[0] if context.pages else context.new_page()
 
@@ -135,6 +138,7 @@ def main():
         stall_retries = 0
         reload_retries = 0
         last_saved = -1
+        seen_notes = set()
 
         while True:
             time.sleep(4)
@@ -160,6 +164,13 @@ def main():
 
             if prog is None:
                 continue
+
+            # collect.js 的 note() 印出來：0/0 展開客需樹那段才看得到在做什麼（2026-10-05 第一次實跑，
+            # 視窗只有一排「進度 0/0」，分不出是在展開還是卡死）
+            for msg in prog.get("err") or []:
+                if msg not in seen_notes:
+                    seen_notes.add(msg)
+                    out("STATUS|" + msg)
 
             if prog.get("saved", -1) != last_saved or True:
                 out("PROGRESS|%d|%d|%d|%d" % (
