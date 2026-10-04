@@ -387,14 +387,28 @@ def start_tunnel(port: int) -> tuple[subprocess.Popen, str]:
         text=True, encoding="utf-8", errors="replace", bufsize=1,
         creationflags=subprocess.CREATE_NO_WINDOW,  # 不然 cloudflared 這個主控台程式會彈黑視窗
     )
+    # readline() 會一直卡住等輸出：斷網時 cloudflared 活著卻不印字，整個重連迴圈就卡死到天亮
+    # （2026-10-04 00:26~09:03 log 完全沒聲音、09:00 那班撞死通道）。改成執行緒讀、主迴圈限時。
+    import queue
+    import threading
+    lines: "queue.Queue[str | None]" = queue.Queue()
+
+    def _pump():
+        for ln in proc.stdout:
+            lines.put(ln)
+        lines.put(None)
+
+    threading.Thread(target=_pump, daemon=True).start()
     deadline = time.time() + 60
     while time.time() < deadline:
-        line = proc.stdout.readline()
-        if not line:
-            if proc.poll() is not None:
-                raise RuntimeError("cloudflared 自己結束了，通道沒開起來")
-            continue
-        m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
+        try:
+            line = lines.get(timeout=max(0.1, deadline - time.time()))
+        except queue.Empty:
+            break
+        if line is None:
+            raise RuntimeError("cloudflared 自己結束了，通道沒開起來")
+        # 斷網時錯誤訊息會印出 api.trycloudflare.com，那不是通道網址，不能當成開成功
+        m = re.search(r"https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com", line)
         if m:
             return proc, m.group(0)
     proc.kill()
