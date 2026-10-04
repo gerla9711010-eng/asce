@@ -216,6 +216,7 @@ def main():
         r = subprocess.run(
             ["node", "build_page.js", "data.json", "buyer-match.html"],
             cwd=str(BASE), capture_output=True, text=True, timeout=60,
+            encoding="utf-8", errors="replace",  # 預設 cp950 讀 node 的 UTF-8 輸出會炸 UnicodeDecodeError
         )
         if r.returncode != 0:
             out("ERROR|build_page.js 失敗：%s" % (r.stderr or r.stdout)[:300])
