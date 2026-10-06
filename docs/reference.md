@@ -23,6 +23,7 @@
 | FB 粉專 | 買房不費力,賣房好給力（`FB_PAGE_ID=1041868522352339`）|
 | KEIS 廣告追蹤 | `https://keis.kshouse.com.tw/ad-tracker` |
 | 展售系統 | `https://es.houseol.com.tw` |
+| 買方配案手機頁 | `…/webhook/buyer-match`（Basic Auth，帳密在根目錄 `.env` 的 `BUYER_MATCH_*`／n8n credential「買方配案頁 帳密」；頁面存 staticData、執行紀錄關閉不存，避免客戶姓名多留副本或進公開 repo）|
 
 ### Railway 環境變數（動之前先看 incidents.md）
 

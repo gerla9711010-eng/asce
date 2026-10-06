@@ -1,0 +1,195 @@
+{
+  "name": "買方配案手機頁",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "buyer-match-upload",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0fa61513-e028-4a75-ad50-cc35d3adcbaa",
+      "name": "收上傳",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "fc1cb79c-e9a9-4216-a659-778822ab787c",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "M3yf42rgV4EM4hYw",
+          "name": "買方配案頁 帳密"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 收 worker.py 上傳的整頁 HTML，存進 staticData（n8n_sync 不會把 staticData 拉進 git，客戶姓名不會進公開 repo）\nconst b = $input.first().json.body || {};\nif (typeof b.html !== 'string' || b.html.length < 100) throw new Error('沒收到 html');\nconst s = $getWorkflowStaticData('global');\ns.html = b.html; s.updatedAt = new Date().toISOString();\nreturn [{ json: { ok: true, bytes: b.html.length, updatedAt: s.updatedAt } }];\n"
+      },
+      "id": "1eb52dac-10cb-47c7-b382-9fe57b559623",
+      "name": "存頁面",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Robots-Tag",
+                "value": "noindex, nofollow"
+              }
+            ]
+          }
+        }
+      },
+      "id": "f063089e-6290-4c86-9fa9-dc5584970d11",
+      "name": "回上傳結果",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "buyer-match",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "35363774-a4eb-44c8-bbce-3ec5dd986553",
+      "name": "手機開頁",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ],
+      "webhookId": "a0f7d943-07fc-4851-9f8b-21c66764f21f",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "M3yf42rgV4EM4hYw",
+          "name": "買方配案頁 帳密"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 吐出最後一次上傳的頁面；還沒上傳過就給一行提示\nconst s = $getWorkflowStaticData('global');\nreturn [{ json: { html: s.html || '<meta charset=utf-8><p>還沒上傳過，先在電腦跑一次買方配案更新。</p>' } }];\n"
+      },
+      "id": "db84b4d3-cc3d-4613-bd63-0174a34517f5",
+      "name": "讀頁面",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Robots-Tag",
+                "value": "noindex, nofollow"
+              }
+            ]
+          }
+        }
+      },
+      "id": "865c80a1-94db-4db0-b256-7e698efebe4a",
+      "name": "回頁面",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "收上傳": {
+      "main": [
+        [
+          {
+            "node": "存頁面",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "存頁面": {
+      "main": [
+        [
+          {
+            "node": "回上傳結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "手機開頁": {
+      "main": [
+        [
+          {
+            "node": "讀頁面",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "讀頁面": {
+      "main": [
+        [
+          {
+            "node": "回頁面",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  }
+}

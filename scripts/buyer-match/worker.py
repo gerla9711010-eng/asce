@@ -4,7 +4,7 @@
 
 流程：開瀏覽器(獨立 profile，第一次要手動登入一次) → 注入 collect.js → FDBM.run()
 → 輪詢進度、遇到分頁重整/讀不到客需樹自動重試 → 跑完/撞上限就停 → 匯出 localStorage
-→ 轉成 data.json → node build_page.js → 覆蓋桌面「買方配案.html」。
+→ 轉成 data.json → node build_page.js → 覆蓋桌面「買方配案.html」→ upload.py 傳一份到 n8n 給手機看。
 
 用法：python worker.py [--full]
 輸出：每行印一則狀態，給 gui.py 解析：
@@ -230,6 +230,13 @@ def main():
     except Exception as e:
         out("ERROR|複製到桌面失敗：%s（頁面還在 %s）" % (e, BASE / "buyer-match.html"))
         return
+
+    out("STATUS|上傳手機版…")
+    try:
+        from upload import upload
+        out("STATUS|手機版已更新：%s" % upload(BASE / "buyer-match.html"))
+    except Exception as e:  # 手機版只是方便看，傳不上去不算整趟失敗，桌面那份已經好了
+        out("STATUS|⚠️ 手機版上傳失敗（桌面那份已更新）：%s" % e)
 
     out("DONE|" + json.dumps({
         "demands": data["demands"],
