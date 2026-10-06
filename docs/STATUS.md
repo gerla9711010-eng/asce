@@ -88,8 +88,8 @@
 
 `scripts/buyer-match/`：手動貼 Console 的流程仍在（`collect.js` → `FDBM.run()` → `dumpState()` →
 `build_page.js`），09-21 全 43 客需、423 筆官網連結補完，含首跑漏的 `79842黃敏哲透天`、`杏湖社區`。
-撞查詢上限的提示條「超過查詢次數限制…」腳本會自動偵測停手不存半成品；`MAXOPEN` 8→30；
-`resultCount()` 認得「找不到符合的物件」避免誤判成撞上限（杏湖社區踩過的坑）。
+10-06：頁面加 charset（手機預覽原本亂碼）、每筆可勾選→底部「複製選取」、剪貼簿被擋時跳全選文字框
+（手機檔案預覽會擋 clipboard，舊版假裝「已複製」）。桌面 10-05 那份已直接補丁，下次跑 GUI 會自帶。
 
 **新增**：桌面雙擊 `買方配案更新.bat` → 開 `scripts/buyer-match/gui.py`（tkinter），按「開始更新」
 自動跑完 `worker.py`（Playwright 開獨立瀏覽器 profile `browser-profile/`）→ 收集 → 產頁 → 覆蓋桌面

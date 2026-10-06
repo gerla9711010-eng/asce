@@ -81,6 +81,7 @@ for (const fname of ORDER) {
       const rows = items.map((it) => {
         const t = copyText(it);
         return `<li class="item${it.isNew ? ' isnew' : ''}" data-copy="${esc(t)}">
+  <label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label>
   <div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>
   <div class="meta">
     <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name || '(無案名)')}</a>${it.isNew ? '<span class="new">NEW</span>' : ''}
@@ -129,7 +130,7 @@ for (const fname of ORDER) {
   }
 }
 
-const html = `<title>買方配案</title>
+const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>買方配案</title>
 <style>
 :root{--bg:#f7f7f5;--card:#fff;--fg:#1b1b19;--dim:#6b6b66;--line:#e3e3de;--accent:#0b7285;--chip:#eef4f5}
 :root:not([data-theme="light"]){}
@@ -169,6 +170,18 @@ summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 .cp{font-size:12.5px;padding:4px 10px}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--accent);color:#fff;padding:8px 16px;border-radius:20px;opacity:0;transition:.2s;pointer-events:none;font-size:14px}
 .toast.on{opacity:1}
+.pickw{flex:0 0 auto;display:flex;align-items:center;padding:2px 2px 0 0;cursor:pointer}
+.pick{width:20px;height:20px;accent-color:var(--accent);cursor:pointer;margin:0}
+.item.sel{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:none;gap:8px;align-items:center;justify-content:center;z-index:9;box-shadow:0 -4px 14px #0002}
+.bar.on{display:flex}
+.bar b{margin-right:4px}
+body.hasbar{padding-bottom:80px}
+.modal{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
+.modal.on{display:flex}
+.modal .box{background:var(--card);border-radius:12px;padding:14px;width:100%;max-width:560px}
+.modal textarea{width:100%;height:46vh;font:13px/1.5 monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
+.modal p{margin:0 0 8px;font-size:14px}
 @media(max-width:520px){.item{flex-wrap:wrap}.right{flex-direction:row;width:100%;justify-content:space-between}}
 </style>
 <div class="top">
@@ -178,13 +191,37 @@ summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 </div>
 ${body || '<p class="stat">沒有抓到任何官網連結。</p>'}
 <div class="toast" id="t">已複製</div>
+<div class="bar" id="bar"><b id="cnt">已選 0 筆</b><button class="primary" type="button" id="cpSel">複製選取</button><button type="button" id="clrSel">清除</button></div>
+<div class="modal" id="m"><div class="box"><p>這個畫面不允許自動複製。文字已全選，<b>長按 → 拷貝</b>（電腦按 Ctrl+C）：</p><textarea id="mt" readonly></textarea><div style="text-align:right;margin-top:8px"><button type="button" id="mclose">關閉</button></div></div></div>
 <script>
 const toast=document.getElementById('t');
-function show(m){toast.textContent=m;toast.classList.add('on');setTimeout(()=>toast.classList.remove('on'),1100)}
-async function cp(text){try{await navigator.clipboard.writeText(text)}catch(e){const a=document.createElement('textarea');a.value=text;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove()}show('已複製')}
+function show(m){toast.textContent=m;toast.classList.add('on');setTimeout(()=>toast.classList.remove('on'),1300)}
+/* 檔案預覽、內嵌頁面常常擋剪貼簿：依序試 Clipboard API → execCommand；都失敗就跳出全選好的文字框讓人手動拷貝，不能假裝成功 */
+function legacyCopy(text){
+  const a=document.createElement('textarea');a.value=text;a.setAttribute('readonly','');
+  a.style.cssText='position:fixed;top:0;left:0;opacity:0;font-size:16px';document.body.appendChild(a);
+  a.focus();a.select();a.setSelectionRange(0,text.length);
+  let ok=false;try{ok=document.execCommand('copy')}catch(e){}
+  a.remove();return ok;
+}
+function manual(text){const m=document.getElementById('m'),t=document.getElementById('mt');t.value=text;m.classList.add('on');setTimeout(()=>{t.focus();t.select();t.setSelectionRange(0,text.length)},50)}
+async function cp(text,label){
+  let ok=false;
+  if(navigator.clipboard&&window.isSecureContext){try{await navigator.clipboard.writeText(text);ok=true}catch(e){}}
+  if(!ok)ok=legacyCopy(text);
+  if(ok)show(label||'已複製');else manual(text);
+}
+document.getElementById('mclose').onclick=()=>document.getElementById('m').classList.remove('on');
 document.addEventListener('click',e=>{const b=e.target.closest('button.cp');if(!b)return;
  const t=b.dataset.copy!==undefined?b.dataset.copy:(b.closest('.item')||{}).dataset?.copy;
  if(t)cp(t)});
+/* 勾選特定幾筆再一起複製 */
+const bar=document.getElementById('bar'),cnt=document.getElementById('cnt');
+function picked(){return [...document.querySelectorAll('.pick:checked')].map(x=>x.closest('.item'))}
+function refresh(){const n=picked().length;cnt.textContent='已選 '+n+' 筆';bar.classList.toggle('on',n>0);document.body.classList.toggle('hasbar',n>0)}
+document.addEventListener('change',e=>{if(!e.target.classList.contains('pick'))return;e.target.closest('.item').classList.toggle('sel',e.target.checked);refresh()});
+document.getElementById('cpSel').onclick=()=>{const it=picked();if(!it.length)return;cp(it.map(x=>x.dataset.copy).join('\\n\\n'),'已複製 '+it.length+' 筆')};
+document.getElementById('clrSel').onclick=()=>{document.querySelectorAll('.pick:checked').forEach(x=>{x.checked=false;x.closest('.item').classList.remove('sel')});refresh()};
 </script>`;
 
 fs.writeFileSync(outPath, html, 'utf8');
