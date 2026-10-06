@@ -4,7 +4,7 @@
 
 流程：開瀏覽器(獨立 profile，第一次要手動登入一次) → 注入 collect.js → FDBM.run()
 → 輪詢進度、遇到分頁重整/讀不到客需樹自動重試 → 跑完/撞上限就停 → 匯出 localStorage
-→ 轉成 data.json → node build_page.js → 覆蓋桌面「買方配案.html」。
+→ 轉成 data.json → node build_page.js → 覆蓋桌面「買方配案.html」→ upload.py 傳一份到 n8n 給手機看。
 
 用法：python worker.py [--full]
 輸出：每行印一則狀態，給 gui.py 解析：
@@ -113,7 +113,10 @@ def main():
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             str(PROFILE_DIR), headless=False,
-            viewport={"width": 1280, "height": 900},
+            # 不鎖死 viewport、固定縮放 1：Windows 文字大小 191% 時，鎖 1280x900 會讓頁面
+            # 超出螢幕一半、Ctrl- 也縮不回來，LINE 登入 QR code 掃不到（2026-10-05 踩過）
+            no_viewport=True,
+            args=["--start-maximized", "--force-device-scale-factor=1"],
         )
         page = context.pages[0] if context.pages else context.new_page()
 
@@ -135,6 +138,7 @@ def main():
         stall_retries = 0
         reload_retries = 0
         last_saved = -1
+        seen_notes = set()
 
         while True:
             time.sleep(4)
@@ -160,6 +164,13 @@ def main():
 
             if prog is None:
                 continue
+
+            # collect.js 的 note() 印出來：0/0 展開客需樹那段才看得到在做什麼（2026-10-05 第一次實跑，
+            # 視窗只有一排「進度 0/0」，分不出是在展開還是卡死）
+            for msg in prog.get("err") or []:
+                if msg not in seen_notes:
+                    seen_notes.add(msg)
+                    out("STATUS|" + msg)
 
             if prog.get("saved", -1) != last_saved or True:
                 out("PROGRESS|%d|%d|%d|%d" % (
@@ -205,6 +216,7 @@ def main():
         r = subprocess.run(
             ["node", "build_page.js", "data.json", "buyer-match.html"],
             cwd=str(BASE), capture_output=True, text=True, timeout=60,
+            encoding="utf-8", errors="replace",  # 預設 cp950 讀 node 的 UTF-8 輸出會炸 UnicodeDecodeError
         )
         if r.returncode != 0:
             out("ERROR|build_page.js 失敗：%s" % (r.stderr or r.stdout)[:300])
@@ -218,6 +230,13 @@ def main():
     except Exception as e:
         out("ERROR|複製到桌面失敗：%s（頁面還在 %s）" % (e, BASE / "buyer-match.html"))
         return
+
+    out("STATUS|上傳手機版…")
+    try:
+        from upload import upload
+        out("STATUS|手機版已更新：%s" % upload(BASE / "buyer-match.html"))
+    except Exception as e:  # 手機版只是方便看，傳不上去不算整趟失敗，桌面那份已經好了
+        out("STATUS|⚠️ 手機版上傳失敗（桌面那份已更新）：%s" % e)
 
     out("DONE|" + json.dumps({
         "demands": data["demands"],

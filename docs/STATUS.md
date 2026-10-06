@@ -9,7 +9,6 @@
 最後更新：2026-09-26 ｜ 使用者：薛力瑜（永慶不動產 博愛凱璿加盟店）
 
 ---
-
 **PR 節流**：不管幾個視窗同時開，一天全部加起來最多 1 個 PR（三次停權換來的，別放寬）。
 
 ---
@@ -18,7 +17,6 @@
 
 ⚠️ 10-01 修好「下架線每班只處理 1 筆」（見 `incidents.md`），6 筆積壓已清，臉書實際有沒有消失還沒人看過。
 ⚠️ 10-03 掃描發文線加「查無官網連結跳過 2 次就放棄」（計數在 staticData.skipCounts，AA1055844 從 0 起算）；要重開某件＝清該編號的計數。待驗：兩班後 AA1055844 通知出現「不再嘗試」。
-⚠️ 重發線 10:00／22:30 兩班（PR#245）：看 n8n 有沒有 22:30 執行紀錄，沒事就刪這行。
 
 ## 🟢 Codex 文案通道／Telegram 告警（三條 ⚠️ 已搬進 `reference.md`）
 
@@ -84,20 +82,19 @@
 
 丟資料夾 → 13 頁可編輯 PPT，輸出在 `桌面\DM\銷報書\<物件>\`；照 `example.json` 改欄位就是下一件。
 
-### 1.5 🟡 買方配案系統（09-21 補完 43 客需＋新增雙擊 GUI，GUI 還沒被真人登入實測過）
+### 1.5 🟡 買方配案系統（10-05 GUI 首次真人實跑：57 客需跑通，但後段很吃記憶體）
 
-`scripts/buyer-match/`：手動貼 Console 的流程仍在（`collect.js` → `FDBM.run()` → `dumpState()` →
-`build_page.js`），09-21 全 43 客需、423 筆官網連結補完，含首跑漏的 `79842黃敏哲透天`、`杏湖社區`。
+`scripts/buyer-match/`：桌面雙擊 `買方配案更新.bat` → `gui.py` → `worker.py`（Playwright 獨立 profile，
+LINE 掃碼登入一次就記住）→ `collect.js` → `build_page.js` → 覆蓋桌面 `買方配案.html`。**維持人手動觸發，不排程。**
+依賴：Python 要有 `playwright`（＋`playwright install chromium`）、要裝 Node.js（10-05 才補裝）。
+10-05 修：客需樹展開空轉 15 分鐘（見 incidents.md）、瀏覽器改全螢幕不鎖 viewport（QR 掃不到）、
+GUI 會印 collect.js 的 note。**待辦**：①renderer 跑到後段吃 9GB、每客需 15~20 分鐘 → 每 N 個客需
+reload 頁面（用 `from`/`to` 分批）；②GUI「已存 N 個客需」永遠 0（progress() 沒有 saved 欄位）。
 10-06：頁面加 charset（手機預覽原本亂碼）、每筆可勾選→底部「複製選取」、剪貼簿被擋時跳全選文字框
 （手機檔案預覽會擋 clipboard，舊版假裝「已複製」）。桌面 10-05 那份已直接補丁，下次跑 GUI 會自帶。
-
-**新增**：桌面雙擊 `買方配案更新.bat` → 開 `scripts/buyer-match/gui.py`（tkinter），按「開始更新」
-自動跑完 `worker.py`（Playwright 開獨立瀏覽器 profile `browser-profile/`）→ 收集 → 產頁 → 覆蓋桌面
-`買方配案.html`，全程不用找 Claude。**只跑到「開瀏覽器、正確顯示要求登入」這步用自動化測過，
-真人登入後的完整收集流程還沒被實測**，第一次用要盯著看有沒有正常跑完。
-`worker.py` 的登入判斷、撞上限判斷、頁面重整重試都是照 `collect.js` 的邏輯抄的，理論上一致。
-**不要排程自動觸發，維持人手動雙擊。** ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/
-`browser-profile/` 已 gitignore。
+10-07：**手機網址**（n8n「買方配案手機頁」，Basic Auth，網址/帳密在根目錄 `.env` 的 `BUYER_MATCH_*`）＋
+點案名改頁內預覽（iframe，官網 CSP 允許嵌入）。worker.py 跑完自動 `upload.py` 上傳；待驗：手機實際開預覽。
+⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/`browser-profile/` 已 gitignore。
 
 ### 1.6 🟡 搶單額度不夠時的優先順序（09-21 加，還沒用真實資料驗過）
 
@@ -132,8 +129,6 @@
 
 ## 其他待辦
 
-- 🟢 搶單不搶「套房」（`EXCLUDE_TYPES` 09-23 加的）：09-26 已同步到桌面 `keis/grab.py`，
-  但常駐的 grab.py 是開機時載入的，**明天（09-27）早上開機才生效**，不用做任何事。
 - 🟡 **買方配案頁「NEW」標記**（別的視窗做的，09-26 一起 commit）：`build_page.js`／`collect.js`
   會標出這次新增的物件（資料夾／客戶／需求三層都有徽章）。**還沒實跑產過頁面。**
 

@@ -6,6 +6,34 @@
 
 ---
 
+## 2026-10-05 ─ 買方配案 GUI 卡在「進度 0/0」十幾分鐘
+
+**症狀**：雙擊 GUI 首次真人實跑，登入後一直 0/0，localStorage 完全沒寫入。
+**成因**：foundi 客需樹改版——收合的節點子節點照樣在 DOM，點了 `aria-expanded` 也不會變 true。
+`expandAll()` 每輪把 99 個資料夾/客戶全點一遍（每下 sleep(300)×SLOW3≈1 秒）× 4 輪。
+另外同場：Python 沒裝 playwright、電腦沒裝 Node.js；viewport 鎖 1280x900 遇 Windows 文字 191% QR 掃不到。
+**修**：只點「收合且子節點不在 DOM」的，點完沒變少就收手（6 秒讀完 57 客需）；補裝依賴；
+`no_viewport` + `--force-device-scale-factor=1`。
+**學到**：GUI 版「理論上跟 collect.js 一致」不等於測過；第一次真人跑一定會冒出環境依賴問題。
+
+---
+
+## 2026-10-06 ─ 家裡新電腦被裝監控木馬（OneDrive 桌面裡的自解壓 exe）
+
+**症狀**：使用者問桌面 `NGeM9FPqPd2a6Hf…` 資料夾是什麼。裡面一個 127MB 無簽章 `aFNe23FC….exe`（RAR 自解壓，內含 6 個隱藏屬性 exe，檔案日期 2024-01）。
+**經過**：10-04 新電腦設定時 OneDrive 把整個桌面同步下來（桌面所有檔案建立時間都在 17:04~17:07），
+17:42 該 exe 被執行 → 裝了 `C:\Program Files (x86)\Common Files\System Sll`（監控軟體：微信/IM、郵件、瀏覽器歷史、
+封包過濾、遠端控制模組）＋服務 `sllService`(`sllsrv.exe`，後顯示為 `sllPdSrv`)＋驅動 `avflt`、`deklofoh.sys`＋排程「System Sll」(`TaskSetter.exe /watch`)。
+Defender 17:42 報 `Trojan:Win32/Kepavll!rfn` 殺了主程式，**但看門狗服務沒清，每 10 分重啟主程式持續一天多**。
+**怎麼修**：管理員權限依序：停用+刪排程 → `sc config/stop/delete sllPdSrv` → 殺該目錄程序 → `sc delete avflt`
+→ 刪 `HKLM\...\WOW6432Node\...\Uninstall\System Sll_is1` → takeown+icacls 後刪整個資料夾。重開機驗證全無、Defender 完整掃描乾淨。
+沒有新增可疑根憑證。**不要執行它自帶的 uninstall.exe**。
+**順帶**：同時段 MSI 驅動工具靜默裝了 Norton 360 for Gamers（60 天試用，正版），它的 HTTPS 掃描讓 Python `CERTIFICATE_VERIFY_FAILED`
+（n8n_sync 連不上）。已改：Python site-packages 加 `zz_truststore_windows.pth`（`truststore.inject_into_ssl()`）用 Windows 憑證庫；Norton 已移除，Defender 恢復主防毒。
+**學到**：OneDrive 會把桌面的惡意檔同步到每台電腦；Defender「已處理」不等於清乾淨，要查服務/排程/驅動。
+
+---
+
 ## 2026-10-01 ─ 下架偵測線每班只處理 1 筆，其餘靜靜丟掉
 
 **症狀**：使用者說一堆該下架的廣告沒下架。查 execution 12117：判 7 筆下架，只刪 1 筆。

@@ -110,10 +110,17 @@
 
   /* 資料夾/客戶收合時子節點不在 DOM 裡 → 先把 aria-expanded="false" 的都點開，
      讀完發現少資料夾就中止（09-23 自動更新只讀到 A買，B/C 靜靜略過） */
+  /* 10-05：網站現在收合的節點子節點照樣在 DOM 裡、點了 aria-expanded 也不會變 true →
+     舊寫法每輪把 99 個資料夾/客戶全點一遍（每下 ~1 秒）×4 輪，0/0 卡十幾分鐘。
+     只點「收合且子節點真的不在 DOM」的，點完沒變少就收手。 */
   async function expandAll() {
+    const needs = () => [...document.querySelectorAll('mat-nested-tree-node[aria-expanded="false"]')]
+      .filter((n) => !n.querySelector(':scope > [role=group] > mat-nested-tree-node'));
+    let prev = Infinity;
     for (let round = 0; round < 4; round++) {
-      const closed = [...document.querySelectorAll('mat-nested-tree-node[aria-expanded="false"]')];
-      if (!closed.length) break;
+      const closed = needs();
+      if (!closed.length || closed.length >= prev) break;
+      prev = closed.length;
       for (const n of closed) {
         const t = n.querySelector(':scope > .tree-node-row button, :scope > .tree-node-row');
         if (t) t.click();

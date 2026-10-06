@@ -182,6 +182,13 @@ body.hasbar{padding-bottom:80px}
 .modal .box{background:var(--card);border-radius:12px;padding:14px;width:100%;max-width:560px}
 .modal textarea{width:100%;height:46vh;font:13px/1.5 monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
 .modal p{margin:0 0 8px;font-size:14px}
+.pv{position:fixed;inset:0;background:#0008;display:none;z-index:15;align-items:flex-end;justify-content:center}
+.pv.on{display:flex}
+.pv .sheet{background:var(--card);width:100%;max-width:900px;height:88vh;border-radius:14px 14px 0 0;display:flex;flex-direction:column;overflow:hidden}
+.pv .ph{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line)}
+.pv .ph b{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv .ph a{font-size:13px;color:var(--accent);white-space:nowrap}
+.pv iframe{flex:1 1 auto;width:100%;border:0;background:#fff}
 @media(max-width:520px){.item{flex-wrap:wrap}.right{flex-direction:row;width:100%;justify-content:space-between}}
 </style>
 <div class="top">
@@ -192,6 +199,7 @@ body.hasbar{padding-bottom:80px}
 ${body || '<p class="stat">沒有抓到任何官網連結。</p>'}
 <div class="toast" id="t">已複製</div>
 <div class="bar" id="bar"><b id="cnt">已選 0 筆</b><button class="primary" type="button" id="cpSel">複製選取</button><button type="button" id="clrSel">清除</button></div>
+<div class="pv" id="pv"><div class="sheet"><div class="ph"><b id="pvt"></b><a id="pvo" href="#" target="_blank" rel="noopener">另開視窗</a><button type="button" id="pvx">關閉</button></div><iframe id="pvf" title="物件預覽" referrerpolicy="no-referrer"></iframe></div></div>
 <div class="modal" id="m"><div class="box"><p>這個畫面不允許自動複製。文字已全選，<b>長按 → 拷貝</b>（電腦按 Ctrl+C）：</p><textarea id="mt" readonly></textarea><div style="text-align:right;margin-top:8px"><button type="button" id="mclose">關閉</button></div></div></div>
 <script>
 const toast=document.getElementById('t');
@@ -221,6 +229,16 @@ function picked(){return [...document.querySelectorAll('.pick:checked')].map(x=>
 function refresh(){const n=picked().length;cnt.textContent='已選 '+n+' 筆';bar.classList.toggle('on',n>0);document.body.classList.toggle('hasbar',n>0)}
 document.addEventListener('change',e=>{if(!e.target.classList.contains('pick'))return;e.target.closest('.item').classList.toggle('sel',e.target.checked);refresh()});
 document.getElementById('cpSel').onclick=()=>{const it=picked();if(!it.length)return;cp(it.map(x=>x.dataset.copy).join('\\n\\n'),'已複製 '+it.length+' 筆')};
+/* 點案名在頁內預覽，不另開分頁；手機按返回鍵＝關預覽。官網的 CSP frame-ancestors 允許被嵌入，
+   哪天被擋了還有「另開視窗」可以用 */
+const pv=document.getElementById('pv'),pvf=document.getElementById('pvf');
+function pvClose(){if(!pv.classList.contains('on'))return;pv.classList.remove('on');pvf.src='about:blank'}
+document.addEventListener('click',e=>{const a=e.target.closest('a.name');if(!a||e.ctrlKey||e.metaKey||e.shiftKey)return;
+ e.preventDefault();document.getElementById('pvt').textContent=a.textContent;document.getElementById('pvo').href=a.href;
+ pvf.src=a.href;pv.classList.add('on');history.pushState({pv:1},'')});
+document.getElementById('pvx').onclick=()=>history.back();
+pv.addEventListener('click',e=>{if(e.target===pv)history.back()});
+addEventListener('popstate',pvClose);
 document.getElementById('clrSel').onclick=()=>{document.querySelectorAll('.pick:checked').forEach(x=>{x.checked=false;x.closest('.item').classList.remove('sel')});refresh()};
 </script>`;
 
