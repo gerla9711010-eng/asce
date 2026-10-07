@@ -119,7 +119,7 @@ for (const fname of ORDER) {
     fNew += cNew;
     totalNew += cNew;
     fHtml += `<details class="client${cNew ? ' hasnew' : ''}">
-  <summary><span class="cname" title="點名字複製這位客戶全部" data-copy="${esc(Object.keys(demands).map((d) => demands[d].map(copyText).join('\n\n')).join('\n\n'))}">${esc(cname)}</span> <span class="n">${cCount}</span>${newBadge(cNew)}</summary>
+  <summary><span class="cname" title="點名字複製客戶名稱">${esc(cname)}</span> <span class="n">${cCount}</span>${newBadge(cNew)}</summary>
   <div class="cbody">
     ${cHtml}
   </div>
@@ -127,7 +127,7 @@ for (const fname of ORDER) {
   }
   body += `<details class="folder${fNew ? ' hasnew' : ''}">
   <summary><b>${esc(fname)}</b> <span class="n">${clientNames.length} 位客戶 · ${fCount} 筆</span>${newBadge(fNew)}</summary>
-  ${fHtml}
+  <div class="clients">${fHtml}</div>
 </details>`;
 }
 
@@ -162,7 +162,12 @@ button:active{transform:scale(.97)}
 details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:8px 0;overflow:hidden}
 summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 .folder>summary{font-size:16px;background:var(--chip)}
-.client>summary{border-top:1px solid var(--line)}
+/* 資料夾裡的客戶也排兩欄方卡；點開的那位撐滿整列，裡面的物件卡才放得下 */
+.clients{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px}
+.client{margin:0;background:var(--bg)}
+.client[open]{grid-column:1/-1;background:var(--card)}
+.client>summary{min-height:64px}
+.client[open]>summary{min-height:0;border-bottom:1px solid var(--line)}
 .n{color:var(--dim);font-size:12px;font-weight:400}
 .cbody{padding:4px 11px 12px}
 .demand{margin:10px 0}
@@ -238,7 +243,7 @@ async function cp(text,label){
 }
 document.getElementById('mclose').onclick=()=>document.getElementById('m').classList.remove('on');
 document.addEventListener('click',e=>{const c=e.target.closest('.cname');
- if(c){e.preventDefault();cp(c.dataset.copy,'已複製 '+c.textContent+' 全部');return}  /* preventDefault 擋掉 summary 的展開 */
+ if(c){e.preventDefault();cp(c.textContent,'已複製 '+c.textContent);return}  /* 點名字＝只複製客戶名稱；preventDefault 擋掉 summary 的展開 */
  const b=e.target.closest('button.cp');if(!b)return;
  const t=b.dataset.copy!==undefined?b.dataset.copy:(b.closest('.item')||{}).dataset?.copy;
  if(t)cp(t)});
