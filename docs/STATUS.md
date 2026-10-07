@@ -96,7 +96,6 @@ GUI 會印 collect.js 的 note。10-07 改每 10 個客需重整頁面（worker 
 （手機檔案預覽會擋 clipboard，舊版假裝「已複製」）。桌面 10-05 那份已直接補丁，下次跑 GUI 會自帶。
 10-07：**手機網址 https://yc-buyer-match.pages.dev/**（公開、全名：使用者 10-07 看過約 20 位真實全名後決定不打碼，`build_page.js --mask` 留著可恢復），**只留網址一份**（不再產桌面 html）＋點案名頁內預覽。
 worker.py 跑完自動 `upload.py`（`build_page.js` → wrangler 發布）。n8n 版試過已刪（sandbox 擋 iframe）。待驗（使用者自己看）：iPhone 預覽、客戶兩欄卡、點名字只複製名字。
-⚠️ 家裡電腦 `pip install` 會 RecursionError（疑與 `zz_truststore_windows.pth` 衝突，見 incidents 10-06），裝 Python 套件前要先處理。
 ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/`browser-profile/` 已 gitignore。
 
 ### 1.6 🟡 搶單額度不夠時的優先順序（09-21 加，還沒用真實資料驗過）

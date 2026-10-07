@@ -30,6 +30,8 @@ Defender 17:42 報 `Trojan:Win32/Kepavll!rfn` 殺了主程式，**但看門狗�
 沒有新增可疑根憑證。**不要執行它自帶的 uninstall.exe**。
 **順帶**：同時段 MSI 驅動工具靜默裝了 Norton 360 for Gamers（60 天試用，正版），它的 HTTPS 掃描讓 Python `CERTIFICATE_VERIFY_FAILED`
 （n8n_sync 連不上）。已改：Python site-packages 加 `zz_truststore_windows.pth`（`truststore.inject_into_ssl()`）用 Windows 憑證庫；Norton 已移除，Defender 恢復主防毒。
+**後遺症（10-08 修）**：這個 .pth 跟 pip 26 自帶的 truststore 互相注入 → `pip install` RecursionError。
+已在 `%APPDATA%\pip\pip.ini` 設 `use-deprecated = legacy-certs`（pip 改走全域注入那套），.pth 不動。
 **學到**：OneDrive 會把桌面的惡意檔同步到每台電腦；Defender「已處理」不等於清乾淨，要查服務/排程/驅動。
 
 ---
