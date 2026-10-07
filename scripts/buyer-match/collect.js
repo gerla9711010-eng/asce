@@ -179,11 +179,15 @@
     };
   }
 
-  /* 不用展開就能算的物件指紋 —— 增量比對與下架判定都靠它 */
+  /* 不用展開就能算的物件指紋 —— 增量比對與下架判定都靠它。
+     只用地址＋價格，不放標題：仲介常改廣告標題（10-07「隆大鳳凰會…」被改成「專約隆大鳳凰會…」），
+     放標題會把同一間當成新物件、誤標 NEW。價格變了仍算新的（降價可能剛進到客人預算內） */
   const fingerprint = (p) => {
     const s = p.querySelector('fd-property-summary');
-    return s ? [T(s, '.title'), T(s, '.subtitle'), T(s, '.highlight')].join('¦') : '';
+    return s ? [T(s, '.subtitle'), T(s, '.highlight')].join('¦') : '';
   };
+  /* 舊版指紋是「標題¦地址¦價格」三段，比對前一律砍成後兩段，換格式後第一次跑才不會整批變 NEW */
+  const normFp = (x) => String(x || '').split('¦').slice(-2).join('¦');
 
   function listingRows(p) {
     return [...p.querySelectorAll('fd-listing-info')].map((r) => {
@@ -342,8 +346,8 @@
         const fpSet = new Set(fps);
 
         /* 上次已經看過的物件 → 只留下這次還在清單裡的（不在的 = 下架） */
-        const kept = prev ? (prev.items || []).filter((i) => fpSet.has(i.fp)).map((i) => Object.assign({}, i, { isNew: false })) : [];
-        const known = new Set(prev ? (prev.cards || []) : []);
+        const kept = prev ? (prev.items || []).filter((i) => fpSet.has(normFp(i.fp))).map((i) => Object.assign({}, i, { fp: normFp(i.fp), isNew: false })) : [];
+        const known = new Set(prev ? (prev.cards || []).map(normFp) : []);
         const targets = [];
         fps.forEach((fp, i) => { if (!known.has(fp)) targets.push(i); });
 
