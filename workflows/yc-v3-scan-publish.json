@@ -206,7 +206,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://ordering-downtown-creations-envelope.trycloudflare.com",
+        "url": "https://topic-rim-dropped-lonely.trycloudflare.com",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
