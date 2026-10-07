@@ -4,7 +4,7 @@
 
 流程：開瀏覽器(獨立 profile，第一次要手動登入一次) → 注入 collect.js → FDBM.run()
 → 輪詢進度、遇到分頁重整/讀不到客需樹自動重試 → 跑完/撞上限就停 → 匯出 localStorage
-→ 轉成 data.json → node build_page.js → 覆蓋桌面「買方配案.html」→ upload.py 發打碼版到 Cloudflare Pages 給手機看。
+→ 轉成 data.json → upload.py（build_page.js 產頁 → 發布到 https://yc-buyer-match.pages.dev/）。
 
 用法：python worker.py [--full]
 輸出：每行印一則狀態，給 gui.py 解析：
@@ -18,8 +18,6 @@
 import sys
 import json
 import time
-import shutil
-import subprocess
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -33,8 +31,6 @@ BASE = Path(__file__).resolve().parent
 PROFILE_DIR = BASE / "browser-profile"
 COLLECT_JS = (BASE / "collect.js").read_text(encoding="utf-8")
 URL = "https://agent.foundi.info/tool/property/list"
-DESKTOP_DIR = Path(r"C:\Users\user\OneDrive\桌面")
-OUT_HTML = DESKTOP_DIR / "買方配案.html"
 DATA_JSON = BASE / "data.json"
 STATE_BACKUP = BASE / "state-auto.json"
 
@@ -211,38 +207,20 @@ def main():
     data = state_to_data(state_json)
     DATA_JSON.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
-    out("STATUS|產生頁面…")
-    try:
-        r = subprocess.run(
-            ["node", "build_page.js", "data.json", "buyer-match.html"],
-            cwd=str(BASE), capture_output=True, text=True, timeout=60,
-            encoding="utf-8", errors="replace",  # 預設 cp950 讀 node 的 UTF-8 輸出會炸 UnicodeDecodeError
-        )
-        if r.returncode != 0:
-            out("ERROR|build_page.js 失敗：%s" % (r.stderr or r.stdout)[:300])
-            return
-    except Exception as e:
-        out("ERROR|build_page.js 執行失敗：%s" % e)
-        return
-
-    try:
-        shutil.copy(BASE / "buyer-match.html", OUT_HTML)
-    except Exception as e:
-        out("ERROR|複製到桌面失敗：%s（頁面還在 %s）" % (e, BASE / "buyer-match.html"))
-        return
-
-    out("STATUS|上傳手機版…")
+    # 只留網址一份（10-07 使用者決定不再產桌面「買方配案.html」）：upload() 自己用 data.json 產頁再發布
+    out("STATUS|產生頁面並發布到網址…")
     try:
         from upload import upload
-        out("STATUS|手機版已更新：%s" % upload(BASE / "buyer-match.html"))
-    except Exception as e:  # 手機版只是方便看，傳不上去不算整趟失敗，桌面那份已經好了
-        out("STATUS|⚠️ 手機版上傳失敗（桌面那份已更新）：%s" % e)
+        url = upload()
+    except Exception as e:
+        out("ERROR|發布失敗：%s（資料已存在 data.json，修好後跑 python upload.py 重發就好）" % e)
+        return
 
     out("DONE|" + json.dumps({
         "demands": data["demands"],
         "items": sum(len(o["items"]) for o in data["out"]),
         "limitHit": limit_hit,
-        "path": str(OUT_HTML),
+        "url": url,
     }, ensure_ascii=False))
 
 

@@ -85,14 +85,14 @@
 ### 1.5 🟡 買方配案系統（10-05 GUI 首次真人實跑：57 客需跑通，但後段很吃記憶體）
 
 `scripts/buyer-match/`：桌面雙擊 `買方配案更新.bat` → `gui.py` → `worker.py`（Playwright 獨立 profile，
-LINE 掃碼登入一次就記住）→ `collect.js` → `build_page.js` → 覆蓋桌面 `買方配案.html`。**維持人手動觸發，不排程。**
+LINE 掃碼登入一次就記住）→ `collect.js` → `build_page.js` → 發布網址。**維持人手動觸發，不排程。**
 依賴：Python 要有 `playwright`（＋`playwright install chromium`）、要裝 Node.js（10-05 才補裝）。
 10-05 修：客需樹展開空轉 15 分鐘（見 incidents.md）、瀏覽器改全螢幕不鎖 viewport（QR 掃不到）、
 GUI 會印 collect.js 的 note。**待辦**：①renderer 跑到後段吃 9GB、每客需 15~20 分鐘 → 每 N 個客需
 reload 頁面（用 `from`/`to` 分批）；②GUI「已存 N 個客需」永遠 0（progress() 沒有 saved 欄位）。
 10-06：頁面加 charset（手機預覽原本亂碼）、每筆可勾選→底部「複製選取」、剪貼簿被擋時跳全選文字框
 （手機檔案預覽會擋 clipboard，舊版假裝「已複製」）。桌面 10-05 那份已直接補丁，下次跑 GUI 會自帶。
-10-07：**手機網址 https://yc-buyer-match.pages.dev/**（公開、全名：使用者 10-07 看過約 20 位真實全名後決定不打碼，`build_page.js --mask` 留著可恢復）＋點案名頁內預覽。
+10-07：**手機網址 https://yc-buyer-match.pages.dev/**（公開、全名：使用者 10-07 看過約 20 位真實全名後決定不打碼，`build_page.js --mask` 留著可恢復），**只留網址一份**（不再產桌面 html）＋點案名頁內預覽。
 worker.py 跑完自動 `upload.py`（`build_page.js` → wrangler 發布）。n8n 版試過已刪（sandbox 擋 iframe）。待驗：iPhone 預覽。
 ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/`browser-profile/` 已 gitignore。
 
