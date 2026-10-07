@@ -287,7 +287,9 @@
     R.total = list.length;
     if (!list.length) { note('讀不到任何客需（客需樹沒展開？），中止，不動 state'); return; }
 
-    const state = opts.full ? { demands: {} } : loadState();
+    /* 全跑＋分批（worker.py 每批重整頁面）：只有第一批（from=0）清 state，後面幾批要接著存，
+       不然每批都把前一批洗掉；不看舊結果靠下面 prev=null 做到 */
+    const state = (opts.full && !opts.from) ? { demands: {} } : loadState();
     const breakEvery = 8 + Math.floor(Math.random() * 3); // 每 8~10 個客需長休息一次
 
     for (let k = opts.from || 0; k < Math.min(list.length, opts.to || list.length); k++) {
@@ -303,7 +305,7 @@
         else await pause(800, 3000);
       }
       const alt = (list[(k + 1) % list.length].id === t.id ? list[(k + 2) % list.length] : list[(k + 1) % list.length]).id;
-      const prev = (opts.only && opts.only.length) ? null : state.demands[keyOf(t)];
+      const prev = ((opts.only && opts.only.length) || opts.full) ? null : state.demands[keyOf(t)];
       let total = null, fps = [], items = [];
 
       try {
