@@ -9,5 +9,7 @@ ad_watchdog_state.json
 scripts/buyer-match/data.json
 scripts/buyer-match/state-*.json
 scripts/buyer-match/*.html
+scripts/buyer-match/dist/
+scripts/buyer-match/.wrangler/
 scripts/buyer-match/state-backup*.json
 scripts/buyer-match/browser-profile/

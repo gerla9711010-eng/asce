@@ -92,8 +92,8 @@ GUI 會印 collect.js 的 note。**待辦**：①renderer 跑到後段吃 9GB、
 reload 頁面（用 `from`/`to` 分批）；②GUI「已存 N 個客需」永遠 0（progress() 沒有 saved 欄位）。
 10-06：頁面加 charset（手機預覽原本亂碼）、每筆可勾選→底部「複製選取」、剪貼簿被擋時跳全選文字框
 （手機檔案預覽會擋 clipboard，舊版假裝「已複製」）。桌面 10-05 那份已直接補丁，下次跑 GUI 會自帶。
-10-07：**手機網址**（n8n「買方配案手機頁」，Basic Auth，網址/帳密在根目錄 `.env` 的 `BUYER_MATCH_*`）＋
-點案名改同視窗開、不另開分頁（iframe 預覽不可行：n8n 回 HTML 帶 CSP sandbox，官網拒絕嵌入）。worker.py 跑完自動 `upload.py` 上傳。
+10-07：**手機網址 https://yc-buyer-match.pages.dev/**（公開，客戶名打碼「66604陳○○」，桌面版維持全名）＋點案名頁內預覽。
+worker.py 跑完自動 `upload.py`（`build_page.js --mask` → wrangler 發布）。n8n 版試過已刪（sandbox 擋 iframe）。待驗：iPhone 預覽。
 ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/`browser-profile/` 已 gitignore。
 
 ### 1.6 🟡 搶單額度不夠時的優先順序（09-21 加，還沒用真實資料驗過）

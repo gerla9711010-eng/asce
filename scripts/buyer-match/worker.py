@@ -4,7 +4,7 @@
 
 流程：開瀏覽器(獨立 profile，第一次要手動登入一次) → 注入 collect.js → FDBM.run()
 → 輪詢進度、遇到分頁重整/讀不到客需樹自動重試 → 跑完/撞上限就停 → 匯出 localStorage
-→ 轉成 data.json → node build_page.js → 覆蓋桌面「買方配案.html」→ upload.py 傳一份到 n8n 給手機看。
+→ 轉成 data.json → node build_page.js → 覆蓋桌面「買方配案.html」→ upload.py 發打碼版到 Cloudflare Pages 給手機看。
 
 用法：python worker.py [--full]
 輸出：每行印一則狀態，給 gui.py 解析：

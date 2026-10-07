@@ -23,7 +23,7 @@
 | FB 粉專 | 買房不費力,賣房好給力（`FB_PAGE_ID=1041868522352339`）|
 | KEIS 廣告追蹤 | `https://keis.kshouse.com.tw/ad-tracker` |
 | 展售系統 | `https://es.houseol.com.tw` |
-| 買方配案手機頁 | `…/webhook/buyer-match`（Basic Auth，帳密在根目錄 `.env` 的 `BUYER_MATCH_*`／n8n credential「買方配案頁 帳密」；頁面存 staticData、執行紀錄關閉不存，避免客戶姓名多留副本或進公開 repo）|
+| 買方配案手機頁 | https://yc-buyer-match.pages.dev/（Cloudflare Pages 獨立專案，**別發到 yc-tools**：pages deploy 整站覆蓋。公開網址→只發 `--mask` 打碼版。n8n webhook 版不行：回 HTML 帶 CSP sandbox→null origin→官網拒絕被嵌入）|
 
 ### Railway 環境變數（動之前先看 incidents.md）
 
