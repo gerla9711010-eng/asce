@@ -4,8 +4,9 @@
  */
 const fs = require('fs');
 
-const dataPath = process.argv[2] || 'scripts/buyer-match/data.json';
-const outPath = process.argv[3] || 'scripts/buyer-match/buyer-match.html';
+const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const dataPath = args[0] || 'scripts/buyer-match/data.json';
+const outPath = args[1] || 'scripts/buyer-match/buyer-match.html';
 const R = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -50,13 +51,29 @@ function oneLinkPerProperty(items) {
   return Object.keys(by).map((k) => by[k].slice().sort((a, b) => rank(a.badge) - rank(b.badge))[0]);
 }
 
+/* --mask：公開網址用的版本，客戶名打碼。「66604陳漢強」→「66604陳○○」——編號＋姓氏自己認得出是誰，
+   外人對不到本人。客需名稱裡出現同一個名字也一起換掉。桌面那份不加 --mask，維持全名 */
+const MASK = process.argv.includes('--mask');
+const maskName = (s) => {
+  const m = String(s).match(/^(\d*)(.*)$/);
+  return m[2] ? m[1] + m[2][0] + '○'.repeat(m[2].length - 1) : m[1];
+};
+if (MASK) {
+  for (const o of R.out || []) {
+    const name = String(o.client).replace(/^\d*/, '');
+    const masked = maskName(o.client);
+    if (name) o.demand = String(o.demand).split(name).join(masked.replace(/^\d*/, ''));
+    o.client = masked;
+  }
+}
+
 /* 攤平成 folder > client > demand > items */
 const folders = {};
 for (const o of R.out || []) {
-  if (!o.items || !o.items.length) continue;
+  /* 0 筆的客需也要留一張卡（顯示「無物件」），不然客戶整個從頁面消失，看起來像漏跑 */
   const f = (folders[o.folder] = folders[o.folder] || {});
   const c = (f[o.client] = f[o.client] || {});
-  c[o.demand] = oneLinkPerProperty((c[o.demand] || []).concat(o.items));
+  c[o.demand] = oneLinkPerProperty((c[o.demand] || []).concat(o.items || []));
 }
 const ORDER = ['A買', 'B買', 'C買'];
 
@@ -81,21 +98,20 @@ for (const fname of ORDER) {
       const rows = items.map((it) => {
         const t = copyText(it);
         return `<li class="item${it.isNew ? ' isnew' : ''}" data-copy="${esc(t)}">
-  <label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label>
-  <div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>
+  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}<span class="when">${esc(it.when)}</span></div>
   <div class="meta">
-    <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name || '(無案名)')}</a>${it.isNew ? '<span class="new">NEW</span>' : ''}
+    <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name || '(無案名)')}</a>
     <div class="sub">${esc([it.district, it.road, it.community].filter(Boolean).join(' · '))}</div>
     <div class="sub">${esc([it.kind, it.floor, it.layout, it.age].filter(Boolean).join(' · '))}</div>
     <div class="price">${esc(it.totalPrice)}${it.unitPrice ? ' <span class="unit">' + esc(it.unitPrice) + '</span>' : ''}</div>
   </div>
-  <div class="right"><span class="when">${esc(it.when)}</span><button class="cp" type="button">複製</button></div>
+  <div class="right"><button class="cp" type="button">複製</button></div>
 </li>`;
       }).join('\n');
       cHtml += `<section class="demand${dNew ? ' hasnew' : ''}">
   <h4>${esc(dname)} <span class="n">${items.length}</span>${newBadge(dNew)}
-    <button class="cp grp" type="button" data-copy="${esc(items.map(copyText).join('\n\n'))}">複製這組</button></h4>
-  <ul class="items">${rows}</ul>
+    ${items.length ? `<button class="cp grp" type="button" data-copy="${esc(items.map(copyText).join('\n\n'))}">複製這組</button>` : ''}</h4>
+  ${items.length ? `<ul class="items">${rows}</ul>` : '<p class="none">無物件</p>'}
 </section>`;
     }
     totalItems += cCount;
@@ -103,16 +119,15 @@ for (const fname of ORDER) {
     fNew += cNew;
     totalNew += cNew;
     fHtml += `<details class="client${cNew ? ' hasnew' : ''}">
-  <summary>${esc(cname)} <span class="n">${cCount}</span>${newBadge(cNew)}</summary>
+  <summary><span class="cname" title="點名字複製客戶名稱">${esc(cname)}</span> <span class="n">${cCount}</span>${newBadge(cNew)}</summary>
   <div class="cbody">
-    <button class="cp grp" type="button" data-copy="${esc(Object.keys(demands).map((d) => demands[d].map(copyText).join('\n\n')).join('\n\n'))}">複製此客戶全部</button>
     ${cHtml}
   </div>
 </details>`;
   }
   body += `<details class="folder${fNew ? ' hasnew' : ''}">
   <summary><b>${esc(fname)}</b> <span class="n">${clientNames.length} 位客戶 · ${fCount} 筆</span>${newBadge(fNew)}</summary>
-  ${fHtml}
+  <div class="clients">${fHtml}</div>
 </details>`;
 }
 
@@ -147,25 +162,33 @@ button:active{transform:scale(.97)}
 details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:8px 0;overflow:hidden}
 summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 .folder>summary{font-size:16px;background:var(--chip)}
-.client>summary{border-top:1px solid var(--line)}
+/* 資料夾裡的客戶也排兩欄方卡；點開的那位撐滿整列，裡面的物件卡才放得下 */
+.clients{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px}
+.client{margin:0;background:var(--bg)}
+.client[open]{grid-column:1/-1;background:var(--card)}
+.client>summary{min-height:64px}
+.client[open]>summary{min-height:0;border-bottom:1px solid var(--line)}
 .n{color:var(--dim);font-size:12px;font-weight:400}
 .cbody{padding:4px 11px 12px}
 .demand{margin:10px 0}
+.none{color:var(--dim);font-size:13px;margin:4px 0 0}
 .demand h4{font-size:14px;margin:0 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--accent)}
-.items{list-style:none;margin:0;padding:0}
-.item{display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-top:1px dashed var(--line)}
+.items{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.item{display:flex;flex-direction:column;gap:5px;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.ihead{display:flex;align-items:center;gap:6px;min-width:0}
+.cname{text-decoration:underline dotted;text-underline-offset:4px;cursor:copy}
 .badge{flex:0 0 auto;font-size:11px;padding:2px 6px;border-radius:5px;background:var(--chip);color:var(--dim);margin-top:2px}
 .meta{flex:1 1 auto;min-width:0}
 .name{color:var(--fg);font-weight:600;text-decoration:none;word-break:break-all}
 .name:hover{color:var(--accent)}
-.new{background:#e8590c;color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:2px}
+.new{background:#e8590c;color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px}
 .newn{background:#e8590c;color:#fff;font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:8px}
-.item.isnew{border-left:4px solid #e8590c;padding-left:8px;background:#e8590c12}
+.item.isnew{border-color:#e8590c;background:#e8590c12}
 .demand.hasnew>h4{border-left:4px solid #e8590c;padding-left:8px}
 .sub{color:var(--dim);font-size:12.5px}
 .price{font-weight:700;margin-top:2px}
 .unit{font-weight:400;color:var(--dim);font-size:12.5px}
-.right{flex:0 0 auto;text-align:right;display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+.right{margin-top:auto;display:flex;justify-content:flex-end}
 .when{color:var(--dim);font-size:12px;white-space:nowrap}
 .cp{font-size:12.5px;padding:4px 10px}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--accent);color:#fff;padding:8px 16px;border-radius:20px;opacity:0;transition:.2s;pointer-events:none;font-size:14px}
@@ -189,7 +212,7 @@ body.hasbar{padding-bottom:80px}
 .pv .ph b{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pv .ph a{font-size:13px;color:var(--accent);white-space:nowrap}
 .pv iframe{flex:1 1 auto;width:100%;border:0;background:#fff}
-@media(max-width:520px){.item{flex-wrap:wrap}.right{flex-direction:row;width:100%;justify-content:space-between}}
+.when{margin-left:auto}
 </style>
 <div class="top">
   <h1>買方配案</h1>
@@ -220,7 +243,9 @@ async function cp(text,label){
   if(ok)show(label||'已複製');else manual(text);
 }
 document.getElementById('mclose').onclick=()=>document.getElementById('m').classList.remove('on');
-document.addEventListener('click',e=>{const b=e.target.closest('button.cp');if(!b)return;
+document.addEventListener('click',e=>{const c=e.target.closest('.cname');
+ if(c){e.preventDefault();cp(c.textContent,'已複製 '+c.textContent);return}  /* 點名字＝只複製客戶名稱；preventDefault 擋掉 summary 的展開 */
+ const b=e.target.closest('button.cp');if(!b)return;
  const t=b.dataset.copy!==undefined?b.dataset.copy:(b.closest('.item')||{}).dataset?.copy;
  if(t)cp(t)});
 /* 勾選特定幾筆再一起複製 */
@@ -231,15 +256,20 @@ document.addEventListener('change',e=>{if(!e.target.classList.contains('pick'))r
 document.getElementById('cpSel').onclick=()=>{const it=picked();if(!it.length)return;cp(it.map(x=>x.dataset.copy).join('\\n\\n'),'已複製 '+it.length+' 筆')};
 /* 點案名在頁內預覽，不另開分頁；手機按返回鍵＝關預覽。官網的 CSP frame-ancestors 允許被嵌入，
    哪天被擋了還有「另開視窗」可以用 */
-const pv=document.getElementById('pv'),pvf=document.getElementById('pvf');
-function pvClose(){if(!pv.classList.contains('on'))return;pv.classList.remove('on');pvf.src='about:blank'}
+const pv=document.getElementById('pv');let pvf=document.getElementById('pvf');
+function freshFrame(){const n=pvf.cloneNode(false);n.removeAttribute('src');pvf.replaceWith(n);pvf=n}
+function pvClose(){if(!pv.classList.contains('on'))return;pv.classList.remove('on');freshFrame()}
+function pvShut(){const was=pv.classList.contains('on');pvClose();if(was&&history.state&&history.state.pv)history.back()}
 document.addEventListener('click',e=>{const a=e.target.closest('a.name');if(!a||e.ctrlKey||e.metaKey||e.shiftKey)return;
  e.preventDefault();document.getElementById('pvt').textContent=a.textContent;document.getElementById('pvo').href=a.href;
  pvf.src=a.href;pv.classList.add('on');history.pushState({pv:1},'')});
-document.getElementById('pvx').onclick=()=>history.back();
-pv.addEventListener('click',e=>{if(e.target===pv)history.back()});
+document.getElementById('pvx').onclick=pvShut;
+pv.addEventListener('click',e=>{if(e.target===pv)pvShut()});
 addEventListener('popstate',pvClose);
-document.getElementById('clrSel').onclick=()=>{document.querySelectorAll('.pick:checked').forEach(x=>{x.checked=false;x.closest('.item').classList.remove('sel')});refresh()};
+function unpick(root){root.querySelectorAll('.pick:checked').forEach(x=>{x.checked=false;x.closest('.item').classList.remove('sel')});refresh()}
+document.getElementById('clrSel').onclick=()=>unpick(document);
+/* 收合客戶（或整個資料夾）＝清掉裡面的勾選，換下一位買方時不會連前一位的一起複製。toggle 不冒泡，要用 capture */
+document.addEventListener('toggle',e=>{if(!e.target.open&&e.target.matches('details'))unpick(e.target)},true);
 </script>`;
 
 fs.writeFileSync(outPath, html, 'utf8');

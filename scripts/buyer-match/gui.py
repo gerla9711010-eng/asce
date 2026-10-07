@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 買方配案系統 — 雙擊啟動視窗。按「開始更新」就會自動跑完
-collect.js → 產頁面 → 覆蓋桌面「買方配案.html」，不用再叫 Claude。
+collect.js → 產頁面 → 發布到 https://yc-buyer-match.pages.dev/，不用再叫 Claude。
 """
 import subprocess
 import sys
@@ -93,7 +93,7 @@ class App:
         elif line.startswith("DONE|"):
             import json
             d = json.loads(line.split("|", 1)[1])
-            msg = f"完成！{d['demands']} 個客需、{d['items']} 筆連結，已更新桌面買方配案.html"
+            msg = f"完成！{d['demands']} 個客需、{d['items']} 筆連結，網址已更新：{d.get('url', '')}"
             if d.get("limitHit"):
                 msg += "\n（這次撞到查詢上限提前停手，下次開再繼續抓沒抓到的）"
             self.append(msg)

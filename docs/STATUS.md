@@ -85,15 +85,18 @@
 ### 1.5 🟡 買方配案系統（10-05 GUI 首次真人實跑：57 客需跑通，但後段很吃記憶體）
 
 `scripts/buyer-match/`：桌面雙擊 `買方配案更新.bat` → `gui.py` → `worker.py`（Playwright 獨立 profile，
-LINE 掃碼登入一次就記住）→ `collect.js` → `build_page.js` → 覆蓋桌面 `買方配案.html`。**維持人手動觸發，不排程。**
+LINE 掃碼登入一次就記住）→ `collect.js` → `build_page.js` → 發布網址。**維持人手動觸發，不排程。**
 依賴：Python 要有 `playwright`（＋`playwright install chromium`）、要裝 Node.js（10-05 才補裝）。
 10-05 修：客需樹展開空轉 15 分鐘（見 incidents.md）、瀏覽器改全螢幕不鎖 viewport（QR 掃不到）、
-GUI 會印 collect.js 的 note。**待辦**：①renderer 跑到後段吃 9GB、每客需 15~20 分鐘 → 每 N 個客需
-reload 頁面（用 `from`/`to` 分批）；②GUI「已存 N 個客需」永遠 0（progress() 沒有 saved 欄位）。
+GUI 會印 collect.js 的 note。10-07 改每 10 個客需重整頁面（worker `BATCH`，吃記憶體問題），增量實跑 56 客需 63 分鐘
+正常。**待辦**：GUI「已存 N 個客需」永遠 0（progress() 沒有 saved 欄位）；只收永慶/台慶/永義/有巢氏連結，樂屋等平台的案不會出現。
+10-08 修 NEW 誤標：指紋原含廣告標題，仲介改標題就被當新物件（10-07 那趟 147 筆 NEW 有 96 筆是誤標，已比對舊版手動更正）；改只用地址＋價格。
+10-08 修漏存：10-07 那趟 56 客需只存 48（8 個失敗沒記錯誤、單獨重跑全好；2 個客需名尾巴帶房地數字「 3」key 對不上）。客需名砍尾數；worker 每批印失敗客需、最後自動補跑；`FDBM.tree()` 可只讀客需樹對帳。
 10-06：頁面加 charset（手機預覽原本亂碼）、每筆可勾選→底部「複製選取」、剪貼簿被擋時跳全選文字框
 （手機檔案預覽會擋 clipboard，舊版假裝「已複製」）。桌面 10-05 那份已直接補丁，下次跑 GUI 會自帶。
-10-07：**手機網址**（n8n「買方配案手機頁」，Basic Auth，網址/帳密在根目錄 `.env` 的 `BUYER_MATCH_*`）＋
-點案名改頁內預覽（iframe，官網 CSP 允許嵌入）。worker.py 跑完自動 `upload.py` 上傳；待驗：手機實際開預覽。
+10-07：**手機網址 https://yc-buyer-match.pages.dev/**（公開、全名：使用者 10-07 看過約 20 位真實全名後決定不打碼，`build_page.js --mask` 留著可恢復），**只留網址一份**（不再產桌面 html）＋點案名頁內預覽。
+worker.py 跑完自動 `upload.py`（`build_page.js` → wrangler 發布）。n8n 版試過已刪（sandbox 擋 iframe）。待驗（使用者自己看）：iPhone 預覽、客戶兩欄卡、點名字只複製名字。
+⚠️ 家裡電腦 `pip install` 會 RecursionError（疑與 `zz_truststore_windows.pth` 衝突，見 incidents 10-06），裝 Python 套件前要先處理。
 ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/`browser-profile/` 已 gitignore。
 
 ### 1.6 🟡 搶單額度不夠時的優先順序（09-21 加，還沒用真實資料驗過）

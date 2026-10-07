@@ -103,7 +103,9 @@
       const lbl = (n.querySelector(':scope > .tree-node-row .mdc-button__label, :scope > .tree-node-row .folder-title-text')?.textContent || '').trim();
       if (lvl === 1) { f = { folder: lbl, clients: [] }; out.push(f); }
       else if (lvl === 2 && f) { c = { client: lbl, entries: [] }; f.clients.push(c); }
-      else if (lvl === 3 && c) c.entries.push({ demand: lbl, id: n.id });
+      /* 客需名後面房地有時會掛一個數字（「許老師店面    3」），會跟著變、時有時無 → 拿來當 key 下次就對不上，
+         砍掉（10-08 李裕盛、許老師因此每次都存成另一筆） */
+      else if (lvl === 3 && c) c.entries.push({ demand: lbl.replace(/[\s ]+\d+$/, '').trim(), id: n.id });
     }
     return out;
   }
@@ -179,11 +181,15 @@
     };
   }
 
-  /* 不用展開就能算的物件指紋 —— 增量比對與下架判定都靠它 */
+  /* 不用展開就能算的物件指紋 —— 增量比對與下架判定都靠它。
+     只用地址＋價格，不放標題：仲介常改廣告標題（10-07「隆大鳳凰會…」被改成「專約隆大鳳凰會…」），
+     放標題會把同一間當成新物件、誤標 NEW。價格變了仍算新的（降價可能剛進到客人預算內） */
   const fingerprint = (p) => {
     const s = p.querySelector('fd-property-summary');
-    return s ? [T(s, '.title'), T(s, '.subtitle'), T(s, '.highlight')].join('¦') : '';
+    return s ? [T(s, '.subtitle'), T(s, '.highlight')].join('¦') : '';
   };
+  /* 舊版指紋是「標題¦地址¦價格」三段，比對前一律砍成後兩段，換格式後第一次跑才不會整批變 NEW */
+  const normFp = (x) => String(x || '').split('¦').slice(-2).join('¦');
 
   function listingRows(p) {
     return [...p.querySelectorAll('fd-listing-info')].map((r) => {
@@ -283,11 +289,14 @@
       .forEach((f) => f.clients.forEach((c) => c.entries.forEach((e) =>
         list.push({ folder: f.folder, client: c.client, demand: e.demand, id: e.id }))));
     /* only:['客需名','客需名'] → 只重跑指定客需（補漏用，其餘 state 原封不動） */
-    if (opts.only && opts.only.length) list = list.filter((t) => opts.only.includes(t.demand));
+    /* 也吃完整 key（資料夾/客戶/客需）：很多客需都叫「透天」，只比客需名會連別人的一起重跑 */
+    if (opts.only && opts.only.length) list = list.filter((t) => opts.only.includes(t.demand) || opts.only.includes(keyOf(t)));
     R.total = list.length;
     if (!list.length) { note('讀不到任何客需（客需樹沒展開？），中止，不動 state'); return; }
 
-    const state = opts.full ? { demands: {} } : loadState();
+    /* 全跑＋分批（worker.py 每批重整頁面）：只有第一批（from=0）清 state，後面幾批要接著存，
+       不然每批都把前一批洗掉；不看舊結果靠下面 prev=null 做到 */
+    const state = (opts.full && !opts.from) ? { demands: {} } : loadState();
     const breakEvery = 8 + Math.floor(Math.random() * 3); // 每 8~10 個客需長休息一次
 
     for (let k = opts.from || 0; k < Math.min(list.length, opts.to || list.length); k++) {
@@ -303,7 +312,7 @@
         else await pause(800, 3000);
       }
       const alt = (list[(k + 1) % list.length].id === t.id ? list[(k + 2) % list.length] : list[(k + 1) % list.length]).id;
-      const prev = (opts.only && opts.only.length) ? null : state.demands[keyOf(t)];
+      const prev = ((opts.only && opts.only.length) || opts.full) ? null : state.demands[keyOf(t)];
       let total = null, fps = [], items = [];
 
       try {
@@ -340,8 +349,8 @@
         const fpSet = new Set(fps);
 
         /* 上次已經看過的物件 → 只留下這次還在清單裡的（不在的 = 下架） */
-        const kept = prev ? (prev.items || []).filter((i) => fpSet.has(i.fp)).map((i) => Object.assign({}, i, { isNew: false })) : [];
-        const known = new Set(prev ? (prev.cards || []) : []);
+        const kept = prev ? (prev.items || []).filter((i) => fpSet.has(normFp(i.fp))).map((i) => Object.assign({}, i, { fp: normFp(i.fp), isNew: false })) : [];
+        const known = new Set(prev ? (prev.cards || []).map(normFp) : []);
         const targets = [];
         fps.forEach((fp, i) => { if (!known.has(fp)) targets.push(i); });
 
@@ -414,6 +423,15 @@
     },
     stop() { R.stop = true; return 'stopping'; },
     reset() { localStorage.removeItem(STATE_KEY); return 'state cleared'; },
+    /* 只讀客需樹、不查任何物件：對帳用（跑完的客需數跟樹上對不起來時，看是哪幾個沒存到） */
+    async tree() {
+      await openPanel();
+      const rt = await readFullTree();
+      const list = [];
+      rt.tree.filter((f) => FOLDERS.includes(f.folder)).forEach((f) => f.clients.forEach((c) =>
+        c.entries.forEach((e) => list.push({ folder: f.folder, client: c.client, demand: e.demand, id: e.id, key: keyOf({ folder: f.folder, client: c.client, demand: e.demand }) }))));
+      return { miss: rt.miss, list };
+    },
     dump() { return btoa(unescape(encodeURIComponent(JSON.stringify(R)))); },
     /* 產頁面一律用這支：R.out 每次 run() 會清空，中斷就沒了；state 是逐個客需存下來的 */
     dumpState() {

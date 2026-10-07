@@ -4,7 +4,7 @@
 
 流程：開瀏覽器(獨立 profile，第一次要手動登入一次) → 注入 collect.js → FDBM.run()
 → 輪詢進度、遇到分頁重整/讀不到客需樹自動重試 → 跑完/撞上限就停 → 匯出 localStorage
-→ 轉成 data.json → node build_page.js → 覆蓋桌面「買方配案.html」→ upload.py 傳一份到 n8n 給手機看。
+→ 轉成 data.json → upload.py（build_page.js 產頁 → 發布到 https://yc-buyer-match.pages.dev/）。
 
 用法：python worker.py [--full]
 輸出：每行印一則狀態，給 gui.py 解析：
@@ -18,8 +18,6 @@
 import sys
 import json
 import time
-import shutil
-import subprocess
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -33,12 +31,14 @@ BASE = Path(__file__).resolve().parent
 PROFILE_DIR = BASE / "browser-profile"
 COLLECT_JS = (BASE / "collect.js").read_text(encoding="utf-8")
 URL = "https://agent.foundi.info/tool/property/list"
-DESKTOP_DIR = Path(r"C:\Users\user\OneDrive\桌面")
-OUT_HTML = DESKTOP_DIR / "買方配案.html"
 DATA_JSON = BASE / "data.json"
 STATE_BACKUP = BASE / "state-auto.json"
 
 FULL = "--full" in sys.argv
+ERRS_JS = "() => FDBM.R.out.filter(o => o.error).map(o => ({key: o.folder + '/' + o.client + '/' + o.demand, error: o.error}))"
+# 每跑幾個客需就重整一次頁面：同一頁一路跑 57 個客需，renderer 會漲到 9GB、越跑越慢（10-05 實跑）。
+# 重整就歸零；每個客需跑完 collect.js 就存進 localStorage，重整不會掉資料
+BATCH = 10
 
 
 def out(line):
@@ -132,11 +132,16 @@ def main():
         out("LOGIN_OK")
         time.sleep(1.5)  # 剛登入完/剛載入完，給頁面穩定一下再注入，避免插在導覽中途
 
+        def batch_opts(frm):
+            return dict(opts, **{"from": frm, "to": frm + BATCH})
+
+        start = 0
         out("STATUS|開始跑 collect.js…")
-        inject_and_run(page, opts)
+        inject_and_run(page, batch_opts(start))
 
         stall_retries = 0
         reload_retries = 0
+        failed = []  # 失敗的客需 key：collect.js 只記在 R.out 不存檔，進度輪詢只看得到最後兩行 log 會漏掉
         last_saved = -1
         seen_notes = set()
 
@@ -159,7 +164,7 @@ def main():
                 if not wait_logged_in(page, 30000):
                     out("STATUS|重整後畫面還沒就緒，再等等…")
                     continue
-                inject_and_run(page, {"slow": 3})
+                inject_and_run(page, batch_opts(start))  # 從這批開頭重來；已存的客需會很快跳過
                 continue
 
             if prog is None:
@@ -174,7 +179,7 @@ def main():
 
             if prog.get("saved", -1) != last_saved or True:
                 out("PROGRESS|%d|%d|%d|%d" % (
-                    prog.get("done", 0), prog.get("total", 0),
+                    start + prog.get("done", 0), prog.get("total", 0),  # done 是這一批內的計數
                     prog.get("saved", 0), prog.get("cards", 0),
                 ))
                 last_saved = prog.get("saved", -1)
@@ -188,16 +193,57 @@ def main():
                         return
                     out("STATUS|讀不到客需樹，稍等重試（%d/6）…" % stall_retries)
                     time.sleep(5)
-                    inject_and_run(page, {"slow": 3})
+                    inject_and_run(page, batch_opts(start))
                     continue
-                break
+                stall_retries = 0
+                for e in page.evaluate(ERRS_JS):
+                    failed.append(e["key"])
+                    out("STATUS|⚠️ 客需失敗：%s（%s）" % (e["key"], e["error"][:120]))
+                start += BATCH
+                if prog.get("stop") or start >= prog.get("total", 0):
+                    break
+                out("STATUS|重整頁面釋放記憶體，接著跑第 %d 個客需起…" % (start + 1))
+                try:
+                    page.reload(wait_until="domcontentloaded")
+                except Exception:
+                    pass
+                if not wait_logged_in(page, 60000):
+                    out("ERROR|重整後一分鐘還沒回到客需頁，中止（已跑完的客需都存了，下次會接著跑）")
+                    context.close()
+                    return
+                time.sleep(1.5)
+                inject_and_run(page, batch_opts(start))
+                continue
+
+        # 10-07 那趟 8 個客需默默沒存到、單獨重跑又全好 → 失敗的最後自動補跑一次
+        if failed and not prog.get("stop"):
+            out("STATUS|補跑剛才失敗的 %d 個客需…" % len(failed))
+            try:
+                page.reload(wait_until="domcontentloaded")
+            except Exception:
+                pass
+            if wait_logged_in(page, 60000):
+                time.sleep(1.5)
+                inject_and_run(page, dict(opts, only=failed))
+                while True:
+                    time.sleep(4)
+                    try:
+                        p2 = get_progress(page)
+                    except Exception:
+                        break
+                    if p2 and not p2.get("running") and p2.get("total"):
+                        break
+                for e in page.evaluate(ERRS_JS):
+                    out("STATUS|⚠️ 補跑仍失敗：%s（%s）" % (e["key"], e["error"][:120]))
+            else:
+                out("STATUS|⚠️ 重整後回不到客需頁，沒補跑；失敗的客需下次會再跑")
 
         limit_hit = bool(prog.get("stop")) and bool(prog.get("limitText"))
         if limit_hit:
             out("STATUS|撞到查詢次數上限，停在 %d/%d，資料沒有損失，下次再接著跑" % (
-                prog.get("done", 0), prog.get("total", 0)))
+                start - BATCH + prog.get("done", 0), prog.get("total", 0)))
         else:
-            out("STATUS|全部跑完，%d/%d" % (prog.get("done", 0), prog.get("total", 0)))
+            out("STATUS|全部跑完，%d/%d" % (prog.get("total", 0), prog.get("total", 0)))
 
         out("STATUS|匯出資料…")
         state_json = page.evaluate("() => localStorage.getItem('FDBM_STATE')")
@@ -211,38 +257,20 @@ def main():
     data = state_to_data(state_json)
     DATA_JSON.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
-    out("STATUS|產生頁面…")
-    try:
-        r = subprocess.run(
-            ["node", "build_page.js", "data.json", "buyer-match.html"],
-            cwd=str(BASE), capture_output=True, text=True, timeout=60,
-            encoding="utf-8", errors="replace",  # 預設 cp950 讀 node 的 UTF-8 輸出會炸 UnicodeDecodeError
-        )
-        if r.returncode != 0:
-            out("ERROR|build_page.js 失敗：%s" % (r.stderr or r.stdout)[:300])
-            return
-    except Exception as e:
-        out("ERROR|build_page.js 執行失敗：%s" % e)
-        return
-
-    try:
-        shutil.copy(BASE / "buyer-match.html", OUT_HTML)
-    except Exception as e:
-        out("ERROR|複製到桌面失敗：%s（頁面還在 %s）" % (e, BASE / "buyer-match.html"))
-        return
-
-    out("STATUS|上傳手機版…")
+    # 只留網址一份（10-07 使用者決定不再產桌面「買方配案.html」）：upload() 自己用 data.json 產頁再發布
+    out("STATUS|產生頁面並發布到網址…")
     try:
         from upload import upload
-        out("STATUS|手機版已更新：%s" % upload(BASE / "buyer-match.html"))
-    except Exception as e:  # 手機版只是方便看，傳不上去不算整趟失敗，桌面那份已經好了
-        out("STATUS|⚠️ 手機版上傳失敗（桌面那份已更新）：%s" % e)
+        url = upload()
+    except Exception as e:
+        out("ERROR|發布失敗：%s（資料已存在 data.json，修好後跑 python upload.py 重發就好）" % e)
+        return
 
     out("DONE|" + json.dumps({
         "demands": data["demands"],
         "items": sum(len(o["items"]) for o in data["out"]),
         "limitHit": limit_hit,
-        "path": str(OUT_HTML),
+        "url": url,
     }, ensure_ascii=False))
 
 
