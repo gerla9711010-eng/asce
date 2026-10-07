@@ -70,10 +70,10 @@ if (MASK) {
 /* 攤平成 folder > client > demand > items */
 const folders = {};
 for (const o of R.out || []) {
-  if (!o.items || !o.items.length) continue;
+  /* 0 筆的客需也要留一張卡（顯示「無物件」），不然客戶整個從頁面消失，看起來像漏跑 */
   const f = (folders[o.folder] = folders[o.folder] || {});
   const c = (f[o.client] = f[o.client] || {});
-  c[o.demand] = oneLinkPerProperty((c[o.demand] || []).concat(o.items));
+  c[o.demand] = oneLinkPerProperty((c[o.demand] || []).concat(o.items || []));
 }
 const ORDER = ['A買', 'B買', 'C買'];
 
@@ -110,8 +110,8 @@ for (const fname of ORDER) {
       }).join('\n');
       cHtml += `<section class="demand${dNew ? ' hasnew' : ''}">
   <h4>${esc(dname)} <span class="n">${items.length}</span>${newBadge(dNew)}
-    <button class="cp grp" type="button" data-copy="${esc(items.map(copyText).join('\n\n'))}">複製這組</button></h4>
-  <ul class="items">${rows}</ul>
+    ${items.length ? `<button class="cp grp" type="button" data-copy="${esc(items.map(copyText).join('\n\n'))}">複製這組</button>` : ''}</h4>
+  ${items.length ? `<ul class="items">${rows}</ul>` : '<p class="none">無物件</p>'}
 </section>`;
     }
     totalItems += cCount;
@@ -171,6 +171,7 @@ summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 .n{color:var(--dim);font-size:12px;font-weight:400}
 .cbody{padding:4px 11px 12px}
 .demand{margin:10px 0}
+.none{color:var(--dim);font-size:13px;margin:4px 0 0}
 .demand h4{font-size:14px;margin:0 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--accent)}
 .items{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .item{display:flex;flex-direction:column;gap:5px;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
