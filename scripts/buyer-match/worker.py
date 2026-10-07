@@ -35,6 +35,7 @@ DATA_JSON = BASE / "data.json"
 STATE_BACKUP = BASE / "state-auto.json"
 
 FULL = "--full" in sys.argv
+ERRS_JS = "() => FDBM.R.out.filter(o => o.error).map(o => ({key: o.folder + '/' + o.client + '/' + o.demand, error: o.error}))"
 # 每跑幾個客需就重整一次頁面：同一頁一路跑 57 個客需，renderer 會漲到 9GB、越跑越慢（10-05 實跑）。
 # 重整就歸零；每個客需跑完 collect.js 就存進 localStorage，重整不會掉資料
 BATCH = 10
@@ -140,6 +141,7 @@ def main():
 
         stall_retries = 0
         reload_retries = 0
+        failed = []  # 失敗的客需 key：collect.js 只記在 R.out 不存檔，進度輪詢只看得到最後兩行 log 會漏掉
         last_saved = -1
         seen_notes = set()
 
@@ -194,6 +196,9 @@ def main():
                     inject_and_run(page, batch_opts(start))
                     continue
                 stall_retries = 0
+                for e in page.evaluate(ERRS_JS):
+                    failed.append(e["key"])
+                    out("STATUS|⚠️ 客需失敗：%s（%s）" % (e["key"], e["error"][:120]))
                 start += BATCH
                 if prog.get("stop") or start >= prog.get("total", 0):
                     break
@@ -209,6 +214,29 @@ def main():
                 time.sleep(1.5)
                 inject_and_run(page, batch_opts(start))
                 continue
+
+        # 10-07 那趟 8 個客需默默沒存到、單獨重跑又全好 → 失敗的最後自動補跑一次
+        if failed and not prog.get("stop"):
+            out("STATUS|補跑剛才失敗的 %d 個客需…" % len(failed))
+            try:
+                page.reload(wait_until="domcontentloaded")
+            except Exception:
+                pass
+            if wait_logged_in(page, 60000):
+                time.sleep(1.5)
+                inject_and_run(page, dict(opts, only=failed))
+                while True:
+                    time.sleep(4)
+                    try:
+                        p2 = get_progress(page)
+                    except Exception:
+                        break
+                    if p2 and not p2.get("running") and p2.get("total"):
+                        break
+                for e in page.evaluate(ERRS_JS):
+                    out("STATUS|⚠️ 補跑仍失敗：%s（%s）" % (e["key"], e["error"][:120]))
+            else:
+                out("STATUS|⚠️ 重整後回不到客需頁，沒補跑；失敗的客需下次會再跑")
 
         limit_hit = bool(prog.get("stop")) and bool(prog.get("limitText"))
         if limit_hit:

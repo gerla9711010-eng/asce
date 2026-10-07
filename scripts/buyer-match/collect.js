@@ -103,7 +103,9 @@
       const lbl = (n.querySelector(':scope > .tree-node-row .mdc-button__label, :scope > .tree-node-row .folder-title-text')?.textContent || '').trim();
       if (lvl === 1) { f = { folder: lbl, clients: [] }; out.push(f); }
       else if (lvl === 2 && f) { c = { client: lbl, entries: [] }; f.clients.push(c); }
-      else if (lvl === 3 && c) c.entries.push({ demand: lbl, id: n.id });
+      /* 客需名後面房地有時會掛一個數字（「許老師店面    3」），會跟著變、時有時無 → 拿來當 key 下次就對不上，
+         砍掉（10-08 李裕盛、許老師因此每次都存成另一筆） */
+      else if (lvl === 3 && c) c.entries.push({ demand: lbl.replace(/[\s ]+\d+$/, '').trim(), id: n.id });
     }
     return out;
   }
@@ -287,7 +289,8 @@
       .forEach((f) => f.clients.forEach((c) => c.entries.forEach((e) =>
         list.push({ folder: f.folder, client: c.client, demand: e.demand, id: e.id }))));
     /* only:['客需名','客需名'] → 只重跑指定客需（補漏用，其餘 state 原封不動） */
-    if (opts.only && opts.only.length) list = list.filter((t) => opts.only.includes(t.demand));
+    /* 也吃完整 key（資料夾/客戶/客需）：很多客需都叫「透天」，只比客需名會連別人的一起重跑 */
+    if (opts.only && opts.only.length) list = list.filter((t) => opts.only.includes(t.demand) || opts.only.includes(keyOf(t)));
     R.total = list.length;
     if (!list.length) { note('讀不到任何客需（客需樹沒展開？），中止，不動 state'); return; }
 
@@ -420,6 +423,15 @@
     },
     stop() { R.stop = true; return 'stopping'; },
     reset() { localStorage.removeItem(STATE_KEY); return 'state cleared'; },
+    /* 只讀客需樹、不查任何物件：對帳用（跑完的客需數跟樹上對不起來時，看是哪幾個沒存到） */
+    async tree() {
+      await openPanel();
+      const rt = await readFullTree();
+      const list = [];
+      rt.tree.filter((f) => FOLDERS.includes(f.folder)).forEach((f) => f.clients.forEach((c) =>
+        c.entries.forEach((e) => list.push({ folder: f.folder, client: c.client, demand: e.demand, id: e.id, key: keyOf({ folder: f.folder, client: c.client, demand: e.demand }) }))));
+      return { miss: rt.miss, list };
+    },
     dump() { return btoa(unescape(encodeURIComponent(JSON.stringify(R)))); },
     /* 產頁面一律用這支：R.out 每次 run() 會清空，中斷就沒了；state 是逐個客需存下來的 */
     dumpState() {
