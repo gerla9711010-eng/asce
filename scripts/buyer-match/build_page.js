@@ -256,7 +256,10 @@ document.addEventListener('click',e=>{const a=e.target.closest('a.name');if(!a||
 document.getElementById('pvx').onclick=()=>history.back();
 pv.addEventListener('click',e=>{if(e.target===pv)history.back()});
 addEventListener('popstate',pvClose);
-document.getElementById('clrSel').onclick=()=>{document.querySelectorAll('.pick:checked').forEach(x=>{x.checked=false;x.closest('.item').classList.remove('sel')});refresh()};
+function unpick(root){root.querySelectorAll('.pick:checked').forEach(x=>{x.checked=false;x.closest('.item').classList.remove('sel')});refresh()}
+document.getElementById('clrSel').onclick=()=>unpick(document);
+/* 收合客戶（或整個資料夾）＝清掉裡面的勾選，換下一位買方時不會連前一位的一起複製。toggle 不冒泡，要用 capture */
+document.addEventListener('toggle',e=>{if(!e.target.open&&e.target.matches('details'))unpick(e.target)},true);
 </script>`;
 
 fs.writeFileSync(outPath, html, 'utf8');
