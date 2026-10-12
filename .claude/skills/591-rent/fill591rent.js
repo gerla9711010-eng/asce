@@ -9,7 +9,8 @@
    pickSelect／pickStreet／fillDesc 的眉角跟出售版一樣（antd 虛擬清單、街道面板、ProseMirror），
    改之前先看 ../591-ad/SKILL.md Step 3 那九條。
 
-   開伙／養寵物／身份要求／提供設備／提供家具：**刻意不填**（使用者 2026-10-12 指示：自己加工）。
+   身份要求／提供設備／提供家具：**刻意不填**（使用者 2026-10-12 指示：自己加工）。
+   開伙／養寵物：591 預設是「可」，訴求重點有禁就填「不可」（AC0213116 沒填，前台掛了「可養寵物」）。
    沒有的欄位在 DATA 裡留 null 就會跳過。 */
 
 const DATA = {
@@ -28,6 +29,8 @@ const DATA = {
   parkingRent: '含租金內',     // 車位=有 時必填（車位租金列）：'含租金內' | '費用另計'。來源沒寫預設含（使用者 2026-10-12）
   builtY: '105', builtM: '8', builtD: '26',   // 民國
   orientation: '坐東南朝西北',
+  cooking: null,              // 開伙：訴求重點寫禁開伙→'不可'；null = 不動（591 預設「可」）
+  pets: null,                 // 養寵物：訴求重點寫禁寵→'不可'；null = 不動（591 預設「可」）
   decoration: '簡易裝潢',      // 固定（使用者偏好，跟出售一致）
   minLease: '1年',            // 固定 1年（使用者定案）。選項：'三個月' | '半年' | '1年' | '2年' | '其它'
   moveInNow: true,            // 勾「隨時可遷入」；false = 不動（日期要人工選）
@@ -250,6 +253,8 @@ window.__fill591rent = '執行中';
   pick(row('裝潢程度'), D.decoration, '裝潢程度');
   pick(row('最短租期'), D.minLease, '最短租期');
   if (D.moveInNow) pick(row('可遷入日'), '隨時可遷入', '可遷入日');
+  pick(row('開伙'), D.cooking, '開伙');
+  pick(row('養寵物'), D.pets, '養寵物');
   pick(row('押金'), D.deposit, '押金');
   if (D.parking === '有') pick(row('車位租金'), D.parkingRent, '車位租金');  // 勾車位=有 才會長出來
   (D.includes || []).forEach(x => pick(row('租金包含'), x, '租金包含'));
@@ -278,7 +283,7 @@ window.__fill591rent = '執行中';
     ['電梯', D.elevator], ['車位', D.parking], ['建築完工時間', '成屋'],
     ['裝潢程度', D.decoration], ['最短租期', D.minLease], ['押金', D.deposit],
     ['產權登記', D.propReg], ['服務費', '收取服務費'], ['服務費收取方式', D.feeWay],
-    ['委託書', D.contract], ['車位租金', D.parking === '有' ? D.parkingRent : null], ['出租地址', D.hideNo ? '隱藏門號' : null],
+    ['委託書', D.contract], ['開伙', D.cooking], ['養寵物', D.pets], ['車位租金', D.parking === '有' ? D.parkingRent : null], ['出租地址', D.hideNo ? '隱藏門號' : null],
     ['可遷入日', D.moveInNow ? '隨時可遷入' : null],
     ...(D.includes || []).map(x => ['租金包含', x]),
     ['水費', D.water], ['電費', D.power],
