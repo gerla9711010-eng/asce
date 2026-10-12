@@ -19,6 +19,8 @@
   - adcases 分頁參數是 `skip`（筆數位移），`page` 會被無聲忽略永遠回第一頁；page_size 上限 50
   - adcases 回傳的 list key 叫 `adcases`，不是 `items`
   - adcase_url 只收永慶/台慶連結，塞 houseol 網址會 500
+    （2026-10-12 出租實測：POST 塞 houseol rent_item 回 400「官網連結必須是永慶房屋或台慶不動產的買賣件或租賃件連結」。
+     出租用 rent.yungching.com.tw/house/{id}，用 --yc-url 帶進來即可，見 591-rent SKILL.md Step 6）
   - KEIS 慣例是「一物件一筆廣告、多平台掛同一筆」：全部 266 筆裡沒有任何一個物件連結
     出現兩次，而 adcase_platforms 有一筆是 "591,臉書"（逗號分隔）。所以 591 上架後要
     **併進既有那筆**，不要新開一筆。
