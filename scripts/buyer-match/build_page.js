@@ -79,7 +79,7 @@ const ORDER = ['A買', 'B買', 'C買'];
 
 let totalItems = 0, totalDemands = 0, totalClients = 0, totalNew = 0;
 const newBadge = (n) => n ? `<span class="newn">NEW ${n}</span>` : '';
-let body = '';
+let body = '', nav = '';
 for (const fname of ORDER) {
   const f = folders[fname];
   if (!f) continue;
@@ -125,10 +125,14 @@ for (const fname of ORDER) {
   </div>
 </details>`;
   }
-  body += `<details class="folder${fNew ? ' hasnew' : ''}">
-  <summary><b>${esc(fname)}</b> <span class="n">${clientNames.length} 位客戶 · ${fCount} 筆</span>${newBadge(fNew)}</summary>
+  /* 左邊一格一個資料夾，中間只顯示點到的那個 */
+  nav += `<button type="button" class="tile${fNew ? ' hasnew' : ''}" data-f="${esc(fname)}">
+  <b>${esc(fname)}</b><span class="n">${clientNames.length} 位客戶<br>${fCount} 筆</span>${newBadge(fNew)}
+</button>`;
+  body += `<section class="folder" data-f="${esc(fname)}" hidden>
+  <h2>${esc(fname)} <span class="n">${clientNames.length} 位客戶 · ${fCount} 筆</span>${newBadge(fNew)}</h2>
   <div class="clients">${fHtml}</div>
-</details>`;
+</section>`;
 }
 
 const allText = [];
@@ -152,7 +156,20 @@ const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16171a;--card:#1e2024;--fg:#e8e8e4;--dim:#9a9a94;--line:#2e3136;--accent:#4dd0e1;--chip:#22303350}}
 :root[data-theme="dark"]{--bg:#16171a;--card:#1e2024;--fg:#e8e8e4;--dim:#9a9a94;--line:#2e3136;--accent:#4dd0e1;--chip:#223033}
 *{box-sizing:border-box}
-body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Noto Sans TC","Segoe UI",sans-serif;padding:12px;max-width:900px;margin:0 auto}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Noto Sans TC","Segoe UI",sans-serif;margin:0}
+/* 左欄三個正方形資料夾，從頁面頂端排到底端平均分（高度÷3＝邊長）；手機寬度不夠時改用 28vw 當邊長，不擠掉中間內容 */
+.app{--tile:min(calc((100vh - 32px) / 3),28vw);--tile:min(calc((100dvh - 32px) / 3),28vw);display:flex;align-items:flex-start}
+.side{position:sticky;top:0;flex:0 0 auto;height:100vh;height:100dvh;padding:8px;display:flex;flex-direction:column;gap:8px;border-right:1px solid var(--line);background:var(--bg);z-index:6}
+.tile{width:var(--tile);height:var(--tile);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border-radius:14px;border:2px solid var(--line);background:var(--card);text-align:center;padding:6px}
+.tile b{font-size:clamp(18px,calc(var(--tile) * .2),40px)}
+.tile .n{font-size:clamp(11px,calc(var(--tile) * .075),15px);line-height:1.4}
+.tile .newn{margin:0}
+.tile.hasnew{border-color:#e8590c}
+.tile.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.tile.on .n{color:#fffd}
+.main{flex:1 1 auto;min-width:0;padding:0 12px 12px;max-width:1100px}
+.folder h2{font-size:18px;margin:4px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media (max-width:600px){.items,.clients{grid-template-columns:minmax(0,1fr)!important}}
 h1{font-size:19px;margin:4px 0 2px}
 .top{position:sticky;top:0;background:var(--bg);padding:8px 0;border-bottom:1px solid var(--line);z-index:5;margin-bottom:10px}
 .stat{color:var(--dim);font-size:13px}
@@ -161,9 +178,8 @@ button.primary{background:var(--accent);color:#fff;border-color:transparent;font
 button:active{transform:scale(.97)}
 details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:8px 0;overflow:hidden}
 summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
-.folder>summary{font-size:16px;background:var(--chip)}
 /* 資料夾裡的客戶也排兩欄方卡；點開的那位撐滿整列，裡面的物件卡才放得下 */
-.clients{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px}
+.clients{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .client{margin:0;background:var(--bg)}
 .client[open]{grid-column:1/-1;background:var(--card)}
 .client>summary{min-height:64px}
@@ -214,12 +230,17 @@ body.hasbar{padding-bottom:80px}
 .pv iframe{flex:1 1 auto;width:100%;border:0;background:#fff}
 .when{margin-left:auto}
 </style>
+<div class="app">
+<nav class="side">${nav}</nav>
+<main class="main">
 <div class="top">
   <h1>買方配案</h1>
   <div class="stat">${totalClients} 位客戶 · ${totalDemands} 個客需 · <b>${totalItems}</b> 筆官網連結${totalNew ? ' · <span class="newn" style="margin-left:0">本次新增 ' + totalNew + '</span>' : ''}　|　更新 ${esc(localTime(R.finishedAt || R.startedAt))}</div>
   <div style="margin-top:7px"><button class="cp primary" type="button" data-copy="${esc(allText.join('\n\n'))}">一鍵全部複製</button></div>
 </div>
 ${body || '<p class="stat">沒有抓到任何官網連結。</p>'}
+</main>
+</div>
 <div class="toast" id="t">已複製</div>
 <div class="bar" id="bar"><b id="cnt">已選 0 筆</b><button class="primary" type="button" id="cpSel">複製選取</button><button type="button" id="clrSel">清除</button></div>
 <div class="pv" id="pv"><div class="sheet"><div class="ph"><b id="pvt"></b><a id="pvo" href="#" target="_blank" rel="noopener">另開視窗</a><button type="button" id="pvx">關閉</button></div><iframe id="pvf" title="物件預覽" referrerpolicy="no-referrer"></iframe></div></div>
@@ -248,6 +269,16 @@ document.addEventListener('click',e=>{const c=e.target.closest('.cname');
  const b=e.target.closest('button.cp');if(!b)return;
  const t=b.dataset.copy!==undefined?b.dataset.copy:(b.closest('.item')||{}).dataset?.copy;
  if(t)cp(t)});
+/* 切換資料夾：中間只顯示點到的那個，記住上次看的（存不了就從第一個開始） */
+function openFolder(f){let hit=false;
+ document.querySelectorAll('.folder').forEach(s=>{const on=s.dataset.f===f;s.hidden=!on;hit=hit||on});
+ if(!hit)return false;
+ document.querySelectorAll('.tile').forEach(t=>t.classList.toggle('on',t.dataset.f===f));
+ try{localStorage.setItem('bm-folder',f)}catch(e){}
+ scrollTo(0,0);return true}
+document.querySelectorAll('.tile').forEach(t=>t.onclick=()=>openFolder(t.dataset.f));
+{let last=null;try{last=localStorage.getItem('bm-folder')}catch(e){}
+ const first=document.querySelector('.tile');if(!(last&&openFolder(last))&&first)openFolder(first.dataset.f)}
 /* 勾選特定幾筆再一起複製 */
 const bar=document.getElementById('bar'),cnt=document.getElementById('cnt');
 function picked(){return [...document.querySelectorAll('.pick:checked')].map(x=>x.closest('.item'))}
