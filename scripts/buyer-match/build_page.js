@@ -3,6 +3,7 @@
  * data.json = collect.js 跑完 FDBM.dump() 解 base64 後的內容
  */
 const fs = require('fs');
+const crypto = require('crypto');
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const dataPath = args[0] || 'scripts/buyer-match/data.json';
@@ -54,6 +55,10 @@ function oneLinkPerProperty(items) {
 /* --mask：公開網址用的版本，客戶名打碼。「66604陳漢強」→「66604陳○○」——編號＋姓氏自己認得出是誰，
    外人對不到本人。客需名稱裡出現同一個名字也一起換掉。桌面那份不加 --mask，維持全名 */
 const MASK = process.argv.includes('--mask');
+/* 複製次數的 key：客戶＋物件指紋的雜湊（存到 Cloudflare D1 的只有這串，沒有客戶名）。
+   用打碼前的名字算，--mask 開關不會讓次數歸零 */
+for (const o of R.out || []) o.rawClient = o.client;
+const copyKey = (client, it) => crypto.createHash('sha1').update(client + '|' + (it.fp || it.url)).digest('hex').slice(0, 12);
 const maskName = (s) => {
   const m = String(s).match(/^(\d*)(.*)$/);
   return m[2] ? m[1] + m[2][0] + '○'.repeat(m[2].length - 1) : m[1];
@@ -73,7 +78,8 @@ for (const o of R.out || []) {
   /* 0 筆的客需也要留一張卡（顯示「無物件」），不然客戶整個從頁面消失，看起來像漏跑 */
   const f = (folders[o.folder] = folders[o.folder] || {});
   const c = (f[o.client] = f[o.client] || {});
-  c[o.demand] = oneLinkPerProperty((c[o.demand] || []).concat(o.items || []));
+  const items = (o.items || []).map((it) => Object.assign({}, it, { k: copyKey(o.rawClient, it) }));
+  c[o.demand] = oneLinkPerProperty((c[o.demand] || []).concat(items));
 }
 const ORDER = ['A買', 'B買', 'C買'];
 
@@ -97,8 +103,8 @@ for (const fname of ORDER) {
       cNew += dNew;
       const rows = items.map((it) => {
         const t = copyText(it);
-        return `<li class="item${it.isNew ? ' isnew' : ''}" data-copy="${esc(t)}">
-  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}<span class="when">${esc(it.when)}</span></div>
+        return `<li class="item${it.isNew ? ' isnew' : ''}" data-k="${it.k}" data-copy="${esc(t)}">
+  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}<span class="sent" hidden></span><span class="when">${esc(it.when)}</span></div>
   <div class="meta">
     <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name || '(無案名)')}</a>
     <div class="sub">${esc([it.district, it.road, it.community].filter(Boolean).join(' · '))}</div>
@@ -119,7 +125,7 @@ for (const fname of ORDER) {
     fNew += cNew;
     totalNew += cNew;
     fHtml += `<details class="client${cNew ? ' hasnew' : ''}">
-  <summary><span class="cname" title="點名字複製客戶名稱">${esc(cname)}</span> <span class="n">${cCount}</span>${newBadge(cNew)}</summary>
+  <summary><span class="cname" title="點名字複製客戶名稱">${esc(cname)}</span> <span class="n">${cCount}</span>${newBadge(cNew)}<span class="sentn" hidden></span></summary>
   <div class="cbody">
     ${cHtml}
   </div>
@@ -229,6 +235,11 @@ body.hasbar{padding-bottom:80px}
 .pv .ph a{font-size:13px;color:var(--accent);white-space:nowrap}
 .pv iframe{flex:1 1 auto;width:100%;border:0;background:#fff}
 .when{margin-left:auto}
+/* 複製過的物件：綠色「已複製 N 次」＋整張卡淡一點，一眼看出哪些傳過了 */
+.sent{background:#2b8a3e;color:#fff;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;white-space:nowrap}
+.sentn{white-space:nowrap;display:inline-block;background:#2b8a3e;color:#fff;font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:8px}
+.item.done{opacity:.6}
+.item.done:hover,.item.done.sel{opacity:1}
 </style>
 <div class="app">
 <nav class="side">${nav}</nav>
@@ -268,7 +279,10 @@ document.addEventListener('click',e=>{const c=e.target.closest('.cname');
  if(c){e.preventDefault();cp(c.textContent,'已複製 '+c.textContent);return}  /* 點名字＝只複製客戶名稱；preventDefault 擋掉 summary 的展開 */
  const b=e.target.closest('button.cp');if(!b)return;
  const t=b.dataset.copy!==undefined?b.dataset.copy:(b.closest('.item')||{}).dataset?.copy;
- if(t)cp(t)});
+ if(!t)return;cp(t);
+ /* 計次：單筆、複製這組算；「一鍵全部複製」是整份備份，不算 */
+ if(b.classList.contains('grp'))bump([...b.closest('.demand').querySelectorAll('.item')]);
+ else if(!b.classList.contains('primary'))bump([b.closest('.item')].filter(Boolean))});
 /* 切換資料夾：中間只顯示點到的那個，記住上次看的（存不了就從第一個開始） */
 function openFolder(f){let hit=false;
  document.querySelectorAll('.folder').forEach(s=>{const on=s.dataset.f===f;s.hidden=!on;hit=hit||on});
@@ -279,12 +293,27 @@ function openFolder(f){let hit=false;
 document.querySelectorAll('.tile').forEach(t=>t.onclick=()=>openFolder(t.dataset.f));
 {let last=null;try{last=localStorage.getItem('bm-folder')}catch(e){}
  const first=document.querySelector('.tile');if(!(last&&openFolder(last))&&first)openFolder(first.dataset.f)}
+/* 複製次數：存在 Cloudflare（functions/api/copies.js），電腦和手機看到同一份。
+   本機直接開檔案時沒有 /api，失敗就不顯示，不影響複製 */
+let counts={};
+function paint(){
+ document.querySelectorAll('.item').forEach(li=>{const n=counts[li.dataset.k]||0,b=li.querySelector('.sent');
+  b.hidden=!n;b.textContent='已複製 '+n+' 次';li.classList.toggle('done',n>0)});
+ document.querySelectorAll('.client').forEach(c=>{const all=[...new Set([...c.querySelectorAll('.item')].map(li=>li.dataset.k))];
+  const done=all.filter(k=>counts[k]).length,b=c.querySelector('.sentn');b.hidden=!done;b.textContent='已複製 '+done+'/'+all.length})}
+function loadCounts(){fetch('api/copies',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{if(j){counts=j;paint()}}).catch(()=>{})}
+function bump(items){const keys=[...new Set(items.map(li=>li.dataset.k).filter(Boolean))];if(!keys.length)return;
+ keys.forEach(k=>counts[k]=(counts[k]||0)+1);paint();
+ fetch('api/copies',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({keys})})
+  .then(r=>r.ok?r.json():null).then(j=>{if(j){counts=j;paint()}}).catch(()=>{})}
+loadCounts();
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadCounts()});
 /* 勾選特定幾筆再一起複製 */
 const bar=document.getElementById('bar'),cnt=document.getElementById('cnt');
 function picked(){return [...document.querySelectorAll('.pick:checked')].map(x=>x.closest('.item'))}
 function refresh(){const n=picked().length;cnt.textContent='已選 '+n+' 筆';bar.classList.toggle('on',n>0);document.body.classList.toggle('hasbar',n>0)}
 document.addEventListener('change',e=>{if(!e.target.classList.contains('pick'))return;e.target.closest('.item').classList.toggle('sel',e.target.checked);refresh()});
-document.getElementById('cpSel').onclick=()=>{const it=picked();if(!it.length)return;cp(it.map(x=>x.dataset.copy).join('\\n\\n'),'已複製 '+it.length+' 筆')};
+document.getElementById('cpSel').onclick=()=>{const it=picked();if(!it.length)return;cp(it.map(x=>x.dataset.copy).join('\\n\\n'),'已複製 '+it.length+' 筆');bump(it)};
 /* 點案名在頁內預覽，不另開分頁；手機按返回鍵＝關預覽。官網的 CSP frame-ancestors 允許被嵌入，
    哪天被擋了還有「另開視窗」可以用 */
 const pv=document.getElementById('pv');let pvf=document.getElementById('pvf');
