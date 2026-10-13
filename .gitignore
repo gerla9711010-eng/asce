@@ -13,3 +13,4 @@ scripts/buyer-match/dist/
 scripts/buyer-match/.wrangler/
 scripts/buyer-match/state-backup*.json
 scripts/buyer-match/browser-profile/
+scripts/buyer-match/seen.json

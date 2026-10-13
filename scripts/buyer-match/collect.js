@@ -173,7 +173,8 @@
     return {
       title: T(s, '.title'), subtitle: T(s, '.subtitle'),
       district: pa[1] || '', road: pa[2] || '', community: T(s, '.anchor-minor'),
-      totalPrice: T(s, '.highlight'), unitPrice: lv.find((t) => /萬\/坪$/.test(t)) || '',
+      /* .highlight 偶爾是社區名（京典、采揚天），不是價格；那時改從葉節點找「…萬」 */
+      totalPrice: /萬$/.test(T(s, '.highlight')) ? T(s, '.highlight') : (lv.find((t) => /^[\d,]+萬$/.test(t)) || ''), unitPrice: lv.find((t) => /萬\/坪$/.test(t)) || '',
       floor: lv.find((t) => /樓$/.test(t) && (t.includes('/共') || t.includes('全棟'))) || '',
       age: lv.find((t) => /^[\d.]+年$/.test(t)) || '',
       layout: lv.find((t) => /房.*廳.*衛/.test(t)) || '',
