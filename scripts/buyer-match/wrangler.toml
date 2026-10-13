@@ -1,0 +1,10 @@
+# 買方配案頁（Cloudflare Pages）。upload.py 的 `wrangler pages deploy dist` 會讀這份，把 D1 綁給 functions/
+# 複製次數存在 D1 yc-buyer-match-copies（只存雜湊 key＋次數，不存客戶名）
+name = "yc-buyer-match"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "yc-buyer-match-copies"
+database_id = "11fa7658-ba9b-47ed-b670-2227123681a4"
