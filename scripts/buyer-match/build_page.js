@@ -42,23 +42,76 @@ function localTime(iso) {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
-/* 同一間房子會在永慶/台慶/永義/有巢氏各有一個官網連結 —— 每間只留一個，優先永慶。
-   沒有永慶刊登的（別家加盟店的案子）就往後遞補，不要整間漏掉。 */
 const BADGE_PRIORITY = ['永慶', '台慶', '永義', '有巢氏'];
 const rank = (b) => { const i = BADGE_PRIORITY.indexOf(b); return i < 0 ? 99 : i; };
-function oneLinkPerProperty(items) {
-  const by = {};
-  for (const it of items) { const k = it.fp || it.url; (by[k] = by[k] || []).push(it); }
-  return Object.keys(by).map((k) => by[k].slice().sort((a, b) => rank(a.badge) - rank(b.badge))[0]);
+/* 物件編號：官網網址 /house/7476129 那串。改價不會變，永慶/台慶/永義/有巢氏官網也是同一個號碼 */
+const listingNo = (u) => (String(u || '').match(/\/house\/(\d+)/) || [])[1] || String(u || '');
+const num = (x) => parseFloat(String(x || '').replace(/,/g, ''));
+/* 坪數＝總價÷單價（KEIS 摘要沒有坪數欄）。總價欄抓錯（抓到社區名）就算不出來，只靠編號 */
+const pingOf = (it) => { const t = num(it.totalPrice), u = num(it.unitPrice); return /萬/.test(it.totalPrice) && t > 0 && u > 0 ? t / u : NaN; };
+/* 同一戶判定（10-14 使用者定的）：同編號、KEIS 同一張卡，或「同區＋同路名＋同樓層＋坪數差 3% 內」——
+   後者抓的是委託給好幾家仲介、各自開了不同編號的同一戶（吉昌街一戶 19 個編號）。各家量的坪數會差一點，所以給 3% */
+const PING_TOL = 0.03;
+function sameUnit(a, b) {
+  if (listingNo(a.url) === listingNo(b.url)) return true;
+  if (a.fp && a.fp === b.fp) return true;          // KEIS 自己就放在同一張卡（同地址同價）
+  if (!a.floor || a.district !== b.district || a.road !== b.road || a.floor !== b.floor) return false;
+  const pa = pingOf(a), pb = pingOf(b);
+  return pa > 0 && pb > 0 && Math.abs(pa - pb) / Math.min(pa, pb) <= PING_TOL;
+}
+/* 把同一戶併成一張卡：顯示最便宜的那筆（同價優先永慶），其他家只列「另有 N 家刊登＋價格範圍」 */
+function mergeSameUnit(items) {
+  const parent = items.map((_, i) => i);
+  const root = (i) => (parent[i] === i ? i : (parent[i] = root(parent[i])));
+  for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (sameUnit(items[i], items[j])) parent[root(j)] = root(i);
+  const groups = {};
+  items.forEach((it, i) => (groups[root(i)] = groups[root(i)] || []).push(it));
+  return Object.values(groups).map((g) => {
+    const byPrice = g.slice().sort((a, b) => (num(a.totalPrice) || 1e9) - (num(b.totalPrice) || 1e9) || rank(a.badge) - rank(b.badge));
+    const nos = [...new Set(g.map((x) => listingNo(x.url)))];
+    const prices = [...new Set(g.map((x) => num(x.totalPrice)).filter((x) => x > 0))].sort((a, b) => a - b);
+    const chg = g.find((x) => x.chg);
+    return Object.assign({}, byPrice[0], {
+      k: [...new Set(g.map((x) => x.k))].join(' '),
+      isNew: g.every((x) => x.isNew),              // 已知的那戶多了一家刊登不算新案
+      whenDays: Math.min(...g.map((x) => x.whenDays)),
+      others: nos.length - 1,
+      range: prices.length > 1 ? prices[0].toLocaleString() + '–' + prices[prices.length - 1].toLocaleString() + '萬' : '',
+      chg: chg ? chg.chg : null,
+    });
+  });
+}
+
+/* NEW／改價：每個客需記住看過哪些物件編號、上次多少錢（seen.json，本機、已 gitignore）。
+   collect.js 的 isNew 是用「地址＋價格」比的，改價也會變 NEW；這裡改成同編號就不是新案，改價另外標。
+   第一次還沒有 seen.json 時沿用 collect.js 的 isNew 當起點 */
+const SEEN_PATH = require('path').join(__dirname, 'seen.json');
+const RUN = R.finishedAt || R.startedAt || '';
+let SEEN = null;
+try { SEEN = JSON.parse(fs.readFileSync(SEEN_PATH, 'utf8')); } catch (e) {}
+const BOOT = !SEEN;
+SEEN = SEEN || {};
+function track(client, demand, it) {
+  const id = client + '|' + demand + '|' + listingNo(it.url);
+  const price = /萬/.test(it.totalPrice) ? it.totalPrice : '';
+  let r = SEEN[id];
+  if (!r) r = SEEN[id] = { first: BOOT && !it.isNew ? 'old' : RUN, price, run: RUN };
+  else if (r.run !== RUN) {                      // 同一份 data.json 重產頁面不會重複判定
+    if (price && r.price && price !== r.price) { r.prev = r.price; r.changed = RUN; }
+    if (price) r.price = price;
+    r.run = RUN;
+  }
+  const chg = r.changed === RUN && r.prev ? { from: r.prev, to: r.price, down: num(r.price) < num(r.prev) } : null;
+  return Object.assign({}, it, { isNew: r.first === RUN, chg });
 }
 
 /* --mask：公開網址用的版本，客戶名打碼。「66604陳漢強」→「66604陳○○」——編號＋姓氏自己認得出是誰，
    外人對不到本人。客需名稱裡出現同一個名字也一起換掉。桌面那份不加 --mask，維持全名 */
 const MASK = process.argv.includes('--mask');
-/* 複製次數的 key：客戶＋物件指紋的雜湊（存到 Cloudflare D1 的只有這串，沒有客戶名）。
-   用打碼前的名字算，--mask 開關不會讓次數歸零 */
-for (const o of R.out || []) o.rawClient = o.client;
-const copyKey = (client, it) => crypto.createHash('sha1').update(client + '|' + (it.fp || it.url)).digest('hex').slice(0, 12);
+/* 複製次數的 key：客戶＋物件編號的雜湊（存到 Cloudflare D1 的只有這串，沒有客戶名）。
+   用編號不用價格，改價後次數還在；用打碼前的名字算，--mask 開關不會讓次數歸零 */
+for (const o of R.out || []) { o.rawClient = o.client; o.rawDemand = o.demand; }
+const copyKey = (client, it) => crypto.createHash('sha1').update(client + '|' + listingNo(it.url)).digest('hex').slice(0, 12);
 const maskName = (s) => {
   const m = String(s).match(/^(\d*)(.*)$/);
   return m[2] ? m[1] + m[2][0] + '○'.repeat(m[2].length - 1) : m[1];
@@ -78,9 +131,11 @@ for (const o of R.out || []) {
   /* 0 筆的客需也要留一張卡（顯示「無物件」），不然客戶整個從頁面消失，看起來像漏跑 */
   const f = (folders[o.folder] = folders[o.folder] || {});
   const c = (f[o.client] = f[o.client] || {});
-  const items = (o.items || []).map((it) => Object.assign({}, it, { k: copyKey(o.rawClient, it) }));
-  c[o.demand] = oneLinkPerProperty((c[o.demand] || []).concat(items));
+  const items = (o.items || []).map((it) => Object.assign(track(o.rawClient, o.rawDemand, it), { k: copyKey(o.rawClient, it) }));
+  c[o.demand] = (c[o.demand] || []).concat(items);
 }
+for (const f of Object.values(folders)) for (const c of Object.values(f)) for (const d of Object.keys(c)) c[d] = mergeSameUnit(c[d]);
+fs.writeFileSync(SEEN_PATH, JSON.stringify(SEEN), 'utf8');
 const ORDER = ['A買', 'B買', 'C買'];
 
 let totalItems = 0, totalDemands = 0, totalClients = 0, totalNew = 0;
@@ -104,12 +159,13 @@ for (const fname of ORDER) {
       const rows = items.map((it) => {
         const t = copyText(it);
         return `<li class="item${it.isNew ? ' isnew' : ''}" data-k="${it.k}" data-copy="${esc(t)}">
-  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}<span class="sent" hidden></span><span class="when">${esc(it.when)}</span></div>
+  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}${it.chg ? `<span class="chg${it.chg.down ? ' down' : ''}">${it.chg.down ? '降價' : '漲價'} ${esc(it.chg.from)}→${esc(it.chg.to)}</span>` : ''}<span class="sent" hidden></span><span class="when">${esc(it.when)}</span></div>
   <div class="meta">
     <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name || '(無案名)')}</a>
     <div class="sub">${esc([it.district, it.road, it.community].filter(Boolean).join(' · '))}</div>
     <div class="sub">${esc([it.kind, it.floor, it.layout, it.age].filter(Boolean).join(' · '))}</div>
     <div class="price">${esc(it.totalPrice)}${it.unitPrice ? ' <span class="unit">' + esc(it.unitPrice) + '</span>' : ''}</div>
+    ${it.others ? `<div class="sub more">另有 ${it.others} 家刊登${it.range ? ' · ' + esc(it.range) : ''}</div>` : ''}
   </div>
   <div class="right"><button class="cp" type="button">複製</button></div>
 </li>`;
@@ -238,7 +294,11 @@ body.hasbar{padding-bottom:80px}
 /* 複製過的物件：綠色「已複製 N 次」＋整張卡淡一點，一眼看出哪些傳過了 */
 .sent{background:#2b8a3e;color:#fff;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;white-space:nowrap}
 .sentn{white-space:nowrap;display:inline-block;background:#2b8a3e;color:#fff;font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:8px}
+.sent[hidden],.sentn[hidden]{display:none}
 .item.done{opacity:.6}
+.chg{background:#c92a2a;color:#fff;font-size:10.5px;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap}
+.chg.down{background:#1971c2}
+.more{color:var(--accent)}
 .item.done:hover,.item.done.sel{opacity:1}
 </style>
 <div class="app">
@@ -297,12 +357,12 @@ document.querySelectorAll('.tile').forEach(t=>t.onclick=()=>openFolder(t.dataset
    本機直接開檔案時沒有 /api，失敗就不顯示，不影響複製 */
 let counts={};
 function paint(){
- document.querySelectorAll('.item').forEach(li=>{const n=counts[li.dataset.k]||0,b=li.querySelector('.sent');
+ document.querySelectorAll('.item').forEach(li=>{const n=Math.max(0,...li.dataset.k.split(' ').map(k=>counts[k]||0)),b=li.querySelector('.sent');
   b.hidden=!n;b.textContent='已複製 '+n+' 次';li.classList.toggle('done',n>0)});
  document.querySelectorAll('.client').forEach(c=>{const all=[...new Set([...c.querySelectorAll('.item')].map(li=>li.dataset.k))];
-  const done=all.filter(k=>counts[k]).length,b=c.querySelector('.sentn');b.hidden=!done;b.textContent='已複製 '+done+'/'+all.length})}
+  const done=all.filter(ks=>ks.split(' ').some(k=>counts[k])).length,b=c.querySelector('.sentn');b.hidden=!done;b.textContent='已複製 '+done+'/'+all.length})}
 function loadCounts(){fetch('api/copies',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{if(j){counts=j;paint()}}).catch(()=>{})}
-function bump(items){const keys=[...new Set(items.map(li=>li.dataset.k).filter(Boolean))];if(!keys.length)return;
+function bump(items){const keys=[...new Set(items.flatMap(li=>(li.dataset.k||'').split(' ')).filter(Boolean))];if(!keys.length)return;
  keys.forEach(k=>counts[k]=(counts[k]||0)+1);paint();
  fetch('api/copies',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({keys})})
   .then(r=>r.ok?r.json():null).then(j=>{if(j){counts=j;paint()}}).catch(()=>{})}
