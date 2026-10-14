@@ -21,6 +21,14 @@ await (async () => {
   }
   if (got !== PHOTOS)
     return JSON.stringify({ 結果: '沒按：房屋照片 ' + got + ' 張，預期 ' + PHOTOS + ' 張——人工看一下哪張沒傳上去' });
+  /* 文案要在、而且編輯器要先失焦，591 才會把它存進去（AG1918099 踩過：沒失焦就按保存，存成空的）。 */
+  const pm = document.querySelector('[contenteditable=true].ProseMirror');
+  if (!pm || pm.innerText.trim().length < 20)
+    return JSON.stringify({ 結果: '沒按：特色描述是空的，先跑 fill591.js' });
+  if (document.activeElement) document.activeElement.blur();
+  pm.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  await sleep(500);
   const btn = [...document.querySelectorAll('button')].find(b => b.innerText.replace(/\s+/g, '') === '保存資料，下一步');
   if (!btn) return JSON.stringify({ 結果: '找不到「保存資料，下一步」按鈕' });
   setTimeout(() => btn.click(), 300);
