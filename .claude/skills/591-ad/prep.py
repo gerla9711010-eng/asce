@@ -4,7 +4,7 @@
 
 用法：
   1. get_page_text 抓 houseol print19 頁，整段存成文字檔
-  2. python prep.py page.txt --type 電梯大樓
+  2. python prep.py page.txt --photos <scratchpad>/pics   （--type 只有來源寫「大樓」時才要帶）
   3. 照輸出開「第 2 頁網址」（直接跳過第 1 頁四層選單），把 DATA 貼進 fill591.js，
      title / desc 由 Claude 依 SKILL.md Step 4 的規格自己寫（素材是輸出的「訴求重點」）
 
@@ -12,6 +12,10 @@
 交給 ping.py 的 solve()，算不出來就 exit 1，跟直接跑 ping.py 同一套規則。
 
 委託書（一般/專任）會去 KEIS 查 contract_type；查不到就留 null 並警告，不要自己猜。
+--photos 順便從 KEIS 下載照片（同 keis.py photos），最後印出刊登後要跑的 KEIS 同步指令（承辦人已帶好）。
+
+房屋型態：來源「型式/用途」寫透天/別墅/公寓/華廈就直接對應；只寫「大樓」分不出公寓/華廈/電梯大樓，
+這時 exit 2 叫你問使用者再帶 --type（2026-10-14 使用者同意改成只有大樓才問）。
 """
 import argparse, json, re, sys
 from pathlib import Path
@@ -70,7 +74,8 @@ def parse_addr(addr):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("page", help="houseol print19 頁的文字檔")
-    ap.add_argument("--type", required=True, choices=list(SHAPE), help="房屋型態（一律問使用者）")
+    ap.add_argument("--type", choices=list(SHAPE), help="房屋型態；來源只寫「大樓」時必帶（問使用者）")
+    ap.add_argument("--photos", metavar="DIR", help="順便從 KEIS 下載照片解壓到這個資料夾")
     ap.add_argument("--no-keis", action="store_true", help="不查 KEIS 委託類型")
     a = ap.parse_args()
 
@@ -82,6 +87,13 @@ def main():
     addr = grab(r"座落：\s*(\S+)", t)
     community = grab(r"大樓名稱：\s*(\S+)", t)
     agent = grab(r"承辦人\s+(\S+)", t)
+    form = grab(r"型式/用途：\s*(\S+)", t, "")
+    if not a.type:
+        a.type = next((v for k, v in (("透天", "透天厝"), ("別墅", "別墅"), ("公寓", "公寓"),
+                                       ("華廈", "華廈"), ("電梯", "電梯大樓")) if k in form), None)
+        if not a.type:
+            print("[停手] 來源型式寫「%s」，分不出公寓/華廈/電梯大樓——問使用者，再帶 --type 重跑" % form)
+            sys.exit(2)
 
     # ---- 坪數 ----
     total = num(grab(r"總\s*建\s*坪\s*([\d.]+)", t))
@@ -176,7 +188,7 @@ def main():
 
     shape = SHAPE[a.type]
     region = REGION.get(data["city"])
-    print("案件：%s｜%s｜承辦 %s" % (contract_no, case_name, agent))
+    print("案件：%s｜%s｜承辦 %s｜型態 %s（來源：%s）" % (contract_no, case_name, agent, a.type, form))
     print("第 2 頁網址：" + PAGE2.format(shape=shape, region="&region=%d" % region if region else ""))
     print("坪數分支：%s" % out.get("_分支", "無車位"))
     print("DATA =")
@@ -186,6 +198,16 @@ def main():
         print("  ◎" + p)
     if not points:
         print("  （空的——亮點區留空，跟使用者說明，不要自己編）")
+    if a.photos and contract_no:
+        import keis
+        print("\n照片：")
+        try:
+            keis.cmd_photos(argparse.Namespace(contract_no=contract_no, out=a.photos))
+        except SystemExit as e:
+            warn.append("照片下載失敗：%s" % e)
+    print("\n刊登後 KEIS 同步（先 dry-run，對了再加 --apply）：")
+    print("  python .claude/skills/591-ad/keis.py sync %s --url591 <廣告網址> --member %s"
+          % (contract_no, agent or "<承辦人>"))
     for w in warn:
         print("[注意] " + w)
 
