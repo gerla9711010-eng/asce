@@ -37,7 +37,11 @@ await (async () => {
   }
 
   if (!/\/post\/three\//.test(location.pathname))
-    return JSON.stringify({ 錯誤: '不在第 3 頁：' + location.pathname });
+    return JSON.stringify({
+      錯誤: '不在第 3 頁：' + location.pathname,
+      // 還在第 2 頁通常是保存被表單驗證擋下來，把紅字列出來
+      表單錯誤: [...document.querySelectorAll('.ant-form-item-explain-error')].map(e => e.innerText).slice(0, 10),
+    });
   const before = { 勾選: state(), 應付: pay() };
 
   // 1. 自動續費先關
