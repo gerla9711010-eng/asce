@@ -76,10 +76,13 @@ function field(name, unit, nth) {
   if (unit !== undefined && unit !== null) return ts.find(e => unitOf(e) === unit) || null;
   return ts[nth || 0] || null;
 }
-// 出售樓層那列沒有標籤，用單位「樓」認
+/* 出售樓層那列沒有標籤，用它的「出售單層／出售多層」下拉認。
+   不要用單位認：單層時是「樓」，多層時變成兩格「層」（placeholder 出售最低/最高樓層），
+   跟「出售總樓層」的「層」撞在一起（2026-10-14 AG1727776 透天踩過）。 */
 function floorRow() {
-  const e = texts(document).find(i => unitOf(i) === '樓');
-  return e ? e.closest('.ant-form-item') : null;
+  const s = [...document.querySelectorAll('.ant-select')]
+    .find(x => /^出售(單|多)層$/.test(((x.querySelector('.ant-select-selection-item') || {}).innerText || '').trim()));
+  return s ? s.closest('.ant-form-item') : null;
 }
 function selectIn(r, nth) {
   return r ? [...r.querySelectorAll('.ant-select')][nth || 0] || null : null;

@@ -85,10 +85,12 @@ def main():
 
     # ---- 坪數 ----
     total = num(grab(r"總\s*建\s*坪\s*([\d.]+)", t))
-    # 主建物可能分樓層列（透天：1樓 12.384 坪／2樓 …），夾在「物」跟「附屬建物」之間全部加總
-    main_blk = grab(r"主\s*建\s*物(.*?)附屬建物", t, "", re.S)
-    floors_main = re.findall(r"(\d+)\s*樓\s*([\d.]+)\s*坪", main_blk)
-    main_area = sum(num(v) for _, v in floors_main) or num(grab(r"([\d.]+)\s*坪", main_blk))
+    # 主建物可能分樓層列，夾在「物」跟下一個坪數欄位之間的「N 坪」全部加總。
+    # 透天實例（AG1727776）：1 樓／2 樓／3 樓／騎樓 樓／地下一層 樓 各一行，而且沒有「附屬建物」那行，
+    # 騎樓、地下層也算主建物（加起來才等於總建坪）。
+    main_blk = grab(r"主\s*建\s*物(.*?)(?=附屬建物|公共設施|公設車位|地\s*坪)", t, "", re.S)
+    main_area = sum(num(v) for v in re.findall(r"([\d.]+)\s*坪", main_blk))
+    floors_main = re.findall(r"(?<![\d一二三四五六七八九十層])(\d+)\s*樓\s*[\d.]+\s*坪", main_blk)
     annex = num(grab(r"附屬建物\s*([\d.]+)", t))
     public = num(grab(r"公共設施\s*([\d.]+)", t))
     park = num(grab(r"公設車位\s*([\d.]+)", t))
@@ -126,7 +128,7 @@ def main():
 
     is_house = a.type in ("透天厝", "別墅")
     if is_house:
-        nfl = [int(f) for f, _ in floors_main] or [1]
+        nfl = [int(f) for f in floors_main] or [1]
         floor_type, f_from, f_to = "出售多層", str(min(nfl)), str(max(nfl))
         total_floors = above or str(max(nfl))
         community = None
