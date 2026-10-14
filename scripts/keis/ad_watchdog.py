@@ -471,6 +471,72 @@ def check_grab_alive(state: dict, now: datetime, dry: bool) -> None:
         log(f"🚨 已告警：搶單 {idle_min / 60:.1f} 小時沒動作（最後 {last:%m-%d %H:%M}）")
 
 
+AD591_LEDGER = Path(os.environ.get("AD591_LEDGER") or HERE / "ad591_ledger.json")
+AD591_FROM_HOUR = 9        # 一天看一次，等門市網路通了、KEIS 夜間巡檢跑完再看
+AD591_SWAP_DAYS = 30       # 剩幾天以上建議「換物件」沿用版位（591 一期 60 天）
+KEIS_API = "https://keis.kshouse.com.tw/api/v1"
+
+
+def check_591_offline(state: dict, now: datetime, dry: bool) -> None:
+    """判斷六：物件下架了，591 廣告還開著——剩幾天？（2026-10-14 加）
+
+    使用者要的是：物件下架時知道那則 591 廣告還剩幾天。591 一期 60 天，剩 30 天以上可以在同一個
+    版位「換物件」，不到 30 天直接關。為了不用天天去 591 看，到期日在刊登時記進本機對照檔
+    （ad591_ledger.json，591-ad skill 的 ledger591.py 維護），這裡只做減法。
+
+    「下架」不自己判斷，直接用 KEIS 廣告追蹤的結果：它會在官網連結失效時標「案件下架」。
+    一天看一次；同一個版位＋同一個案件只提醒一次（換物件後是新的案件，會重新算）。
+    """
+    today = now.strftime("%Y-%m-%d")
+    if now.hour < AD591_FROM_HOUR or state.get("ad591_checked") == today:
+        return
+    if not AD591_LEDGER.exists():
+        log(f"591 下架檢查：沒有對照檔 {AD591_LEDGER}，跳過")
+        return
+    user, pw = os.environ.get("KEIS_USERNAME", ""), os.environ.get("KEIS_PASSWORD", "")
+    if not (user and pw):
+        log("591 下架檢查：沒設 KEIS_USERNAME / KEIS_PASSWORD，跳過")
+        return
+    ledger = json.loads(AD591_LEDGER.read_text(encoding="utf-8"))
+    with httpx.Client(timeout=20, headers={"user-agent": "Mozilla/5.0",
+                                            "referer": "https://keis.kshouse.com.tw/login"}) as c:
+        r = c.post(f"{KEIS_API}/auth/login", params={"device_type": "desktop"},
+                   data={"username": user, "password": pw})
+        r.raise_for_status()
+        c.headers["authorization"] = "Bearer " + r.json()["access_token"]
+        alerted = state.setdefault("ad591_alerted", {})
+        hits = []
+        for sid, e in ledger.items():
+            days = (datetime.strptime(e["expires"], "%Y-%m-%d").date() - now.date()).days
+            if days < 0 or not e.get("adcase"):
+                continue                     # 已到期（591 自己會下架）或沒對到 KEIS，不管
+            key = f"{sid}:{e.get('case')}"
+            if key in alerted:
+                continue
+            a = c.get(f"{KEIS_API}/adcases/{e['adcase']}").json()
+            gone = "案件下架" in (a.get("status_tags") or []) or a.get("url_invalid")
+            if gone:
+                hits.append((days, sid, e))
+                alerted[key] = today
+    state["ad591_checked"] = today
+    if not hits:
+        log(f"591 下架檢查：{len(ledger)} 個版位都還在賣")
+        return
+    lines = ["🏠 物件下架了，591 廣告還開著："]
+    for days, sid, e in sorted(hits):
+        advice = ("→ 還能換物件刊登" if days >= AD591_SWAP_DAYS
+                  else "→ 不到 30 天，直接關閉就好")
+        lines.append(f"• {e.get('title') or e.get('case')}（{e.get('case')}）\n"
+                     f"  591 {sid} 剩 {days} 天（{e['expires']} 到期）{advice}")
+    lines.append("換物件跟 Claude 說「591換物件 S… 改 案件編號」，關閉的話記得也跟它說一聲更新對照檔。")
+    text = "\n".join(lines)
+    log("591 下架檢查：" + text.replace("\n", " / "))
+    if not push_alert(text, dry):
+        for _, sid, e in hits:               # 推不出去就不要記成已提醒，下次再試
+            alerted.pop(f"{sid}:{e.get('case')}", None)
+        state.pop("ad591_checked", None)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="廣告發文看門狗（不依賴 n8n）")
     ap.add_argument("--dry", action="store_true", help="只印不推 LINE")
@@ -493,6 +559,8 @@ def main() -> int:
         check_junk_copy(state, now, args.dry)
         # 這則跟前面三則都無關：問的是「n8n 這台機器還撐得住嗎」，一定要獨立跑
         check_db_disk(state, now, args.dry)
+        # 這則問 KEIS 不問 Notion：物件下架時 591 廣告剩幾天（每天一次）
+        check_591_offline(state, now, args.dry)
     except httpx.HTTPError as e:
         # 門市每晚 00:00~約 07:22 固定斷網，那段時間查不到 Notion 是正常的，不告警
         # （而且真的斷網時 LINE 也推不出去，叫了也沒用）
