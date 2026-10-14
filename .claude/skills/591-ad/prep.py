@@ -32,6 +32,21 @@ PAGE2 = ("https://user.591.com.tw/post/two/sale?is_use_first=1&kind=9&shape={sha
 
 CN_NUM = "〇一二三四五六七八九十"
 
+# 591「生活機能」勾選（買方篩選會用到）。只認訴求重點原文的明確字眼，寧可漏勾不要錯勾（2026-10-14 使用者同意這套規則）。
+# 學區欄不算數（每間都有學區）；市場欄只寫泛稱「傳統市場」也不算，要有實際名稱。
+AMENITY = [
+    ("近便利商店", r"超商|便利商店|7-?11|全家"),
+    ("近傳統市場", r"[市巿]場"),   # 巿（U+5DFF）是常見錯字，AG1918099「近自由巿場」
+    ("近百貨公司", r"百貨"),
+    ("近公園綠地", r"公園|綠地"),
+    ("近學校", r"學校|學區|國小|國中|高中|大學"),
+    ("近醫療機構", r"醫院|醫療|診所|醫學"),
+    ("近夜市", r"夜市"),
+]
+# 「特色標籤」更嚴：訴求重點原文要出現這幾個字才勾
+TAGS = [("明星學區", r"明星學區"), ("制震宅", r"制震"), ("重劃區", r"重劃區")]
+GENERIC_MARKET = {"", "傳統市場", "市場", "無"}
+
 
 def grab(pat, text, default=None, flags=0):
     m = re.search(pat, text, flags)
@@ -84,9 +99,9 @@ def main():
 
     contract_no = grab(r"售合約編號：\s*(\w+)", t)
     case_name = grab(r"案名：\s*(.+?)\s+型式/用途", t)
-    addr = grab(r"座落：[ 	]*(\S+)", t)
-    community = grab(r"大樓名稱：[ 	]*(\S*)", t)  # 空的時候 \s* 會跨行抓到下一行（AG1918099 抓成「總」）
-    agent = grab(r"承辦人[ 	]+(\S+)", t)
+    addr = grab(r"座落：[ \t]*(\S+)", t)
+    community = grab(r"大樓名稱：[ \t]*(\S*)", t)  # 空的時候 \s* 會跨行抓到下一行（AG1918099 抓成「總」）
+    agent = grab(r"承辦人[ \t]+(\S+)", t)
     form = grab(r"型式/用途：\s*(\S+)", t, "")
     if not a.type:
         a.type = next((v for k, v in (("透天", "透天厝"), ("別墅", "別墅"), ("公寓", "公寓"),
@@ -107,7 +122,7 @@ def main():
     public = num(grab(r"公共設施\s*([\d.]+)", t))
     park = num(grab(r"公設車位\s*([\d.]+)", t))
     land = num(grab(r"地\s*坪\s*([\d.]+)", t))
-    park_desc = grab(r"停車方式：[ 	]*(\S*)", t, "")
+    park_desc = grab(r"停車方式：[ \t]*(\S*)", t, "")
 
     out, pw = solve(main_area, annex, public, park, total)
     if out is None:
@@ -137,6 +152,13 @@ def main():
         ori = "坐%s朝%s" % (m.group(1), m.group(2))
     selling = re.search(r"訴\s*求\s*重\s*點(.*?)(?:凱璿不動產事業股份有限公司|本表單係)", t, re.S)
     points = [p.strip() for p in re.findall(r"◎([^◎]+)", selling.group(1))] if selling else []
+
+    pts = "\n".join(points)
+    market = grab(r"市\s*場：[ \t]*(\S*)", t, "")
+    amenities = [n for n, pat in AMENITY if re.search(pat, pts)]
+    if market not in GENERIC_MARKET and "近傳統市場" not in amenities:
+        amenities.insert(1, "近傳統市場")
+    tags = [n for n, pat in TAGS if re.search(pat, pts)]
 
     is_house = a.type in ("透天厝", "別墅")
     if is_house:
@@ -184,8 +206,9 @@ def main():
         "price": price, "mgmtFee": fee if fee and int(fee) > 0 else None, "mrt": mrt,
         "title": "", "desc": [],
         "contract": contract,
+        "amenities": amenities, "tags": tags,
     }
-    has_space = grab(r"車\s*位：[ 	]*(\S*)", t, "")
+    has_space = grab(r"車\s*位：[ \t]*(\S*)", t, "")
     if out["車位面積"] is None and has_space and has_space != "無":
         data["parkingInPrice"] = True
         warn.append("來源車位寫「%s」（停車方式 %s）但沒有公設車位坪數——問使用者：要補坪數，還是不填坪數、"
