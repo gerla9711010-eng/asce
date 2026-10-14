@@ -84,9 +84,9 @@ def main():
 
     contract_no = grab(r"售合約編號：\s*(\w+)", t)
     case_name = grab(r"案名：\s*(.+?)\s+型式/用途", t)
-    addr = grab(r"座落：\s*(\S+)", t)
-    community = grab(r"大樓名稱：\s*(\S+)", t)
-    agent = grab(r"承辦人\s+(\S+)", t)
+    addr = grab(r"座落：[ 	]*(\S+)", t)
+    community = grab(r"大樓名稱：[ 	]*(\S*)", t)  # 空的時候 \s* 會跨行抓到下一行（AG1918099 抓成「總」）
+    agent = grab(r"承辦人[ 	]+(\S+)", t)
     form = grab(r"型式/用途：\s*(\S+)", t, "")
     if not a.type:
         a.type = next((v for k, v in (("透天", "透天厝"), ("別墅", "別墅"), ("公寓", "公寓"),
@@ -107,7 +107,7 @@ def main():
     public = num(grab(r"公共設施\s*([\d.]+)", t))
     park = num(grab(r"公設車位\s*([\d.]+)", t))
     land = num(grab(r"地\s*坪\s*([\d.]+)", t))
-    park_desc = grab(r"停車方式：\s*(\S*)", t, "")
+    park_desc = grab(r"停車方式：[ 	]*(\S*)", t, "")
 
     out, pw = solve(main_area, annex, public, park, total)
     if out is None:
@@ -145,7 +145,12 @@ def main():
         total_floors = above or str(max(nfl))
         community = None
     else:
-        floor_type, f_from, f_to = "出售單層", a_.get("floor"), ""
+        # 大樓的低樓層店住：主建物寫「1-2 樓 35.238 坪」、地址沒有樓層（AG1918099）→ 出售多層
+        rng = re.search(r"(\d+)\s*[-~～]\s*(\d+)\s*樓", main_blk)
+        if rng and not a_.get("floor"):
+            floor_type, f_from, f_to = "出售多層", rng.group(1), rng.group(2)
+        else:
+            floor_type, f_from, f_to = "出售單層", a_.get("floor"), ""
         total_floors = above
         if not f_from:
             warn.append("地址裡沒有樓層，floorFrom 要手動補")
