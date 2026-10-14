@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>租賃住宅管理人員 模擬測驗</title>
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--ink:#222;--sub:#6b6b6b;--line:#e4e0d6;--pri:#2f6f5e;--pri2:#e3f1ec;--bad:#c0392b;--bad2:#fdecea;--ok:#1e8449;--ok2:#e6f4ea;--warn:#b7791f;--warn2:#fff6e0;--law:#eef2fb;--lawb:#3b5bb5}
+@media (prefers-color-scheme:dark){:root{--bg:#16181a;--card:#202325;--ink:#eee;--sub:#a0a0a0;--line:#34383b;--pri:#5cc2a6;--pri2:#1f3a33;--bad:#ff7b6b;--bad2:#3b2220;--ok:#5fd68a;--ok2:#1d3326;--warn:#f0b955;--warn2:#3a3118;--law:#212a40;--lawb:#8fa8ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 "Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:8px 0 2px}h2{font-size:18px;margin:20px 0 8px}
+.sub{color:var(--sub);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:10px 16px}
+button:hover{border-color:var(--pri)}
+button.pri{background:var(--pri);color:#fff;border-color:var(--pri);font-weight:700}
+button.big{width:100%;padding:16px;font-size:18px}
+button:disabled{opacity:.4;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.grow{flex:1}
+.opt{display:block;width:100%;text-align:left;margin:8px 0;padding:12px 14px;line-height:1.5}
+.opt.sel{border-color:var(--pri);background:var(--pri2);font-weight:700}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--pri)}
+.stem{font-size:18px;font-weight:600;margin:6px 0 10px}
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--pri2);color:var(--pri);margin-right:4px}
+.orow{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:6px 0}.orow.r{background:var(--ok2);border-color:var(--ok)}.orow.p{background:var(--bad2);border-color:var(--bad)}.orow .why{font-size:14px;color:var(--sub);margin:2px 0 0 26px}.orow .mk{display:inline-block;width:26px}.tag.bad{background:var(--bad2);color:var(--bad)}.tag.ok{background:var(--ok2);color:var(--ok)}.tag.warn{background:var(--warn2);color:var(--warn)}
+.score{font-size:56px;font-weight:800;line-height:1.1}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}
+.mine{background:var(--bad2);border-left:4px solid var(--bad);padding:8px 12px;border-radius:8px;margin:6px 0}
+.right{background:var(--ok2);border-left:4px solid var(--ok);padding:8px 12px;border-radius:8px;margin:6px 0}
+.law{background:var(--law);border-left:4px solid var(--lawb);padding:8px 12px;border-radius:8px;margin:6px 0;white-space:pre-wrap;font-size:15px}
+.note{background:var(--warn2);border-left:4px solid var(--warn);padding:8px 12px;border-radius:8px;margin:6px 0;white-space:pre-wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(38px,1fr));gap:6px}
+.grid button{padding:6px 0;font-size:13px}.grid .done{background:var(--pri2);border-color:var(--pri)}.grid .cur{outline:2px solid var(--pri)}
+.sticky{position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
+select{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.lbl{font-size:13px;color:var(--sub)}
+details summary{cursor:pointer;color:var(--sub)}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+const BANK=/*BANK*/null;
+const EXPL=/*EXPL*/null;
+</script>
+<script>
+const KEY='zlq_quiz_v1';
+const Q=BANK.qs, QM=Object.fromEntries(Q.map(q=>[q.id,q])), CH=BANK.chaps, SEC=BANK.secs;
+const LET='ABCD';
+const $app=document.getElementById('app');
+
+/* ---------- storage ---------- */
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return {}}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+let S=load(); S.stats=S.stats||{}; if(!Array.isArray(S.history))S.history=[];
+let sess=S.sess||null;   // 進行中的測驗（重新整理不會掉）
+
+/* ---------- helpers ---------- */
+function h(tag,attrs,...kids){
+  const e=document.createElement(tag);
+  for(const k in (attrs||{})){
+    const v=attrs[k];
+    if(k==='class')e.className=v; else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);
+    else if(v!==false&&v!=null)e.setAttribute(k,v===true?'':v);
+  }
+  for(const c of kids.flat())if(c!=null&&c!==false)e.append(c.nodeType?c:document.createTextNode(c));
+  return e;
+}
+function render(...nodes){$app.replaceChildren(...nodes);window.scrollTo(0,0)}
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+const chIds=[...new Set(Q.map(q=>q.c))].sort((a,b)=>a-b);
+const byCh=c=>Q.filter(q=>q.c===c);
+function isMastered(st){return st&&st.last==='r'&&st.streak>=2}
+function wrongIds(){return Object.keys(S.stats).filter(id=>QM[id]&&S.stats[id].w>0)}
+
+/* 依各章題數比例分配（最大餘數法） */
+function allocate(total){
+  const N=Q.length, raw=chIds.map(c=>total*byCh(c).length/N);
+  const base=raw.map(Math.floor); let left=total-base.reduce((a,b)=>a+b,0);
+  raw.map((v,i)=>[v-Math.floor(v),i]).sort((a,b)=>b[0]-a[0]).slice(0,left).forEach(([,i])=>base[i]++);
+  return Object.fromEntries(chIds.map((c,i)=>[c,base[i]]));
+}
+function buildExam(total=100){
+  const al=allocate(total);
+  return shuffle(chIds.flatMap(c=>shuffle(byCh(c)).slice(0,al[c]).map(q=>q.id)));
+}
+
+
+function ask(msg,yes,yesLabel){
+  const bg=h('div',{style:'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99;display:flex;align-items:center;justify-content:center;padding:16px'},
+    h('div',{class:'card',style:'max-width:420px;width:100%'},h('div',{style:'margin-bottom:12px;white-space:pre-wrap'},msg),
+      h('div',{class:'row'},h('button',{class:'pri grow',onclick:()=>{bg.remove();yes&&yes()}},yesLabel||'確定'),
+        yes?h('button',{class:'grow',onclick:()=>bg.remove()},'取消'):null)));
+  document.body.append(bg);
+}
+/* ---------- 首頁 ---------- */
+function home(){
+  const al=allocate(100), wr=wrongIds();
+  const done=Object.keys(S.stats).length;
+  const nodes=[
+    h('h1',null,'🏠 租賃住宅管理人員 模擬測驗'),
+    h('div',{class:'sub'},`題庫 ${Q.length} 題｜已練過 ${done} 題｜錯題本 ${wr.length} 題`),
+  ];
+  if(sess)nodes.push(h('div',{class:'card'},
+    h('b',null,'有一份沒做完的測驗'),h('div',{class:'sub'},`${sess.title}｜已答 ${Object.keys(sess.ans).length}/${sess.ids.length}`),
+    h('div',{class:'row',style:'margin-top:8px'},
+      h('button',{class:'pri grow',onclick:()=>quiz()},'繼續作答'),
+      h('button',{onclick:()=>ask('放棄這份測驗？',()=>{sess=null;S.sess=null;save();home()},'放棄')},'放棄'))));
+  nodes.push(
+    h('button',{class:'pri big',onclick:()=>startExam()},'▶ 開始模擬測驗（100 題）'),
+    h('button',{class:'big',style:'margin-top:8px',onclick:()=>newSess(buildExam(10),'小測驗 10 題')},'⚡ 小測驗（10 題，約 5 分鐘）'),
+    h('div',{class:'card'},
+      h('b',null,'📕 錯題本'),h('div',{class:'sub'},wr.length?`${wr.length} 題｜其中 ${wr.filter(id=>isMastered(S.stats[id])).length} 題已掌握（最近連對 2 次）`:'還沒有錯題，先去考一場吧'),
+      h('div',{class:'row',style:'margin-top:8px'},
+        h('button',{class:'grow',disabled:!wr.length,onclick:()=>wrongMenu()},'單獨測驗'),
+        h('button',{class:'grow',disabled:!wr.length,onclick:()=>review()},'審閱（含解說）'))),
+    h('div',{class:'card'},h('b',null,'📊 歷史成績'),historyBox()),
+    h('div',{class:'card'},h('b',null,'每次 100 題的章節配額'),
+      h('table',null,...chIds.map(c=>h('tr',null,h('td',null,`${c}. ${CH[c]}`),h('td',null,`${al[c]} 題`)))),
+      h('div',{class:'sub'},'依題庫各章題數比例分配，章內隨機抽題')),
+    h('details',{class:'card'},h('summary',null,'💾 備份 / 換裝置'),
+      h('div',{class:'sub'},'紀錄存在這個瀏覽器裡。換手機或清資料前先匯出。'),
+      h('div',{class:'row',style:'margin-top:8px'},
+        h('button',{onclick:exportData},'匯出紀錄'),
+        h('label',{class:'row'},h('button',{onclick:e=>e.target.nextSibling.click()},'匯入紀錄'),h('input',{type:'file',accept:'.json',style:'display:none',onchange:importData})),
+        h('button',{onclick:()=>ask('清空所有作答紀錄與錯題本？無法復原',()=>{S={stats:{},history:[]};sess=null;save();home()},'清空')},'清空'))));
+  render(...nodes);
+}
+function historyBox(){
+  if(!S.history.length)return h('div',{class:'sub'},'尚無紀錄');
+  return h('table',null,h('tr',null,h('th',null,'日期'),h('th',null,'類型'),h('th',null,'分數')),
+    ...S.history.slice(-8).reverse().map(r=>h('tr',null,h('td',null,r.d),h('td',null,r.title),h('td',null,`${r.score}/${r.total}`))));
+}
+function exportData(){
+  const b=new Blob([JSON.stringify({stats:S.stats,history:S.history})],{type:'application/json'});
+  const a=h('a',{href:URL.createObjectURL(b),download:'quiz-backup-'+new Date().toISOString().slice(0,10)+'.json'});a.click();
+}
+function importData(e){
+  const f=e.target.files[0];if(!f)return;
+  f.text().then(t=>{try{const d=JSON.parse(t);if(!d.stats)throw 0;S.stats=d.stats;S.history=d.history||[];save();home()}catch(x){ask('檔案格式不對')}});
+}
+
+/* ---------- 開考 ---------- */
+function startExam(){newSess(buildExam(100),'模擬測驗 100 題')}
+function newSess(ids,title){sess={ids,title,ans:{},i:0};S.sess=sess;save();quiz()}
+function wrongMenu(){
+  const wr=wrongIds(), un=wr.filter(id=>!isMastered(S.stats[id])), two=wr.filter(id=>S.stats[id].w>=2);
+  const go=(ids,t)=>ids.length?newSess(shuffle(ids),t):ask('這個條件沒有題目');
+  render(h('h1',null,'📕 錯題單獨測驗'),
+    h('div',{class:'card'},
+      h('button',{class:'big pri',onclick:()=>go(wr,`錯題全部 ${wr.length} 題`)},`全部錯題（${wr.length}）`),
+      h('button',{class:'big opt',onclick:()=>go(un,`未掌握錯題 ${un.length} 題`)},`只考還沒掌握的（${un.length}）`),
+      h('button',{class:'big opt',onclick:()=>go(two,`反覆錯題 ${two.length} 題`)},`錯 2 次以上的釘子戶（${two.length}）`)),
+    h('button',{onclick:home},'← 回首頁'));
+}
+
+/* ---------- 作答 ---------- */
+function quiz(){
+  const id=sess.ids[sess.i], q=QM[id], n=sess.ids.length;
+  const answered=Object.keys(sess.ans).length;
+  const go=i=>{sess.i=Math.max(0,Math.min(n-1,i));save();quiz()};
+  const nodes=[
+    h('div',{class:'sticky'},
+      h('div',{class:'row'},h('b',{class:'grow'},sess.title),h('span',{class:'sub'},`${answered}/${n}`)),
+      h('div',{class:'bar'},h('i',{style:`width:${answered/n*100}%`}))),
+    h('div',{class:'card'},
+      h('div',{class:'sub'},`第 ${sess.i+1} 題`,' ',h('span',{class:'tag'},`${q.c}. ${CH[q.c]}`)),
+      h('div',{class:'stem'},q.q),
+      ...q.o.map((t,k)=>h('button',{class:'opt'+(sess.ans[id]===k?' sel':''),onclick:()=>{sess.ans[id]=k;save();quiz()}},`(${LET[k]}) ${t}`))),
+    h('div',{class:'row'},
+      h('button',{disabled:sess.i===0,onclick:()=>go(sess.i-1)},'← 上一題'),
+      h('button',{class:'pri grow',disabled:sess.i===n-1,onclick:()=>go(sess.i+1)},'下一題 →')),
+    h('details',{class:'card'},h('summary',null,'題號一覽（點選跳題）'),
+      h('div',{class:'grid',style:'margin-top:8px'},...sess.ids.map((x,i)=>h('button',{class:(sess.ans[x]!=null?'done ':'')+(i===sess.i?'cur':''),onclick:()=>go(i)},i+1)))),
+    h('div',{class:'row'},
+      h('button',{class:'pri grow',onclick:()=>{
+        const miss=n-answered;
+        if(miss)ask(`還有 ${miss} 題沒作答（會算錯），確定交卷？`,finish,'交卷');
+        else finish();}},'交卷'),
+      h('button',{onclick:()=>{save();home()}},'先離開（可繼續）'))
+  ];
+  render(...nodes);
+}
+
+/* ---------- 交卷 / 結果 ---------- */
+function finish(){
+  const res=sess.ids.map(id=>({id,pick:sess.ans[id]==null?-1:sess.ans[id],ok:sess.ans[id]===QM[id].a}));
+  const now=Date.now();
+  res.forEach(r=>{
+    const st=S.stats[r.id]||(S.stats[r.id]={r:0,w:0,last:null,streak:0,t:0});
+    if(r.ok){st.r++;st.last='r';st.streak++}else{st.w++;st.last='w';st.streak=0}
+    st.t=now;
+  });
+  const score=res.filter(r=>r.ok).length;
+  const d=new Date().toLocaleString('zh-TW',{hour12:false,month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  S.history.push({d,title:sess.title,score,total:res.length});
+  const out={title:sess.title,res,score};
+  sess=null;S.sess=null;S.last=out;save();showResult(out);
+}
+function showResult(out){
+  const {res,score}=out,total=res.length;
+  const rows=chIds.map(c=>{const rs=res.filter(r=>QM[r.id].c===c);return{c,n:rs.length,bad:rs.filter(r=>!r.ok).length}}).filter(x=>x.n);
+  const wrong=res.filter(r=>!r.ok);
+  render(
+    h('h1',null,'📋 成績單'),h('div',{class:'sub'},out.title),
+    h('div',{class:'card',style:'text-align:center'},
+      h('div',{class:'score'},`${score}`,h('span',{class:'sub',style:'font-size:22px'},` / ${total}`)),
+      h('div',{class:'sub'},`答對 ${score} 題｜答錯 ${wrong.length} 題（未作答也算錯）`)),
+    h('div',{class:'card'},h('b',null,'各章節表現'),
+      h('table',null,h('tr',null,h('th',null,'章節'),h('th',null,'題數'),h('th',null,'錯'),h('th',null,'對')),
+        ...rows.map(x=>h('tr',null,h('td',null,`${x.c}. ${CH[x.c]}`),h('td',null,x.n),h('td',{style:x.bad?'color:var(--bad);font-weight:700':''},x.bad),h('td',null,x.n-x.bad))))),
+    h('h2',null,`❌ 答錯的 ${wrong.length} 題`),
+    ...wrong.map(r=>wrongCard(r.id,r.pick)),
+    h('div',{class:'row'},h('button',{class:'pri grow',onclick:startExam},'再考一場'),h('button',{onclick:home},'回首頁')));
+}
+
+/* ---------- 解說卡 ---------- */
+function stBadge(id){
+  const st=S.stats[id];if(!st)return null;
+  return h('span',null,h('span',{class:'tag bad'},`錯 ${st.w} 次 / 作答 ${st.r+st.w} 次`),isMastered(st)?h('span',{class:'tag ok'},'已掌握'):null);
+}
+function optRow(q,e,k,pick){
+  const isR=k===q.a, isP=k===pick;
+  const why=e&&e.opts?(isR?'':e.opts[k]):'';
+  const cls='orow'+(isR?' r':'')+(isP&&!isR?' p':'');
+  return h('div',{class:cls},
+    h('div',{class:'otxt'},h('span',{class:'mk'},isR?'✅':(isP?'❌':'▫️')),`(${LET[k]}) ${q.o[k]}`,isP?h('span',{class:'tag bad',style:'margin-left:6px'},'你選的'):null),
+    why?h('div',{class:'why'},why):null);
+}
+function wrongCard(id,pick){
+  const q=QM[id],e=EXPL[id];
+  return h('div',{class:'card'},
+    h('div',{class:'sub'},h('span',{class:'tag'},`${q.c}. ${CH[q.c]}`),stBadge(id)),
+    h('div',{class:'stem'},q.q),
+    ...(pick===-1?[h('div',{class:'mine'},'你選：（未作答）')]:[]),
+    ...[0,1,2,3].map(k=>optRow(q,e,k,pick)),
+    e?h('div',null,
+        e.flag?h('div',{class:'note',style:'border-left-color:var(--bad);background:var(--bad2)'},h('b',null,'⚠️ 注意　'),e.flag):null,
+        e.law?h('div',{class:'law'},h('b',null,'📖 法條重點'),'\n',e.law):null,
+        e.full?h('details',{style:'margin:4px 0'},h('summary',{class:'sub'},'看完整條文'),h('div',{class:'law',style:'font-size:14px'},e.full)):null,
+        e.note?h('div',{class:'note'},h('b',null,'💡 白話　'),e.note):null)
+      :h('div',{class:'sub'},'（這題的法條與白話解說還在製作中）'));
+}
+
+/* ---------- 錯題審閱 ---------- */
+function review(filter={c:0,sort:'w',hide:false}){
+  let ids=wrongIds();
+  if(filter.c)ids=ids.filter(id=>QM[id].c===filter.c);
+  if(filter.hide)ids=ids.filter(id=>!isMastered(S.stats[id]));
+  ids.sort(filter.sort==='w'?(a,b)=>S.stats[b].w-S.stats[a].w||S.stats[b].t-S.stats[a].t:(a,b)=>S.stats[b].t-S.stats[a].t);
+  const sel=(opts,val,fn)=>{const s=h('select',{onchange:e=>fn(e.target.value)},...opts.map(([v,t])=>h('option',{value:v,selected:String(v)===String(val)},t)));return s};
+  render(
+    h('h1',null,'📕 錯題審閱'),
+    h('div',{class:'card row'},
+      sel([[0,'全部章節'],...chIds.map(c=>[c,`${c}. ${CH[c]}`])],filter.c,v=>review({...filter,c:+v})),
+      sel([['w','錯最多次'],['t','最近作答']],filter.sort,v=>review({...filter,sort:v})),
+      h('label',{class:'row'},h('input',{type:'checkbox',checked:filter.hide,onchange:e=>review({...filter,hide:e.target.checked})}),'隱藏已掌握')),
+    h('div',{class:'sub'},`共 ${ids.length} 題`),
+    ...ids.map(id=>wrongCard(id,null)),
+    h('div',{class:'row'},
+      h('button',{class:'pri grow',disabled:!ids.length,onclick:()=>newSess(shuffle(ids),`錯題測驗 ${ids.length} 題`)},'考這些題'),
+      h('button',{onclick:home},'回首頁')));
+}
+
+home();
+</script>
+</body>
+</html>
