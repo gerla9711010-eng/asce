@@ -272,16 +272,24 @@ def cmd_sync(args):
 
     title = args.title or note.get("title") or ""
     member = args.member or note.get("member") or ""
+    # 價格、路段比照臉書發文線（yc-v3-scan-publish 的「KEIS 新增廣告」節點）自己帶：
+    # API 不會依官網連結自動帶入（那是 KEIS 網頁前端做的），沒帶就是空的。2026-10-14 前四筆都漏了。
+    prop = find_property(c, args.contract_no) or {}
     if not title:
-        prop = find_property(c, args.contract_no)
-        title = (prop or {}).get("case_name", "")
+        title = prop.get("case_name", "")
+    price = args.price or prop.get("case_price")
+    road = ((prop.get("property_address_district") or "") + (prop.get("property_address_road") or ""))[:60]
     print("\n查無既有廣告，會新建一筆：")
     print("  adcase_title    : %s" % title)
     print("  adcase_url      : %s" % yc_url)
     print("  adcase_url591   : %s" % args.url591)
     print("  adcase_platforms: %s" % PLATFORM_591)
     print("  adcase_member   : %s" % member)
+    print("  adcase_price    : %s" % price)
+    print("  adcase_road     : %s" % road)
     print("  adcase_memo     : %s" % args.contract_no)
+    if not price:
+        print("[注意] 查不到總價，adcase_price 會是空的——用 --price 補")
     if not title or not member:
         sys.exit("title 或 member 是空的，KEIS 新增必填。用 --title / --member 補上再跑。")
     if not args.apply:
@@ -290,6 +298,7 @@ def cmd_sync(args):
     r = c.post(API + "/adcases/", json={
         "adcase_title": title, "adcase_url": yc_url, "adcase_member": member,
         "adcase_url591": args.url591, "adcase_platforms": PLATFORM_591,
+        "adcase_price": price, "adcase_road": road,
         "adcase_memo": args.contract_no})
     print("POST ->", r.status_code, r.text[:250])
     r.raise_for_status()
