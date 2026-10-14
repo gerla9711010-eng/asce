@@ -294,6 +294,11 @@ function fillDesc(lines) {
   // 5. 文案
   const rDesc = fillDesc(D.desc);
 
+  /* 社區名稱大樓案必填：591 沒自動帶出、DATA 也沒給時填「無」（591 自己的提示就這樣寫）。
+     只在格子還是空的時候補，不要蓋掉 591 依地址帶出的社區名。AG1918099（店住、無社區名）踩過。 */
+  const comm = field('社區名稱');
+  if (comm && !comm.value) setVal(comm, '無');
+
   // 6. 回讀驗證，被重繪清掉的自動補一次
   await sleep(500);
   const missed = [];
