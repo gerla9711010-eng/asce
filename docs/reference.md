@@ -151,18 +151,13 @@ LINE 指令分流 (Switch by command / message type)
    └── image    → 圖片分流器       (/line-image-dispatcher)
                        └─ Gemini Vision 分類 → calendar 或 customer
 
-Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
-   /yc-ad 或自然語言「發 YCxxx」
-       ↓
-   讀 Notion 廣告 DB → 產粉專詳細版 + 社團簡短版 → 寫回 Notion
-       ├── 粉專連結回報 → PATCH 粉專貼文連結 + 狀態=已發布
-       ├── 「同步 KEIS」 → 產操作指令包貼給瀏覽器擴充功能執行
-       ├── 「發到 X 社團」→ append 廣告貼文紀錄
-       └── 「已撤除 YCxxx」→ 標下架 + 附粉專連結提示手動刪 FB
 ```
 
-文案規格見 `.claude/skills/yc-ad/SKILL.md`：粉專 200-300 字、社團 50-80 字（不放連結，引導留言區），
-兩版下方都帶法規必填「凱璿誼峰不動產有限公司 + 字號」footer，
+~~`/yc-ad` skill~~：**2026-10-15 刪除**。臉書發文、KEIS 同步、下架撤文全由 n8n 廣告v3 系列自動跑；
+社團是使用者直接從粉專「分享」貼文，不另產社團文案、不記社團發文紀錄。舊檔要看：`git log --all -- .claude/skills/yc-ad`。
+
+文案規格以 n8n 廣告v3 掃描發文線為準（舊 yc-ad 規格：粉專 200-300 字），
+下方帶法規必填「凱璿誼峰不動產有限公司 + 字號」footer，
 聯絡人固定「薛先生 0912877583（同 LINE）+ `https://line.me/ti/p/kg1pMk4vX8`」，不放 YC 編號 hashtag。
 
 ### 其他 workflow 行為
@@ -172,7 +167,7 @@ Claude Code Skill (.claude/skills/yc-ad/)    ← 桌面 / 深度操作場景
 - **圖片分流器**：純圖片無前綴 → 下載 → Gemini Vision 分類 → 轉發（分不出時預設客戶）
 - **KEIS 待聯絡提醒**：每天 09:00 查搶單名單 → 挑「未聯絡 且 搶到滿 7 天剩≤2 天」→ 有才推 LINE。搭配 Notion 視圖「🔔 待聯絡」
   ⚠️ **在 Notion 手動刪名單是沒用的**：`audit_notion` 拿 `grabbed.csv` 當唯一真相，刪掉＝它眼中的缺漏 → 補回來。**要讓一筆退場一律改「聯絡狀態」**
-- ~~物件建檔器（v2） / 文案重產器 / YC 發文線 / LINE 新聞推播~~：2026-07-23 停用、**2026-09-15 刪除**，功能由線 A + `/yc-ad` skill 取代。取回 JSON 見上面 LINE 指令區的 `git show` 指令（`YC 建檔器 v3` 保留為停用狀態）
+- ~~物件建檔器（v2） / 文案重產器 / YC 發文線 / LINE 新聞推播~~：2026-07-23 停用、**2026-09-15 刪除**，功能由線 A + `/yc-ad` skill 取代（`/yc-ad` 已於 2026-10-15 刪除）。取回 JSON 見上面 LINE 指令區的 `git show` 指令（`YC 建檔器 v3` 保留為停用狀態）
 - ~~撤除回報器 / YC 下架偵測線（舊）~~：2026-07-23 刪除，功能由線 B 取代。JSON 備份在 `backup/n8n-deleted-2026-07-23/`
 
 ---

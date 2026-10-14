@@ -45,7 +45,7 @@ TPE = timezone(timedelta(hours=8))
 # 這些欄位本來就不是 n8n 在寫，別報成問題
 NOT_N8N = {
     "建立日期": "Notion 自動（created_time）",
-    "廣告貼文紀錄": "桌面 /yc-ad skill append",
+    "廣告貼文紀錄": "舊 /yc-ad skill 寫的（2026-10-15 已刪，現在沒人寫）",
     "已撤除確認": "手動勾選",
 }
 
