@@ -185,6 +185,11 @@ def main():
         "title": "", "desc": [],
         "contract": contract,
     }
+    has_space = grab(r"車\s*位：[ 	]*(\S*)", t, "")
+    if out["車位面積"] is None and has_space and has_space != "無":
+        data["parkingInPrice"] = True
+        warn.append("來源車位寫「%s」（停車方式 %s）但沒有公設車位坪數——問使用者：要補坪數，還是不填坪數、"
+                    "售價選含車位、文案註明（AA1072556 使用者選後者）" % (has_space, park_desc))
     if data["parkingType"] and "其他" in data["parkingType"]:
         warn.append("停車方式「%s」看不出平面/機械，車位類型跟使用者確認" % park_desc)
     for k in ("city", "district", "street", "no", "totalFloors", "rooms", "builtY", "price"):

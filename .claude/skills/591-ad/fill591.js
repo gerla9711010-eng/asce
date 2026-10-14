@@ -30,6 +30,7 @@ const DATA = {
   areaMain: '37.15', areaAnnex: '0', areaPublic: '0',
   areaParking: null,          // 有車位才填
   parkingType: null,          // '平面式停車位' | '機械式停車位' | '平面式+機械式'
+  parkingInPrice: null,       // 售價含車位？null＝跟著 areaParking。有車位但沒坪數（AA1072556）時設 true
   landArea: '19.96',          // 透天/店面必填，大樓留 null
   price: '1100',              // 萬元
   mgmtFee: null,              // null = 無管理費；有就填數字（元/月）
@@ -291,7 +292,7 @@ function fillDesc(lines) {
 
   // 4. 其他單選（限定列，避免「是／否」對到別列）
   pickRadio('成屋', '建築完工時間');
-  pickRadio(D.areaParking ? '含車位價格' : '不含車位價格', '售價');
+  pickRadio((D.parkingInPrice ?? !!D.areaParking) ? '含車位價格' : '不含車位價格', '售價');
   pickRadio('否', '帶租約');
   pickRadio('簡易裝潢', '裝潢程度');
   pickRadio(D.contract, '委託書');
@@ -325,7 +326,7 @@ function fillDesc(lines) {
   const selNow = s => s ? ((s.querySelector('.ant-select-selection-item') || {}).innerText || '(空)') : '(找不到)';
   const radios = [
     ['成屋', '建築完工時間'], [D.areaParking ? '含車位面積' : '不含車位面積', '權狀坪數'],
-    [D.areaParking ? '含車位價格' : '不含車位價格', '售價'], [D.mgmtFee ? '有' : '無', '管理費'],
+    [(D.parkingInPrice ?? !!D.areaParking) ? '含車位價格' : '不含車位價格', '售價'], [D.mgmtFee ? '有' : '無', '管理費'],
     ['否', '帶租約'], ['簡易裝潢', '裝潢程度'], [D.contract, '委託書'], ['收取服務費', '服務費'],
   ].concat(D.hideNo ? [['隱藏門號', '出售地址']] : []);
   return JSON.stringify({
