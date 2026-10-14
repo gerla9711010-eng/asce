@@ -43,6 +43,8 @@ const DATA = {
     '・鬧中取靜，五甲、瑞隆生活圈匯聚，吃喝採買輕鬆解決',
   ],
   contract: '有簽訂',          // KEIS contract_type：一般委託→'有簽訂'；專任委託→'有簽訂專任約'
+  amenities: [],              // 生活機能勾選，prep.py 依訴求重點產（例：['近便利商店','近公園綠地']）
+  tags: [],                   // 特色標籤，prep.py 產（'明星學區'／'制震宅'／'重劃區'）
 };
 
 /* 文案結尾固定加聯絡方式，比照臉書發文（docs/reference.md「聯絡人固定」那條）。
@@ -298,7 +300,14 @@ function fillDesc(lines) {
   pickRadio(D.contract, '委託書');
   pickRadio('收取服務費', '服務費');
   if (D.hideNo) pickRadio('隱藏門號', '出售地址');
-  await sleep(300);
+  /* 生活機能／特色標籤是同一組 checkbox 共用一個陣列狀態：連續點太快，後一下會用舊狀態蓋掉前一下
+     （2026-10-14 實測：一口氣點 4 個只剩 2 個勾著）。每點一下等 250ms，最後再補一輪沒勾上的。 */
+  for (let round = 0; round < 2; round++) {
+    for (const [list, rowName] of [[D.amenities || [], '生活機能'], [D.tags || [], '特色標籤']])
+      for (const t of list)
+        if (!isPicked(t, rowName)) { pickRadio(t, rowName); await sleep(250); }
+    await sleep(300);
+  }
 
   // 5. 文案（結尾自動補聯絡方式）
   const desc = D.desc.some(l => l.includes('line.me/ti/p/')) ? D.desc : D.desc.concat(CONTACT);
@@ -328,7 +337,8 @@ function fillDesc(lines) {
     ['成屋', '建築完工時間'], [D.areaParking ? '含車位面積' : '不含車位面積', '權狀坪數'],
     [(D.parkingInPrice ?? !!D.areaParking) ? '含車位價格' : '不含車位價格', '售價'], [D.mgmtFee ? '有' : '無', '管理費'],
     ['否', '帶租約'], ['簡易裝潢', '裝潢程度'], [D.contract, '委託書'], ['收取服務費', '服務費'],
-  ].concat(D.hideNo ? [['隱藏門號', '出售地址']] : []);
+  ].concat(D.hideNo ? [['隱藏門號', '出售地址']] : [])
+   .concat((D.amenities || []).map(t => [t, '生活機能']), (D.tags || []).map(t => [t, '特色標籤']));
   return JSON.stringify({
     下拉: { 縣市: rCity, 鄉鎮: rDist, 街道: rStreet, 出售型態: rFloorType, 朝向: rOrient, 車位類型: rPark },
     現況: {
