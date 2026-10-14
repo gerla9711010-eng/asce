@@ -32,7 +32,6 @@ def solve(main, annex, public, park, total):
         out["共有部分"] = tr(public)
         out["權狀坪數"] = tr(total)
         out["權狀坪數選項"] = "不含車位面積"
-        warn.append("無公設車位這條分支尚未在真實案件驗證過，送出前人工再看一次「權狀坪數」的下拉選項名稱")
         return out, warn
 
     subset = abs(tr(sum_no_park) - total) <= TOL
