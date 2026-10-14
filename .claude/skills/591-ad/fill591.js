@@ -229,6 +229,10 @@ function fillDesc(lines) {
     if (i) document.execCommand('insertParagraph');
     if (ln) document.execCommand('insertText', false, ln);
   });
+  /* ⚠️ 打完一定要 blur：591 好像是編輯器失焦時才把內容寫回表單。AG1918099 用程式按保存（沒失焦），
+     畫面上有字但存進去是空的，前台顯示「暫未添加說明」；前兩筆是滑鼠點保存（會失焦）所以沒事。 */
+  pm.blur();
+  pm.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
   return pm.innerText.slice(0, 40) + '…';
 }
 
