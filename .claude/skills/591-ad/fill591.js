@@ -44,6 +44,10 @@ const DATA = {
   contract: '有簽訂',          // KEIS contract_type：一般委託→'有簽訂'；專任委託→'有簽訂專任約'
 };
 
+/* 文案結尾固定加聯絡方式，比照臉書發文（docs/reference.md「聯絡人固定」那條）。
+   2026-10-14 使用者要求。腳本自動補，DATA.desc 不用自己寫這兩行；已經有了就不重複加。 */
+const CONTACT = ['', '📞 薛先生 0912877583（同 LINE）', 'LINE：https://line.me/ti/p/kg1pMk4vX8'];
+
 /* ---------- 以下不用改 ---------- */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const norm = s => (s || '').replace(/\s+/g, '');
@@ -295,8 +299,9 @@ function fillDesc(lines) {
   if (D.hideNo) pickRadio('隱藏門號', '出售地址');
   await sleep(300);
 
-  // 5. 文案
-  const rDesc = fillDesc(D.desc);
+  // 5. 文案（結尾自動補聯絡方式）
+  const desc = D.desc.some(l => l.includes('line.me/ti/p/')) ? D.desc : D.desc.concat(CONTACT);
+  const rDesc = fillDesc(desc);
 
   /* 社區名稱大樓案必填：591 沒自動帶出、DATA 也沒給時填「無」（591 自己的提示就這樣寫）。
      只在格子還是空的時候補，不要蓋掉 591 依地址帶出的社區名。AG1918099（店住、無社區名）踩過。 */
