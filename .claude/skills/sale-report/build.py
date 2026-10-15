@@ -16,13 +16,39 @@ from pptx.util import Inches, Pt
 from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_TICK_MARK
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR, MSO_AUTO_SIZE
+from pptx.oxml.ns import qn
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from helpers import *                                            # noqa: F401,F403
 
 DESKTOP = r'C:\Users\user\OneDrive\桌面'
 TEMPLATE = os.path.join(DESKTOP, 'DM', '銷報書', '上銘蒔尚', '@99-銷售報告書.pptx')
+
+
+_AFTER = {qn(t) for t in ('a:sym', 'a:hlinkClick', 'a:hlinkMouseOver', 'a:rtl', 'a:extLst')}
+
+
+def force_font(prs, name):
+    """模板混用 Source Han Sans TC／Gungsuh／思源黑体 等多數電腦沒裝的字體，
+    缺字會整段空白或亂替換 → 全份 13 頁的文字統一改成微軟正黑體。"""
+    for slide in prs.slides:
+        root = slide._element
+        for r in root.iter(qn('a:r'), qn('a:fld')):
+            if r.find(qn('a:rPr')) is None:
+                r.insert(0, root.makeelement(qn('a:rPr'), {}))
+        for rPr in root.iter(qn('a:rPr'), qn('a:endParaRPr'), qn('a:defRPr')):
+            for tag in ('a:latin', 'a:ea', 'a:cs'):
+                old = rPr.find(qn(tag))
+                if old is not None:
+                    rPr.remove(old)
+            anchor = next((c for c in rPr if c.tag in _AFTER), None)
+            for tag in ('a:latin', 'a:ea', 'a:cs'):
+                el = rPr.makeelement(qn(tag), {'typeface': name})
+                if anchor is not None:
+                    anchor.addprevious(el)
+                else:
+                    rPr.append(el)
 
 
 def build(spec_path):
@@ -75,7 +101,7 @@ def build(spec_path):
 
     rows = [['交易月份', '門　牌', '樓層', '總價(萬)', '單價(萬/坪)',
              '建物坪數', '持分地坪', '格　局']]
-    for r in d['rows']:
+    for r in sorted(d['rows'], key=lambda r: r['ym'], reverse=True):   # 表格一律新→舊
         m = '!' if r.get('hl') else ''            # '!' -> red+bold in add_table
         rows.append([m + r['ym'], m + r['addr'], m + r['floor'],
                      m + '{:,}'.format(r['total']), m + '@{:.1f}'.format(r['unit']),
@@ -83,7 +109,8 @@ def build(spec_path):
                      m + r['layout']])
     add_table(s, 0.85, 1.95, 11.65, 4.15, rows,
               col_w=[1.35, 1.55, 0.90, 1.35, 1.60, 1.50, 1.50, 1.90],
-              size=12.5, header_size=12.5, row_h=4.15 / len(rows))
+              size=12.5 if len(rows) <= 11 else 10.5,   # 超過10筆字縮小，不然撐破表格壓到註腳
+              header_size=12.5, row_h=4.15 / len(rows))
     add_text(s, 0.85, 6.25, 11.65, 1.0, d['footnotes'], size=11.5,
              color=RGBColor(0x55, 0x5F, 0x6E), spacing=1.2)
 
@@ -96,7 +123,7 @@ def build(spec_path):
 
     chrono = sorted(spec['deals']['rows'], key=lambda r: r['ym'])
     cd = CategoryChartData()
-    cd.categories = ['{}\n{}{}'.format(r['ym'], r['addr'], r['floor']) for r in chrono]
+    cd.categories = ['{}\n{} {}'.format(r['ym'], r['addr'], r['floor']) for r in chrono]
     cd.add_series('單價(萬/坪)', tuple(r['unit'] for r in chrono))
     ch = s.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.45),
                             Inches(1.65), Inches(8.15), Inches(5.3), cd).chart
@@ -127,6 +154,15 @@ def build(spec_path):
     va.has_major_gridlines = True
     va.tick_labels.font.size = Pt(10)
     set_font_name(va.tick_labels.font, BODY_FONT)
+    for ax, label in ((va, t.get('y_title', '成交單價（萬元/坪）')),
+                      (ch.category_axis, t.get('x_title', '成交年月／門牌樓層'))):
+        ax.has_title = True
+        tf = ax.axis_title.text_frame
+        tf.text = label
+        f = tf.paragraphs[0].runs[0].font
+        f.size = Pt(11)
+        f.bold = False
+        set_font_name(f, BODY_FONT)
     ca = ch.category_axis
     ca.tick_labels.font.size = Pt(9.5)
     set_font_name(ca.tick_labels.font, BODY_FONT)
@@ -191,7 +227,9 @@ def build(spec_path):
     boxes = [find_by_text(s, a) for a in
              ('青海路商圈', '緊鄰中都濕地公園', '車程約10分鐘')]
     for box, text in zip(boxes, lf['texts']):
-        set_lines(box, [text])
+        set_lines(box, text if isinstance(text, list) else [text])
+    if lf.get('title'):
+        set_lines(find_by_text(s, '生活圈範圍'), [lf['title']])
 
     # ---------------------------------------------------------- 8  交易流程
     if spec.get('flow', {}).get('seller_tax'):
@@ -203,18 +241,32 @@ def build(spec_path):
     # ---------------------------------------------------------- 9  相關稅法
     s, tx = S[8], spec['tax']
     set_runs(find(s, '矩形 29'), tx['box1_label'])
-    for nm, top, h, lines in (('文本框 32', 1.48, 1.05, tx['box1']),
-                              ('文本框 33', 2.88, 1.75, tx['box2']),
-                              ('文本框 34', 5.35, 0.75, tx['box3'])):
+    # line each label + text block up on its arrow. y = arrow as rendered
+    # (the arrows sit in a scaled group, so their raw coords lie); the label
+    # rects are in a group that renders 0.10" lower than their raw top.
+    LBL_H, LBL_DY = 0.37, 0.10
+    for lbl, nm, y, h, lines in (('矩形 29', '文本框 32', 1.97, 1.05, tx['box1']),
+                                 ('矩形 30', '文本框 33', 3.71, 1.95, tx['box2']),
+                                 ('矩形 31', '文本框 34', 5.52, 0.75, tx['box3'])):
+        move(find(s, lbl), 6.22, y - LBL_H / 2 - LBL_DY, 1.22, LBL_H)
         b = find(s, nm)
-        move(b, 7.55, top, 5.55, h)        # template boxes overflow at 3+ lines
+        move(b, 7.58, y - h / 2, 5.55, h)
         set_lines(b, lines)
         set_size(b, 13)
+        tf = b.text_frame
+        tf.word_wrap = True
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        tf.auto_size = MSO_AUTO_SIZE.NONE
+        for para in tf.paragraphs:
+            para.line_spacing = 1.2
+            para.space_before = Pt(0)
+            para.space_after = Pt(0)
     set_lines(find(s, '文字方塊 7'), tx['circle'])
     if tx.get('note'):
-        add_text(s, 7.55, 6.35, 5.40, 0.80, tx['note'], size=11,
+        add_text(s, 7.58, 6.25, 5.50, 0.80, tx['note'], size=11,
                  color=RGBColor(0x55, 0x5F, 0x6E), spacing=1.2)
 
+    force_font(prs, BODY_FONT)
     prs.save(out)
     return out
 
