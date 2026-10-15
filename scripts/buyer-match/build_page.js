@@ -78,6 +78,7 @@ function mergeSameUnit(items) {
       others: nos.length - 1,
       range: prices.length > 1 ? prices[0].toLocaleString() + '–' + prices[prices.length - 1].toLocaleString() + '萬' : '',
       chg: chg ? chg.chg : null,
+      relist: g.some((x) => x.relist),
     });
   });
 }
@@ -91,18 +92,32 @@ let SEEN = null;
 try { SEEN = JSON.parse(fs.readFileSync(SEEN_PATH, 'utf8')); } catch (e) {}
 const BOOT = !SEEN;
 SEEN = SEEN || {};
+/* 重新刊登：仲介下架後換新編號再上（委託重簽、換店接手）。每個客需記住看過的「區＋路名＋樓層＋坪數」，
+   新編號跟以前看過的某一戶對得上就不算新案，標「重新刊登」，複製次數也接舊編號的 */
+const UNITS = (SEEN.__units = SEEN.__units || {});
+const unitMatch = (u, it) => {
+  const p = pingOf(it);
+  return !!u.f && u.d === it.district && u.r === it.road && u.f === it.floor && u.p > 0 && p > 0 && Math.abs(u.p - p) / Math.min(u.p, p) <= PING_TOL;
+};
 function track(client, demand, it) {
-  const id = client + '|' + demand + '|' + listingNo(it.url);
+  const no = listingNo(it.url), id = client + '|' + demand + '|' + no;
+  const U = (UNITS[client + '|' + demand] = UNITS[client + '|' + demand] || []);
   const price = /萬/.test(it.totalPrice) ? it.totalPrice : '';
   let r = SEEN[id];
-  if (!r) r = SEEN[id] = { first: BOOT && !it.isNew ? 'old' : RUN, price, run: RUN };
+  if (!r) {
+    r = SEEN[id] = { first: BOOT && !it.isNew ? 'old' : RUN, price, run: RUN };
+    const old = r.first === RUN && U.find((u) => u.no !== no && u.first !== RUN && unitMatch(u, it));
+    if (old) r.relist = old.no;
+  }
   else if (r.run !== RUN) {                      // 同一份 data.json 重產頁面不會重複判定
     if (price && r.price && price !== r.price) { r.prev = r.price; r.changed = RUN; }
     if (price) r.price = price;
     r.run = RUN;
   }
+  if (!U.some((u) => u.no === no)) U.push({ no, d: it.district, r: it.road, f: it.floor, p: +pingOf(it).toFixed(2) || 0, first: r.first });
   const chg = r.changed === RUN && r.prev ? { from: r.prev, to: r.price, down: num(r.price) < num(r.prev) } : null;
-  return Object.assign({}, it, { isNew: r.first === RUN, chg });
+  const relist = r.first === RUN && r.relist ? r.relist : null;
+  return Object.assign({}, it, { isNew: r.first === RUN && !r.relist, chg, relist });
 }
 
 /* --mask：公開網址用的版本，客戶名打碼。「66604陳漢強」→「66604陳○○」——編號＋姓氏自己認得出是誰，
@@ -131,7 +146,10 @@ for (const o of R.out || []) {
   /* 0 筆的客需也要留一張卡（顯示「無物件」），不然客戶整個從頁面消失，看起來像漏跑 */
   const f = (folders[o.folder] = folders[o.folder] || {});
   const c = (f[o.client] = f[o.client] || {});
-  const items = (o.items || []).map((it) => Object.assign(track(o.rawClient, o.rawDemand, it), { k: copyKey(o.rawClient, it) }));
+  const items = (o.items || []).map((it) => {
+    const t = track(o.rawClient, o.rawDemand, it);
+    return Object.assign(t, { k: copyKey(o.rawClient, it) + (t.relist ? ' ' + copyKey(o.rawClient, { url: '/house/' + t.relist }) : '') });
+  });
   c[o.demand] = (c[o.demand] || []).concat(items);
 }
 for (const f of Object.values(folders)) for (const c of Object.values(f)) for (const d of Object.keys(c)) c[d] = mergeSameUnit(c[d]);
@@ -159,7 +177,7 @@ for (const fname of ORDER) {
       const rows = items.map((it) => {
         const t = copyText(it);
         return `<li class="item${it.isNew ? ' isnew' : ''}" data-k="${it.k}" data-copy="${esc(t)}">
-  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}${it.chg ? `<span class="chg${it.chg.down ? ' down' : ''}">${it.chg.down ? '降價' : '漲價'} ${esc(it.chg.from)}→${esc(it.chg.to)}</span>` : ''}<span class="sent" hidden></span><span class="when">${esc(it.when)}</span></div>
+  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}${it.chg ? `<span class="chg${it.chg.down ? ' down' : ''}">${it.chg.down ? '降價' : '漲價'} ${esc(it.chg.from)}→${esc(it.chg.to)}</span>` : ''}${it.relist ? '<span class="chg relist">重新刊登</span>' : ''}<span class="sent" hidden></span><span class="when">${esc(it.when)}</span></div>
   <div class="meta">
     <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name || '(無案名)')}</a>
     <div class="sub">${esc([it.district, it.road, it.community].filter(Boolean).join(' · '))}</div>
@@ -298,6 +316,7 @@ body.hasbar{padding-bottom:80px}
 .item.done{opacity:.6}
 .chg{background:#c92a2a;color:#fff;font-size:10.5px;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap}
 .chg.down{background:#1971c2}
+.chg.relist{background:#7048e8}
 .more{color:var(--accent)}
 .item.done:hover,.item.done.sel{opacity:1}
 </style>
