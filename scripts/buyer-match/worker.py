@@ -33,6 +33,57 @@ COLLECT_JS = (BASE / "collect.js").read_text(encoding="utf-8")
 URL = "https://agent.foundi.info/tool/property/list"
 DATA_JSON = BASE / "data.json"
 STATE_BACKUP = BASE / "state-auto.json"
+SEEN_JSON = BASE / "seen.json"
+
+
+# 增量記錄跟著帳號走、不跟著電腦走：state（已看過的物件）和 seen.json（NEW 標記）存在 OneDrive 桌面，
+# 家裡/公司兩台共用。否則另一台的記錄停在舊日期，會把一堆舊物件當新的全展開、燒光查詢額度（2026-10-15）。
+def _sync_dir():
+    for od in sorted(Path.home().glob("OneDrive*")):
+        d = od / "桌面"
+        if d.is_dir():
+            sd = d / "買方配案資料"
+            sd.mkdir(exist_ok=True)
+            return sd
+    return None
+
+
+SYNC_DIR = _sync_dir()
+
+
+def merge_states(a_json, b_json):
+    """兩份 state 逐客需合併，同一客需取 at 較新的那份。"""
+    def load(x):
+        try:
+            return (json.loads(x) or {}).get("demands", {}) if x else {}
+        except Exception:
+            return {}
+    a, b = load(a_json), load(b_json)
+    out = dict(a)
+    for k, v in b.items():
+        if k not in out or (v.get("at") or "") > (out[k].get("at") or ""):
+            out[k] = v
+    return json.dumps({"demands": out}, ensure_ascii=False)
+
+
+def pull_seen():
+    if SYNC_DIR and (SYNC_DIR / "seen.json").exists():
+        src = SYNC_DIR / "seen.json"
+        if not SEEN_JSON.exists() or src.stat().st_mtime > SEEN_JSON.stat().st_mtime:
+            SEEN_JSON.write_bytes(src.read_bytes())
+            out("STATUS|已從 OneDrive 同步 NEW 記錄")
+
+
+def push_sync():
+    if not SYNC_DIR:
+        return
+    try:
+        if STATE_BACKUP.exists():
+            (SYNC_DIR / "state-auto.json").write_bytes(STATE_BACKUP.read_bytes())
+        if SEEN_JSON.exists():
+            (SYNC_DIR / "seen.json").write_bytes(SEEN_JSON.read_bytes())
+    except Exception as e:
+        out("STATUS|⚠️ 同步到 OneDrive 失敗：%s" % e)
 
 FULL = "--full" in sys.argv
 ERRS_JS = "() => FDBM.R.out.filter(o => o.error).map(o => ({key: o.folder + '/' + o.client + '/' + o.demand, error: o.error}))"
@@ -106,6 +157,7 @@ def state_to_data(state_json):
 
 def main():
     PROFILE_DIR.mkdir(exist_ok=True)
+    pull_seen()
     opts = {"slow": 3}
     if FULL:
         opts["full"] = 1
@@ -130,6 +182,14 @@ def main():
                 context.close()
                 return
         out("LOGIN_OK")
+        if SYNC_DIR and not FULL and (SYNC_DIR / "state-auto.json").exists():
+            try:
+                cur = page.evaluate("() => localStorage.getItem('FDBM_STATE')")
+                merged = merge_states(cur, (SYNC_DIR / "state-auto.json").read_text(encoding="utf-8"))
+                page.evaluate("s => localStorage.setItem('FDBM_STATE', s)", merged)
+                out("STATUS|已合併 OneDrive 上的增量記錄（%d 個客需）" % len(json.loads(merged)["demands"]))
+            except Exception as e:
+                out("STATUS|⚠️ 合併 OneDrive 記錄失敗：%s" % e)
         time.sleep(1.5)  # 剛登入完/剛載入完，給頁面穩定一下再注入，避免插在導覽中途
 
         def batch_opts(frm):
@@ -254,6 +314,7 @@ def main():
         return
 
     STATE_BACKUP.write_text(state_json, encoding="utf-8")
+    push_sync()  # 先存 state（發布失敗也不丟），發布後 seen.json 更新再存一次
     data = state_to_data(state_json)
     DATA_JSON.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
@@ -262,6 +323,7 @@ def main():
     try:
         from upload import upload
         url = upload()
+        push_sync()
     except Exception as e:
         out("ERROR|發布失敗：%s（資料已存在 data.json，修好後跑 python upload.py 重發就好）" % e)
         return
