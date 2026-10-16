@@ -325,13 +325,13 @@ FB 發文系統＋搶單通知的部分改回主動推，**系統日誌照寫不
 `keis-grab-notify`（搶單成功）、`yc-v3-scan-publish`（發文失敗／API體檢告警／跳過摘要）、
 `yc-v3-removal`（刪文失敗／KEIS故障）、`yc-v3-repost`（守門員告警）、`系統錯誤-LINE-告警`。
 做法是在原本「組訊息 → 寫系統日誌」的節點旁多接一條 Telegram 節點（並聯，同一份資料兩邊送）。
-腳本：`scripts/n8n_add_telegram_push.py`（可重跑，已存在的節點會跳過）。
+腳本：`scripts/n8n_add_telegram_push.py`（10-16 已刪，要取回用 `git show 0fa6cad:scripts/n8n_add_telegram_push.py`；新的同類需求參考 `n8n_restore_publish_push.py`）。
 ⚠️ 用 Public API PUT workflow 時，GET 回來的 `settings` 裡 `binaryMode`／`availableInMCP`
 兩個欄位 PUT 會被 400 拒絕（`must NOT have additional properties`），寫回前要先濾掉。
 
 **待聯絡提醒／靜默失敗巡邏／情資週報（2026-08-25 補完）**：這幾支原本就是
 push 型（不是系統日誌型），只是 LINE 節點還沒換 Telegram、而且處於停用。用
-`scripts/n8n_line_to_telegram.py` 換節點，再 deactivate+activate（情資週報）／activate
+`scripts/n8n_line_to_telegram.py`（10-16 已刪，`git show 0fa6cad:` 取回）換節點，再 deactivate+activate（情資週報）／activate
 （另外的，本來就是關的）。換裝前先加防吵，不然開回去會洗版：
 - **靜默失敗巡邏**：`找出被吞掉的錯誤` 原本只在同一批次內去重，加了 `s.alertedAt[簽名]`
   時間戳，同一個 (流程,節點,錯誤訊息) 簽名 24 小時內只報一次（用 workflow static data，
