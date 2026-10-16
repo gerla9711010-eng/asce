@@ -46,8 +46,7 @@
 | 情資週報／靜默失敗巡邏／KEIS 待聯絡提醒 | 🟢 08-25 全改推 Telegram；待聯絡提醒 09-05 修好幽靈名單 |
 | 廣告發文看門狗（`ad_watchdog.py`）／incident-watch | 🟢 09-02 重開；09-14 加搶單存活檢查；10-14 加判斷六「物件下架時 591 剩幾天」（待第一次真實下架驗證）；10-16 加 `triage.py`：被吞掉的失敗先讓 Claude 查，沒事只進每日摘要（待真實 needs_user 案例驗證，見 reference.md）|
 | 公買搶單（門市電腦 grab.py） | 🟢 09-22 17:33 帶新設定重啟、當場補搶 7 筆。限流細節見 1.6b |
-| YC 建檔器 v3（鎖物編+總價） | ⚪ 已停（唯一保留的舊版，留著當防幻覺邏輯參考）|
-| ~~LINE 新聞推播／YC 建檔器 v2／YC 發文線／文案重產器~~ | 🗑 09-15 從 n8n 刪除；要取回 JSON 用 `git show fa81093^:workflows/<檔名>`（`backup/` 那份只在本機） |
+| ~~LINE 新聞推播／YC 建檔器 v2 v3／YC 發文線／文案重產器~~ | 🗑 09-15 從 n8n 刪除（v3 10-16 刪，同時拔掉分流器 4 條死分支）；v3 用 `git show 0fa6cad:workflows/yc-property-create-v3.json`；要取回 JSON 用 `git show fa81093^:workflows/<檔名>`（`backup/` 那份只在本機） |
 | 高雄實價登錄行情看板每日更新（`KH-Market-AutoUpdate`） | 🟢 09-15 重新啟用（本來停用超過一個月沒人發現）；已接聚合腳本自動重算，資料邊界自動偵測 |
 
 「LINE 推播 → Notion 系統日誌」的架構細節見 `reference.md`。
