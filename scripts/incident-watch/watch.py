@@ -1,5 +1,7 @@
 """每 15 分鐘被 /loop 呼叫一次：查 n8n 有沒有新的失敗執行，比對已知案例，符合就自動修+回報。
 
+另外（2026-10-16 加）：被容錯吞掉的失敗交給 triage.py 先讓 Claude 查，沒事不打擾使用者。
+
 不符合已知案例的失敗完全不動——n8n 自己的失敗告警（Telegram）照樣會發，這支只負責
 「已經抓到根因、修法固定」的那幾種，省得每次都要人回來貼錯誤訊息。
 
@@ -16,6 +18,8 @@ from pathlib import Path
 
 import httpx
 from dotenv import dotenv_values
+
+import triage
 
 NO_WINDOW = subprocess.CREATE_NO_WINDOW  # 不然每次呼叫 wmic/taskkill/git 都會閃一下黑視窗
 
@@ -208,6 +212,12 @@ def sync_and_commit(summary: str) -> None:
 
 def run_once() -> None:
     state = load_state()
+    # 被容錯吞掉的失敗（status=success 但節點帶 error）：先讓無人值守 Claude 查，沒事只進每日摘要
+    try:
+        triage.scan_and_triage(state, telegram)
+    except Exception as e:      # noqa: BLE001 — 這段壞掉不能拖垮下面的已知案例修復
+        print(f"triage 這輪出錯，跳過：{e}")
+    save_state(state)
     base, h = n8n()
     wf_id = codex_copy.SCAN_WF
     since = state["last_seen_id"].get(wf_id, 0)

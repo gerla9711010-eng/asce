@@ -356,8 +356,14 @@ push 型（不是系統日誌型），只是 LINE 節點還沒換 Telegram、而
 照片是 `被停?` 之後才下載的，中間插一個節點不影響資料流。三個 Telegram 節點都設
 `onError=continueRegularOutput`，推播掛掉不會連累發文本身。
 
-⚠️ **`incident-watch/watch.py` 只查 `status=error`**：被容錯吞掉的失敗它看不到，
-那一類要靠 n8n 的 `靜默失敗巡邏` 發 🔕 告警。兩者不重疊，別以為裝了一個就夠。
+⚠️ **被容錯吞掉的失敗（2026-10-16 改版）**：n8n 的 `靜默失敗巡邏` 已**停用**（wJsmBEetvLH99HWk，沒刪，要回退就 activate），
+改由 `incident-watch/triage.py`（被 watch.py 每 15 分鐘呼叫）接手：掃全部 status=success 的新執行、找節點輸出帶 error 的，
+叫無人值守的 `claude -p`（sonnet、唯讀：只能 Read＋跑 `triage.py --show`）照固定步驟查——失敗的是輔助還是主線、
+貼文/Notion/KEIS 三邊有沒有對上、貼文逐項對原始資料。結論 ok → 只進每日摘要（21:00 後一則「今天自動處理 N 件」）；
+needs_user 或 Claude 逾時/回不出 JSON/偵測到 `ANTHROPIC_API_KEY` → 立刻 Telegram。
+手動驗：`python scripts/incident-watch/triage.py --dry <執行ID>`（不發訊息）、`--show <執行ID>`（看精簡紀錄，憑證已遮）。
+坑：Windows `claude.cmd` 會截斷 argv 裡的換行 → 提示詞一律走 stdin；Claude 會被全域 CLAUDE.md 的回覆格式帶偏，
+提示詞已明講「只輸出一行 JSON」。走 claude.ai 訂閱登入、不計 API 費用；watch.py 沒在跑（電腦關機）就沒有這層巡邏。
 
 ⚠️ **裝完任何常駐自動化，要去 `shell:startup` 實地看一眼捷徑在不在**——
 2026-08-29～09-02 就是捷徑沒生效，空跑了 4 天沒人發現。
