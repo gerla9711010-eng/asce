@@ -526,6 +526,7 @@ Cowork（`claude.ai/code/routines`）目前只有兩支在跑：「疑似同業�
 | **自動簽到** `scripts/clockin/` | 🟢 上線。jitter 0-60 分為常態分佈（中心 30 分）。⚠️ 2026-08-24 發現 Windows 工作排程被 Disabled（上次成功執行停在 08-09），已重新 Enable，下次跑 08-27 | `scripts/clockin/README.md` |
 | **售屋表填寫** `scripts/sale-form/` | 🟢 2026-07-20 第 4 輪修完。**實際執行的是桌面 `工具\不動產售屋表工具_v3.4\zipinspect\`**（資料夾名是舊版號、內容才是新的），改完兩邊要同步。`template/*.xltx` 兩個 Excel 範本非它不可。⚠️ 待門市拿真實案件實測；塗銷防護只用模擬文字驗過 | `scripts/sale-form/README.md`、桌面 `售屋表v3.6實測清單.md` |
 | **租屋廣告文案** `scripts/rent-ad/` | 🟢 使用中（社宅／包租代管）。**桌面檔名是 `工具\國城\國城廣告文生產器.py`**，別只找「租屋」| `scripts/rent-ad/README.md` |
+| **國成工具箱（網頁）** `桌面\國成\工具\國成工具箱.html` | 🟢 2026-10-18 上線，**給同事用 https://guocheng-tools.pages.dev/**（獨立 Pages 專案，跟自用的 yc-tools 分開，使用者明確要求別混）。四合一：租金評定試算（整層查「表十四」29 區×9 屋齡區間，已用真 Excel 對過 79 筆）／租屋文案（逐字同 `國城廣告文生產器.py`）／身分證雙面合成／照片 A4 排版（每頁 4/6/8 張）。jsPDF＋heic2any 內嵌→離線可用、吃 iPhone HEIC。個人資料不寫死：文案的業務/電話、照片存檔資料夾都存在各自瀏覽器。**發布：`python -X utf8 桌面/國成/工具/發布網站.py`（整站覆蓋＋noindex）**。改 `國成\工具` 任一支 .py 要同步改網頁版。⏳ 待補：獨立套房單價表、整層表旗津以下的區 | 桌面 `國成\工具\` |
 | ~~**KEIS 廣告上架** `scripts/keis/publish.py`~~ | ⚫ 已作廢（2026-07-23），線 D 直接打 API 取代 | — |
 
 ---
@@ -533,6 +534,7 @@ Cowork（`claude.ai/code/routines`）目前只有兩支在跑：「疑似同業�
 ## 公開網頁：Cloudflare Pages 發布鏈路（2026-08-05 上線）
 
 兩個站共用同一個 Cloudflare Pages 專案 `yc-tools.pages.dev`：`/yc-calc/`、`/kh-market/`。
+另有獨立專案 `guocheng-tools.pages.dev`（國成工具箱，給同事），刻意不併進 yc-tools。
 搬家原因是 GitHub 帳號停權**連 GitHub Pages 一起關掉**，`github.io` 底下
 三個站對外全部 404、`git ls-remote` 也 403。當時「情資沒更新」不是 bdinfo 壞掉——每週二
 照樣算好寫檔，是推不上去。
