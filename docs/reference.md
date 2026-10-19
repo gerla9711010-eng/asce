@@ -325,13 +325,13 @@ FB 發文系統＋搶單通知的部分改回主動推，**系統日誌照寫不
 `keis-grab-notify`（搶單成功）、`yc-v3-scan-publish`（發文失敗／API體檢告警／跳過摘要）、
 `yc-v3-removal`（刪文失敗／KEIS故障）、`yc-v3-repost`（守門員告警）、`系統錯誤-LINE-告警`。
 做法是在原本「組訊息 → 寫系統日誌」的節點旁多接一條 Telegram 節點（並聯，同一份資料兩邊送）。
-腳本：`scripts/n8n_add_telegram_push.py`（可重跑，已存在的節點會跳過）。
+腳本：`scripts/n8n_add_telegram_push.py`（10-16 已刪，要取回用 `git show 0fa6cad:scripts/n8n_add_telegram_push.py`；新的同類需求參考 `n8n_restore_publish_push.py`）。
 ⚠️ 用 Public API PUT workflow 時，GET 回來的 `settings` 裡 `binaryMode`／`availableInMCP`
 兩個欄位 PUT 會被 400 拒絕（`must NOT have additional properties`），寫回前要先濾掉。
 
 **待聯絡提醒／靜默失敗巡邏／情資週報（2026-08-25 補完）**：這幾支原本就是
 push 型（不是系統日誌型），只是 LINE 節點還沒換 Telegram、而且處於停用。用
-`scripts/n8n_line_to_telegram.py` 換節點，再 deactivate+activate（情資週報）／activate
+`scripts/n8n_line_to_telegram.py`（10-16 已刪，`git show 0fa6cad:` 取回）換節點，再 deactivate+activate（情資週報）／activate
 （另外的，本來就是關的）。換裝前先加防吵，不然開回去會洗版：
 - **靜默失敗巡邏**：`找出被吞掉的錯誤` 原本只在同一批次內去重，加了 `s.alertedAt[簽名]`
   時間戳，同一個 (流程,節點,錯誤訊息) 簽名 24 小時內只報一次（用 workflow static data，
@@ -356,8 +356,14 @@ push 型（不是系統日誌型），只是 LINE 節點還沒換 Telegram、而
 照片是 `被停?` 之後才下載的，中間插一個節點不影響資料流。三個 Telegram 節點都設
 `onError=continueRegularOutput`，推播掛掉不會連累發文本身。
 
-⚠️ **`incident-watch/watch.py` 只查 `status=error`**：被容錯吞掉的失敗它看不到，
-那一類要靠 n8n 的 `靜默失敗巡邏` 發 🔕 告警。兩者不重疊，別以為裝了一個就夠。
+⚠️ **被容錯吞掉的失敗（2026-10-16 改版）**：n8n 的 `靜默失敗巡邏` 已**停用**（wJsmBEetvLH99HWk，沒刪，要回退就 activate），
+改由 `incident-watch/triage.py`（被 watch.py 每 15 分鐘呼叫）接手：掃全部 status=success 的新執行、找節點輸出帶 error 的，
+叫無人值守的 `claude -p`（sonnet、唯讀：只能 Read＋跑 `triage.py --show`）照固定步驟查——失敗的是輔助還是主線、
+貼文/Notion/KEIS 三邊有沒有對上、貼文逐項對原始資料。結論 ok → 只進每日摘要（21:00 後一則「今天自動處理 N 件」）；
+needs_user 或 Claude 逾時/回不出 JSON/偵測到 `ANTHROPIC_API_KEY` → 立刻 Telegram。
+手動驗：`python scripts/incident-watch/triage.py --dry <執行ID>`（不發訊息）、`--show <執行ID>`（看精簡紀錄，憑證已遮）。
+坑：Windows `claude.cmd` 會截斷 argv 裡的換行 → 提示詞一律走 stdin；Claude 會被全域 CLAUDE.md 的回覆格式帶偏，
+提示詞已明講「只輸出一行 JSON」。走 claude.ai 訂閱登入、不計 API 費用；watch.py 沒在跑（電腦關機）就沒有這層巡邏。
 
 ⚠️ **裝完任何常駐自動化，要去 `shell:startup` 實地看一眼捷徑在不在**——
 2026-08-29～09-02 就是捷徑沒生效，空跑了 4 天沒人發現。
@@ -571,6 +577,7 @@ GUI 會印 collect.js 的 note。10-07 改每 10 個客需重整頁面（worker 
 10-06：頁面加 charset（手機預覽原本亂碼）、每筆可勾選→底部「複製選取」、剪貼簿被擋時跳全選文字框
 （手機檔案預覽會擋 clipboard，舊版假裝「已複製」）。桌面 10-05 那份已直接補丁，下次跑 GUI 會自帶。
 10-13：版面改左欄 A/B/C 正方形資料夾（桌機頂到底均分、手機寬度不夠縮成 28vw），點了中間只顯示該資料夾。10-14：每筆物件記「已複製 N 次」（電腦手機共用，存 D1，見 reference.md）；認物件改用官網編號（改價標「降價 A→B」不打 NEW，`seen.json`），同區路名＋樓層＋坪數差 3% 內併成一張「另有 N 家刊登」；collect.js 總價誤抓社區名已修。10-14 00:57 實跑：57/57、NEW 6、抓到 1 筆降價（棋琴十二重奏 1,580→1,520 萬，未打 NEW）。
+**10-15 兩台共用記錄**：state（已看過的物件，原本只在各電腦 browser-profile 的 localStorage）和 `seen.json` 現存 `OneDrive\桌面\買方配案資料\`，`worker.py` 開跑前逐客需合併（取 `at` 較新）、跑完寫回。起因：公司那台記錄停在 10-02，被當全新物件全展開，38 客需/約 404 筆就撞房地上限。家裡驗證 57/57、展開 0 張卡、27 分鐘。找不到 OneDrive 資料夾時靜默不同步。房地查詢額度是帳號共用，不分電腦。
 10-07：**手機網址 https://yc-buyer-match.pages.dev/**（公開、全名：使用者 10-07 看過約 20 位真實全名後決定不打碼，`build_page.js --mask` 留著可恢復），**只留網址一份**（不再產桌面 html）＋點案名頁內預覽。
 worker.py 跑完自動 `upload.py`（`build_page.js` → wrangler 發布）。n8n 版試過已刪（sandbox 擋 iframe）。待驗（使用者自己看）：iPhone 預覽、客戶兩欄卡、點名字只複製名字。
 ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/`browser-profile/` 已 gitignore。
