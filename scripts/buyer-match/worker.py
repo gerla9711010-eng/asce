@@ -76,7 +76,7 @@ class Keis:
         if wait > 0:
             time.sleep(wait)
         body = dict(q or {}, source_type="all", order_by="created_at", order_direction="desc",
-                    limit=10, offset=0)
+                    limit=50, offset=0)  # 同一戶可能幾十家刊登（10-19 興安街一間公寓 40 筆），抓少了「另有 N 家」會算少
         try:
             if self.c is None:
                 self._login()
@@ -89,7 +89,8 @@ class Keis:
                 break
             self.fails = 0
             self.n += 1
-            keep = ("url", "title", "price", "unit_price", "type", "community", "store_name", "created_at")
+            keep = ("url", "title", "price", "unit_price", "type", "community", "store_name", "created_at",
+                    "floor_start", "total_floors", "building_area")
             return {"houses": [{k: h.get(k) for k in keep} for h in r.json().get("houses", []) if h.get("url")]}
         except Exception as e:
             self.fails += 1

@@ -47,8 +47,8 @@ const rank = (b) => { const i = BADGE_PRIORITY.indexOf(b); return i < 0 ? 99 : i
 /* 物件編號：官網網址 /house/7476129 那串。改價不會變，永慶/台慶/永義/有巢氏官網也是同一個號碼 */
 const listingNo = (u) => (String(u || '').match(/\/house\/(\d+)/) || [])[1] || String(u || '');
 const num = (x) => parseFloat(String(x || '').replace(/,/g, ''));
-/* 坪數＝總價÷單價（KEIS 摘要沒有坪數欄）。總價欄抓錯（抓到社區名）就算不出來，只靠編號 */
-const pingOf = (it) => { const t = num(it.totalPrice), u = num(it.unitPrice); return /萬/.test(it.totalPrice) && t > 0 && u > 0 ? t / u : NaN; };
+/* 坪數：KEIS 比對來的有 ping（建坪原值，10-19 起）；舊資料沒有，用總價÷單價推。總價欄抓錯（抓到社區名）就算不出來，只靠編號 */
+const pingOf = (it) => { if (it.ping > 0) return it.ping; const t = num(it.totalPrice), u = num(it.unitPrice); return /萬/.test(it.totalPrice) && t > 0 && u > 0 ? t / u : NaN; };
 /* 同一戶判定（10-14 使用者定的）：同編號、KEIS 同一張卡，或「同區＋同路名＋同樓層＋坪數差 3% 內」——
    後者抓的是委託給好幾家仲介、各自開了不同編號的同一戶（吉昌街一戶 19 個編號）。各家量的坪數會差一點，所以給 3% */
 const PING_TOL = 0.03;

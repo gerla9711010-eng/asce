@@ -167,11 +167,20 @@
     return 99999;
   }
 
+  /* 「高雄市 新興區 忠孝一路」。房地 10-19 前後改版：收合的卡片沒有 .subtitle 了（點開才有），
+     改從整段文字抓，格式跟 .subtitle 一樣——指紋靠它，格式不同的話舊記錄全對不上，每張卡都變新卡 */
+  function addrOf(s) {
+    const sub = T(s, '.subtitle');
+    if (sub) return sub;
+    const m = s.textContent.replace(/\s+/g, ' ').match(/(\S{2}[市縣]) (\S+?[區鄉鎮市])(?: (\S+?(?:路|街|道|段|巷)))?(?= |$)/);
+    return m ? m.slice(1).filter(Boolean).join(' ') : '';
+  }
+
   function summary(p) {
     const s = p.querySelector('fd-property-summary');
     if (!s) return null;
     const lv = leaves(s);
-    const pa = T(s, '.subtitle').split(/\s+/);
+    const pa = addrOf(s).split(/\s+/);
     const kl = lv.find((t) => /^[^\s,]+,[^\s,]+$/.test(t) && /樓|透天|公寓|華廈|套房|店面|廠|地/.test(t)) || '';
     return {
       title: T(s, '.title'), subtitle: T(s, '.subtitle'),
@@ -218,14 +227,24 @@
     if (!canKeis(s)) { R.fallback++; return readCard(p, items); } // 摘要缺區域/路名/總坪才退回舊方法點開
     R.lag = 0; // lag 只量點開的卡；不歸零的話上一張退回點開的慢卡會害後面每張都提早換批
     const fp = fingerprint(p);
-    const hs = await keisFind(s);
+    /* 同棟同格局不同樓層的兩戶，坪數屋齡都一樣、只差樓層——不擋掉的話會被當成同一戶（同一張卡＝同 fp 會被合併）。
+       卡片「9樓/共24樓」跟 KEIS floor_start/total_floors 對；任一邊讀不到就不擋 */
+    /* 只比物件所在樓層（大樓/公寓「9樓/共24樓」的 9），總樓層不比（使用者 10-19 定）：各家仲介總樓層填法不一
+       （哈爾濱街同一戶有填共2樓也有共3樓）。「全棟」「1~4樓」不比；KEIS 樓層 ≤0 視為沒填 */
+    const f1 = /^\d+樓/.test(String(s.floor || '')) ? parseInt(s.floor, 10) : 0;
+    const ok = (h) => !f1 || !(h.floor_start > 0) || +h.floor_start === f1;
+    const all = await keisFind(s), hs = all.filter(ok);
+    if (all.length > hs.length) note('樓層不符略過 ' + (all.length - hs.length) + ' 筆：' + s.road + ' ' + s.floor);
     if (hs.length) R.keisHit++; else R.keisMiss++;
     hs.forEach((h) => {
       const d = daysSince(h.created_at);
       items.push({
         fp, kind: s.kind || h.type || '', road: s.road, district: s.district,
-        community: s.community || h.community || '', totalPrice: s.totalPrice || (Number(h.price).toLocaleString() + '萬'),
-        unitPrice: s.unitPrice || (h.unit_price ? h.unit_price + '萬/坪' : ''),
+        /* 價格、坪數用 KEIS 這一筆自己的：同一戶多家仲介開價常不同（青海路同一戶 2,680／3,380），
+           套卡片價會讓每家都顯示同一價、降價偵測亂跳 */
+        community: s.community || h.community || '',
+        totalPrice: h.price ? Number(h.price).toLocaleString() + '萬' : s.totalPrice,
+        unitPrice: h.unit_price ? h.unit_price + '萬/坪' : s.unitPrice, ping: +h.building_area || 0,
         floor: s.floor, age: s.age, layout: s.layout,
         name: h.title || s.title || '', badge: '永慶', url: 'https://buy.yungching.com.tw/house/' + h.url,
         when: d === 0 ? '今天刊登' : d + '天前刊登', whenDays: d, store: h.store_name || '',
@@ -239,7 +258,7 @@
      放標題會把同一間當成新物件、誤標 NEW。價格變了仍算新的（降價可能剛進到客人預算內） */
   const fingerprint = (p) => {
     const s = p.querySelector('fd-property-summary');
-    return s ? [T(s, '.subtitle'), T(s, '.highlight')].join('¦') : '';
+    return s ? [addrOf(s), T(s, '.highlight')].join('¦') : '';
   };
   /* 舊版指紋是「標題¦地址¦價格」三段，比對前一律砍成後兩段，換格式後第一次跑才不會整批變 NEW */
   const normFp = (x) => String(x || '').split('¦').slice(-2).join('¦');
