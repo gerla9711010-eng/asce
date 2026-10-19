@@ -593,6 +593,9 @@ worker.py 跑完自動 `upload.py`（`build_page.js` → wrangler 發布）。n8
 **價格／坪數用 KEIS 每筆自己的**（同一戶各家開價不同），去重沿用 build_page 三層（同編號／同卡片指紋／同區路名樓層坪數 3%），`ping` 欄優先於總價÷單價。
 **房地 10-19 前後改版：收合卡片沒有 `.subtitle`**，地址改從文字抓（`addrOf`），格式跟舊指紋一致——不然指紋只剩「¦價格」，增量全失效（舊方法會全部重新點開燒額度）、同價不同物件被併在一起。
 ⚠️ worker 輪詢迴圈要用 `page.wait_for_timeout` 不能 `time.sleep`（sync Playwright 睡著時不處理 keisLookup 回呼）。
+**防新舊版混跑**（10-19 公司那台用舊程式跑，把 OneDrive 共用記錄寫成缺地址）：GUI 按「開始更新」先 `self_update()`
+（fetch main → 快轉，分岔就只覆蓋 `scripts/buyer-match`、不動 run.bat、有未提交修改就不動）再啟動 worker；
+collect.js 讀到整個客需的卡片指紋都沒地址就丟「房地版面可能改了」整趟停手，不存檔。
 **10-19 小測試**（2 客需、21 張卡，`only` 跑完還原 localStorage、不發布）：點開 0 張、透天客需 55 秒／KEIS 10 次（舊法 239 秒點開 21 張）、
 指紋跟 10-16 舊記錄 10/10 相同、19 筆合併成 10 張卡。跟舊法差異：舊法收的 49xxxxx、6801755、5351279 等在 KEIS 全部＋下架都查無（房地卡片標「下架」「2年前」的死連結），新法不收＝比較準。
 

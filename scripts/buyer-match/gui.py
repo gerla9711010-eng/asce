@@ -12,7 +12,36 @@ from tkinter import scrolledtext, messagebox
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
+REPO = BASE.parent.parent
 PYTHON = sys.executable
+FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+
+def self_update():
+    """跑之前把程式更新成 GitHub main 版。家裡/公司兩台共用 OneDrive 記錄、程式卻各自一份，
+    舊程式跑一次就會把共用記錄寫壞（2026-10-19 公司那台）。
+    先試快轉（分支已併進 main 時 git 狀態保持乾淨）；不行才只覆蓋這個資料夾（run.bat 除外）。
+    本機有改到一半的程式就不動；沒網路就用現有版本。放在 GUI 不放 run.bat：執行中改 .bat 會壞。"""
+    def git(*a):
+        try:
+            return subprocess.run(["git", *a], cwd=str(REPO), capture_output=True, text=True,
+                                  timeout=60, creationflags=FLAGS).returncode
+        except Exception:
+            return -1
+    here = "scripts/buyer-match"
+    if git("fetch", "-q", "origin", "main") != 0:
+        return "⚠️ 連不到 GitHub，用目前這台的程式版本跑"
+    if git("diff", "--quiet", "HEAD", "origin/main", "--", here) == 0:
+        return "程式已是最新版"
+    if git("merge", "-q", "--ff-only", "origin/main") == 0:
+        if git("diff", "--quiet", "HEAD", "origin/main", "--", here) != 0:
+            return "這台的程式比 GitHub main 還新（開發中），照用"
+        return "程式已自動更新到最新版"
+    if git("diff", "--quiet", "--", here) != 0:
+        return "⚠️ 這台有改到一半的買方配案程式，沒有自動更新（請找 Claude 處理）"
+    if git("checkout", "origin/main", "--", here, ":!" + here + "/run.bat") == 0:
+        return "程式已自動更新到最新版（只更新買方配案資料夾）"
+    return "⚠️ 自動更新失敗，用目前版本跑"
 
 
 class App:
@@ -52,17 +81,18 @@ class App:
     def start(self):
         self.start_btn.configure(state="disabled", text="跑中…")
         self.append("=== 開始 ===")
-        args = [PYTHON, str(BASE / "worker.py")]
-        if self.full_var.get():
+        threading.Thread(target=self.read_output, args=(self.full_var.get(),), daemon=True).start()
+
+    def read_output(self, full):
+        self.q.put("檢查程式版本…")
+        self.q.put(self_update())
+        args = [PYTHON, str(BASE / "worker.py")]  # 更新完才啟動，worker.py／collect.js 讀到的是新版
+        if full:
             args.append("--full")
-        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         self.proc = subprocess.Popen(
             args, cwd=str(BASE), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", bufsize=1, creationflags=flags,
+            text=True, encoding="utf-8", bufsize=1, creationflags=FLAGS,
         )
-        threading.Thread(target=self.read_output, daemon=True).start()
-
-    def read_output(self):
         for line in self.proc.stdout:
             self.q.put(line.rstrip("\n"))
         self.proc.wait()
