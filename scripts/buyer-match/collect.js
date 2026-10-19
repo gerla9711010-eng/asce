@@ -418,6 +418,9 @@
         if (total == null || bad) throw new Error('一張卡都沒渲染出來（共' + (total == null ? '?' : total) + '筆，畫面 ' + N + ' 張卡）');
         const panels0 = [...document.querySelectorAll('fd-property-panel')];
         fps = panels0.map(fingerprint);
+        /* 指紋沒有地址＝讀卡片的方式跟房地版面對不上了（10-19 房地改版拿掉 .subtitle 就是這樣）。
+           這時存檔會把共用記錄寫壞（每張卡都變新卡、同價不同物件被併），寧可停手 */
+        if (fps.length && fps.every((x) => x.startsWith('¦'))) throw new Error('讀不到卡片地址，房地版面可能改了，請找 Claude 看');
         const fpSet = new Set(fps);
 
         /* 上次已經看過的物件 → 只留下這次還在清單裡的（不在的 = 下架） */
@@ -463,7 +466,7 @@
       } catch (e) {
         R.out.push(Object.assign({}, t, { error: String((e && e.message) || e), cards: fps, items: [] }));
         note('客需失敗 ' + t.demand + ': ' + e);
-        if (/KEIS/.test(String((e && e.message) || e))) { R.stop = true; note('KEIS 查不動，自動停手（此客需不存檔）'); }
+        if (/KEIS|版面/.test(String((e && e.message) || e))) { R.stop = true; note('自動停手（此客需不存檔）：' + String((e && e.message) || e)); }
         else if (total == null || /上限|展不開/.test(String((e && e.message) || e))) { R.stop = true; note('疑似撞查詢上限，自動停手（此客需不存檔）'); }
       }
       R.done++;
