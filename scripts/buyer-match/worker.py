@@ -55,6 +55,7 @@ class Keis:
         self.fails = 0
         self.dead = ""
         self.n = 0
+        self.cache = {}  # 同一趟裡條件一模一樣的查詢只打一次（同一間常同時出現在好幾個客需）
 
     def _login(self):
         env = {}
@@ -72,6 +73,9 @@ class Keis:
     def lookup(self, q):
         if self.dead:
             return {"fatal": self.dead}
+        ck = json.dumps(q or {}, sort_keys=True, ensure_ascii=False)
+        if ck in self.cache:
+            return self.cache[ck]
         wait = self.last + random.uniform(2, 4) - time.time()
         if wait > 0:
             time.sleep(wait)
@@ -91,7 +95,9 @@ class Keis:
             self.n += 1
             keep = ("url", "title", "price", "unit_price", "type", "community", "store_name", "created_at",
                     "floor_start", "total_floors", "building_area")
-            return {"houses": [{k: h.get(k) for k in keep} for h in r.json().get("houses", []) if h.get("url")]}
+            res = {"houses": [{k: h.get(k) for k in keep} for h in r.json().get("houses", []) if h.get("url")]}
+            self.cache[ck] = res
+            return res
         except Exception as e:
             self.fails += 1
             if self.fails >= 3 or isinstance(e, (FileNotFoundError, KeyError)):
