@@ -18,7 +18,10 @@
 import sys
 import json
 import time
+import random
 from pathlib import Path
+
+import httpx
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
@@ -34,6 +37,69 @@ URL = "https://agent.foundi.info/tool/property/list"
 DATA_JSON = BASE / "data.json"
 STATE_BACKUP = BASE / "state-auto.json"
 SEEN_JSON = BASE / "seen.json"
+KEIS_ENV = Path.home() / "OneDrive" / "桌面" / "keis" / ".env"   # 跟 591-ad/keis.py 同一份帳密
+KEIS_API = "https://keis.kshouse.com.tw/api/v1"
+
+
+class Keis:
+    """collect.js 的 window.keisLookup 背後這支：拿房地卡片摘要去 KEIS houses/public 找同一戶。
+
+    要溫和（使用者 10-19 特別交代別對 KEIS 造成負擔）：一次只送一個、每筆間隔隨機 2~4 秒、
+    只查新卡片（舊的 collect.js 沿用上次結果）。401 重登一次；其他錯誤連續 3 次就回 fatal，
+    collect.js 收到會整趟停手，不重試硬打。人在 KEIS 頁面按一次「查詢」就是 6 個請求，這邊一張卡 1 個。
+    """
+
+    def __init__(self):
+        self.c = None
+        self.last = 0.0
+        self.fails = 0
+        self.dead = ""
+        self.n = 0
+
+    def _login(self):
+        env = {}
+        for line in KEIS_ENV.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip()
+        self.c = httpx.Client(timeout=30, headers={"user-agent": "Mozilla/5.0",
+                                                   "referer": "https://keis.kshouse.com.tw/case"})
+        r = self.c.post(KEIS_API + "/auth/login", params={"device_type": "desktop"},
+                        data={"username": env["KEIS_USERNAME"], "password": env["KEIS_PASSWORD"]})
+        r.raise_for_status()
+        self.c.headers["authorization"] = "Bearer " + r.json()["access_token"]
+
+    def lookup(self, q):
+        if self.dead:
+            return {"fatal": self.dead}
+        wait = self.last + random.uniform(2, 4) - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        body = dict(q or {}, source_type="all", order_by="created_at", order_direction="desc",
+                    limit=10, offset=0)
+        try:
+            if self.c is None:
+                self._login()
+            for attempt in (1, 2):
+                r = self.c.post(KEIS_API + "/houses/public", json=body)
+                if r.status_code == 401 and attempt == 1:
+                    self._login()
+                    continue
+                r.raise_for_status()
+                break
+            self.fails = 0
+            self.n += 1
+            keep = ("url", "title", "price", "unit_price", "type", "community", "store_name", "created_at")
+            return {"houses": [{k: h.get(k) for k in keep} for h in r.json().get("houses", []) if h.get("url")]}
+        except Exception as e:
+            self.fails += 1
+            if self.fails >= 3 or isinstance(e, (FileNotFoundError, KeyError)):
+                self.dead = "%s: %s" % (type(e).__name__, str(e)[:120])
+                return {"fatal": self.dead}
+            self.last = time.time()
+            return self.lookup(q)  # 單次失敗：照節奏再試（連續 3 次就放棄）
+        finally:
+            self.last = time.time()
 
 
 # 增量記錄跟著帳號走、不跟著電腦走：state（已看過的物件）和 seen.json（NEW 標記）存在 OneDrive 桌面，
@@ -162,6 +228,7 @@ def main():
     if FULL:
         opts["full"] = 1
 
+    keis = Keis()
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             str(PROFILE_DIR), headless=False,
@@ -171,6 +238,8 @@ def main():
             args=["--start-maximized", "--force-device-scale-factor=1"],
         )
         page = context.pages[0] if context.pages else context.new_page()
+        # 掛在 context 上，重整／換頁都還在；collect.js 看到 window.keisLookup 就不點開卡片
+        context.expose_function("keisLookup", keis.lookup)
 
         out("STATUS|開啟房地物件頁…")
         page.goto(URL, wait_until="domcontentloaded")
@@ -204,9 +273,15 @@ def main():
         failed = []  # 失敗的客需 key：collect.js 只記在 R.out 不存檔，進度輪詢只看得到最後兩行 log 會漏掉
         last_saved = -1
         seen_notes = set()
+        kstat = {"keisHit": 0, "keisMiss": 0, "fallback": 0}  # collect.js 每批 run() 會歸零，這邊累加
 
         while True:
-            time.sleep(4)
+            # 不能用 time.sleep：sync Playwright 只有在呼叫 Playwright 時才會處理 keisLookup 回呼，
+            # 睡著的那 4 秒 collect.js 的 KEIS 查詢會整個卡住
+            try:
+                page.wait_for_timeout(4000)
+            except Exception:
+                time.sleep(4)
             try:
                 prog = get_progress(page)
             except Exception as e:
@@ -256,6 +331,8 @@ def main():
                     inject_and_run(page, batch_opts(start))
                     continue
                 stall_retries = 0
+                for k in kstat:
+                    kstat[k] += prog.get(k, 0)
                 for e in page.evaluate(ERRS_JS):
                     failed.append(e["key"])
                     out("STATUS|⚠️ 客需失敗：%s（%s）" % (e["key"], e["error"][:120]))
@@ -286,8 +363,8 @@ def main():
                 time.sleep(1.5)
                 inject_and_run(page, dict(opts, only=failed))
                 while True:
-                    time.sleep(4)
                     try:
+                        page.wait_for_timeout(4000)
                         p2 = get_progress(page)
                     except Exception:
                         break
@@ -298,6 +375,10 @@ def main():
             else:
                 out("STATUS|⚠️ 重整後回不到客需頁，沒補跑；失敗的客需下次會再跑")
 
+        if keis.dead:
+            out("STATUS|⚠️ KEIS 查不動停手了（%s），已跑完的客需都存了，下次會接著跑" % keis.dead)
+        out("STATUS|KEIS 查了 %d 次：對到 %d 張卡、沒對到 %d 張（非永慶體系）、摘要不全改點開 %d 張" % (
+            keis.n, kstat["keisHit"], kstat["keisMiss"], kstat["fallback"]))
         limit_hit = bool(prog.get("stop")) and bool(prog.get("limitText"))
         if limit_hit:
             out("STATUS|撞到查詢次數上限，停在 %d/%d，資料沒有損失，下次再接著跑" % (

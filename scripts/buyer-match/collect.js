@@ -8,6 +8,9 @@
  *   FDBM.holes()        // 檢查有沒有「0 張卡卻寫成功」的客需（會害下次增量靜靜跳過）
  *   FDBM.run({only:['某客需']}) // 只重跑指定客需，忽略上次結果（補漏用）
  *
+ * v7（2026-10-19）：新卡片不再點開，改拿摘要去 KEIS 比對（見 readCardKeis）。需要 worker.py 掛好
+ * window.keisLookup；手動貼 Console 跑沒有它，會自動退回舊的點開方式。
+ *
  * 設計重點（都是踩過坑才長這樣，改之前先看）：
  * 1. 只讀畫面上已渲染的 DOM。內部 API 回應是 foundiprotocol 加密的，不去解它。
  * 2. 一律用 textContent，不用 innerText —— innerText 會強迫整頁重新排版，
@@ -51,7 +54,7 @@
 
   const R = {
     log: [], done: 0, total: 0, cards: 0, expanded: 0, skipped: 0,
-    hostsSeen: {}, out: [], running: false, mode: '',
+    hostsSeen: {}, out: [], running: false, mode: '', keisHit: 0, keisMiss: 0, fallback: 0,
     startedAt: null, finishedAt: null, cur: '', idx: 0, stop: false, limitText: '', lag: 0,
   };
 
@@ -179,7 +182,56 @@
       age: lv.find((t) => /^[\d.]+年$/.test(t)) || '',
       layout: lv.find((t) => /房.*廳.*衛/.test(t)) || '',
       kind: kl.split(',')[0] || '',
+      /* 卡片上是「總 85.12坪」「主 44.56坪」；字跟數字可能拆在不同節點，所以對整段 textContent 找 */
+      buildPing: num((s.textContent.match(/總\s*([\d.]+)\s*坪/) || [])[1]),
+      mainPing: num((s.textContent.match(/主\s*([\d.]+)\s*坪/) || [])[1]),
     };
+  }
+  const num = (x) => { const n = parseFloat(String(x || '').replace(/,/g, '')); return isNaN(n) ? NaN : n; };
+
+  /* ---------- KEIS 比對（10-19 起取代「點開卡片讀刊登清單」） ----------
+     點開卡片會扣房地查詢次數，改成拿卡片摘要去 KEIS houses/public 找同一戶（體系＋永慶全部）。
+     KEIS 請求由 worker.py 用 expose_function 掛的 window.keisLookup 代打（瀏覽器直接打會被 CORS 擋），
+     節奏／重試／出錯停手都在 Python 那邊。
+     數字範圍是使用者定的：一律「小數無條件捨去 ~ +1」，85.12 → 85~86、14.0 → 14~15。
+     屋齡兩邊基準日不同（房地 13.4、KEIS 13.3），0 筆時拿掉屋齡再查一次，其餘條件不放寬。 */
+  const span = (x) => { const n = Math.floor(x); return [String(n), String(n + 1)]; };
+  const canKeis = (s) => !!(window.keisLookup && s && s.district && s.road && s.buildPing > 0);
+  async function keisFind(s) {
+    const q = { area_request: s.district, search_keyword: s.road };
+    [q.buildsize_min, q.buildsize_max] = span(s.buildPing);
+    if (s.mainPing > 0) [q.mainsize_min, q.mainsize_max] = span(s.mainPing);
+    const age = num(s.age);
+    if (age >= 0) [q.age_min, q.age_max] = span(age);
+    let r = await window.keisLookup(q);
+    if (r && !r.fatal && !(r.houses || []).length && q.age_min != null) {
+      delete q.age_min; delete q.age_max;
+      r = await window.keisLookup(q);
+    }
+    if (!r || r.fatal) throw new Error('KEIS 查詢失敗，停手：' + ((r && r.fatal) || '沒有回應'));
+    return r.houses || [];
+  }
+  const daysSince = (t) => Math.max(0, Math.floor((Date.now() - new Date(String(t).replace(' ', 'T')).getTime()) / 86400000)) || 0;
+
+  async function readCardKeis(p, items) {
+    const s = summary(p);
+    if (!canKeis(s)) { R.fallback++; return readCard(p, items); } // 摘要缺區域/路名/總坪才退回舊方法點開
+    R.lag = 0; // lag 只量點開的卡；不歸零的話上一張退回點開的慢卡會害後面每張都提早換批
+    const fp = fingerprint(p);
+    const hs = await keisFind(s);
+    if (hs.length) R.keisHit++; else R.keisMiss++;
+    hs.forEach((h) => {
+      const d = daysSince(h.created_at);
+      items.push({
+        fp, kind: s.kind || h.type || '', road: s.road, district: s.district,
+        community: s.community || h.community || '', totalPrice: s.totalPrice || (Number(h.price).toLocaleString() + '萬'),
+        unitPrice: s.unitPrice || (h.unit_price ? h.unit_price + '萬/坪' : ''),
+        floor: s.floor, age: s.age, layout: s.layout,
+        name: h.title || s.title || '', badge: '永慶', url: 'https://buy.yungching.com.tw/house/' + h.url,
+        when: d === 0 ? '今天刊登' : d + '天前刊登', whenDays: d, store: h.store_name || '',
+      });
+    });
+    R.cards++;
   }
 
   /* 不用展開就能算的物件指紋 —— 增量比對與下架判定都靠它。
@@ -279,7 +331,7 @@
     R.running = true; R.stop = false;
     R.mode = opts.full ? 'full' : 'incremental';
     R.startedAt = new Date().toISOString();
-    R.out = []; R.done = 0; R.cards = 0; R.expanded = 0; R.skipped = 0;
+    R.out = []; R.done = 0; R.cards = 0; R.expanded = 0; R.skipped = 0; R.keisHit = 0; R.keisMiss = 0; R.fallback = 0;
 
     try {
     await openPanel();
@@ -365,7 +417,7 @@
           for (let ti = 0; ti < targets.length; ) {
             if (R.stop) throw new Error('已停止，此客需不存檔');
             const chunk = 20 + Math.floor(Math.random() * 9); // 20~28，別用固定值
-            if (ti > 0) { await load(alt); await load(t.id); }
+            if (ti > 0 && openCount() > 0) { await load(alt); await load(t.id); } // 沒點開任何卡就不用重置（重置＝多搜尋兩次）
             const end = Math.min(ti + chunk, targets.length);
             const need = targets[end - 1] + 1;
             await ensureCards(need);
@@ -374,7 +426,7 @@
             for (; j < end; j++) {
               const p = panels[targets[j]];
               if (!p) continue;
-              await readCard(p, fresh);
+              await readCardKeis(p, fresh);
               if (openCount() >= MAXOPEN || R.lag > LAG_MS) { j++; break; }
             }
             ti = j;
@@ -392,7 +444,8 @@
       } catch (e) {
         R.out.push(Object.assign({}, t, { error: String((e && e.message) || e), cards: fps, items: [] }));
         note('客需失敗 ' + t.demand + ': ' + e);
-        if (total == null || /上限|展不開/.test(String((e && e.message) || e))) { R.stop = true; note('疑似撞查詢上限，自動停手（此客需不存檔）'); }
+        if (/KEIS/.test(String((e && e.message) || e))) { R.stop = true; note('KEIS 查不動，自動停手（此客需不存檔）'); }
+        else if (total == null || /上限|展不開/.test(String((e && e.message) || e))) { R.stop = true; note('疑似撞查詢上限，自動停手（此客需不存檔）'); }
       }
       R.done++;
       saveState(state);
@@ -420,6 +473,7 @@
         mode: R.mode, done: R.done, total: R.total, cards: R.cards, skipped: R.skipped,
         items: R.out.reduce((a, o) => a + (o.items ? o.items.length : 0), 0),
         running: R.running, stop: R.stop, limitText: R.limitText, cur: R.cur, err: R.log.slice(-2),
+        keisHit: R.keisHit, keisMiss: R.keisMiss, fallback: R.fallback,
       };
     },
     stop() { R.stop = true; return 'stopping'; },
@@ -458,5 +512,5 @@
         .map((k) => k + ' (共' + st.demands[k].total + '筆卻 0 張卡)');
     },
   };
-  return 'FDBM v6 ready (worker timer + dumpState + 擬人化節奏)';
+  return 'FDBM v7 ready (KEIS 比對' + (window.keisLookup ? '' : '：沒有 keisLookup，退回點開卡片') + ')';
 })();
