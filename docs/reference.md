@@ -582,6 +582,35 @@ GUI 會印 collect.js 的 note。10-07 改每 10 個客需重整頁面（worker 
 worker.py 跑完自動 `upload.py`（`build_page.js` → wrangler 發布）。n8n 版試過已刪（sandbox 擋 iframe）。待驗（使用者自己看）：iPhone 預覽、客戶兩欄卡、點名字只複製名字。
 ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/`browser-profile/` 已 gitignore。
 
+**10-19 改用 KEIS 比對，新卡片不點開**（collect.js v7）：點開卡片會扣房地查詢次數，改成讀卡片摘要
+（區域、路名、總坪、主建、屋齡）→ `worker.py` 的 `Keis.lookup`（`expose_function` 掛成 `window.keisLookup`，
+瀏覽器直接打 KEIS 會被 CORS 擋）→ KEIS `houses/public`（`source_type=all`）→ 每筆命中都收成一張
+`buy.yungching.com.tw/house/{url}`，徽章一律「永慶」（使用者：永慶涵蓋台慶等品牌，找得到案件就好）。
+**範圍規則是使用者定的：一律「小數無條件捨去～+1」**（85.12→85~86、14.0→14~15），不要改成四捨五入或 ±容忍值。
+屋齡兩邊基準日不同（房地 13.4／KEIS 13.3），0 筆時拿掉屋齡再查一次。沒對到＝非永慶體系，跟舊版沒有官網徽章一樣不收。
+摘要缺區域/路名/總坪才退回舊的點開。節奏：一次一個、間隔 2~4 秒、只查新卡片；401 重登一次，連續 3 次錯就整趟停手。
+⚠️ worker 輪詢迴圈要用 `page.wait_for_timeout` 不能 `time.sleep`（sync Playwright 睡著時不處理 keisLookup 回呼）。
+**還沒真人實跑**（10-19 只驗了 KEIS 端：鳳凰會那筆 13~14 命中、14~15 為 0、拿掉屋齡命中）。
+
+### KEIS `POST /api/v1/houses/public`（案件查詢頁 /case 背後那支，10-19 實測）
+
+區域下拉、進階查詢都**沒有自己的 API**：區域清單（高雄 38 區）寫死在前端 `PropertyQuery-*.js`，
+條件全塞進這支的 JSON body。數字一律字串。**沒用到的條件 key 要整個拿掉**，送 `""` 會變 0 筆。
+回傳 `{houses, total, limit, offset}`；`url` 是永慶物件編號。
+
+| 畫面欄位 | 參數 | 備註 |
+|---|---|---|
+| 關鍵字（路名、案名） | `search_keyword` | |
+| 區域 | `area_request` | `"鼓山區"` |
+| 上架時間 | `time_filter`＋`created_after` | `1week`/`1month`/`3months` |
+| 總價／單價（萬） | `budget_min/max`、`unitprice_min/max` | `_max` 實測有效 |
+| 屋齡／樓層 | `age_min/max`、`floor_min/max` | |
+| 建坪／主建／地坪 | `buildsize_*`、`mainsize_*`、`landsize_*` | |
+| 房／衛／類型 | `room_request`、`bathroom_request`、`type_request` | 多選逗號串：`"大樓,華廈"` |
+| 專任／一般約 | `contract_type` | `"專任"` |
+| 頁籤 | `source_type`：`system`(體系)/`all`(永慶)/`delisted`；本店用 `store_code` | 同業是另一支 `sinyi-properties/public` |
+| 分頁 | `limit`、`offset`、`order_by`、`order_direction` | |
+
 ## KEIS 公買查詢 300 次上限（從 STATUS 搬來）
 
 09-21 當天新增（前 12 天 log 零次 429）。**每個帳號各自 300，不是綁 IP**——09-22 17:34 同一台
