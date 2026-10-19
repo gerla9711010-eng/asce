@@ -80,7 +80,6 @@
 ### 1.2 🟢 屋主銷售報告書已工具化（第二件屏東田中巷 10-15 交件，規則都在 `.claude/skills/sale-report/SKILL.md`）
 
 `listings.py`（貼上開價文字→圖）→ `build.py`（PPT）→ `export.py`（PDF＋桌面）。
-⚠️ 10-15 這輪 commit 在 `claude/skip-twice-giveup` 未開 PR（當天 PR 額度已被 #276 用掉）→ **10-17 起才開 PR 合 main**（10-16 額度被 #277 用掉，使用者決定再等一天）。
 
 ### 1.5 🟡 買方配案系統（10-05 GUI 首次真人實跑：57 客需跑通，但後段很吃記憶體）
 
