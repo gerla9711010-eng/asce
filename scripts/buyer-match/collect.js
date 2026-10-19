@@ -167,11 +167,13 @@
     return 99999;
   }
 
-  /* 「高雄市 新興區 忠孝一路」。房地 10-19 前後改版：收合的卡片沒有 .subtitle 了（點開才有），
-     改從整段文字抓，格式跟 .subtitle 一樣——指紋靠它，格式不同的話舊記錄全對不上，每張卡都變新卡 */
+  /* 「高雄市 新興區 忠孝一路」。房地 10-16~19 之間改版（10-19 實際開頁確認，30 張卡全部）：
+     地址 .subtitle → .summary-line、價格 .highlight → .orange。都找不到才從整段文字抓。
+     格式要跟舊指紋一樣——指紋靠它，格式不同的話舊記錄全對不上，每張卡都變新卡 */
+  const priceOf = (s) => T(s, '.highlight') || T(s, '.orange') || (leaves(s).find((t) => /^[\d,]+萬$/.test(t)) || '');
   function addrOf(s) {
-    const sub = T(s, '.subtitle');
-    if (sub) return sub;
+    const sub = (T(s, '.summary-line') || T(s, '.subtitle')).replace(/\s+/g, ' ');
+    if (/[市縣] /.test(sub)) return sub;
     const m = s.textContent.replace(/\s+/g, ' ').match(/(\S{2}[市縣]) (\S+?[區鄉鎮市])(?: (\S+?(?:路|街|道|段|巷)))?(?= |$)/);
     return m ? m.slice(1).filter(Boolean).join(' ') : '';
   }
@@ -186,7 +188,7 @@
       title: T(s, '.title'), subtitle: T(s, '.subtitle'),
       district: pa[1] || '', road: pa[2] || '', community: T(s, '.anchor-minor'),
       /* .highlight 偶爾是社區名（京典、采揚天），不是價格；那時改從葉節點找「…萬」 */
-      totalPrice: /萬$/.test(T(s, '.highlight')) ? T(s, '.highlight') : (lv.find((t) => /^[\d,]+萬$/.test(t)) || ''), unitPrice: lv.find((t) => /萬\/坪$/.test(t)) || '',
+      totalPrice: /萬$/.test(priceOf(s)) ? priceOf(s) : (lv.find((t) => /^[\d,]+萬$/.test(t)) || ''), unitPrice: lv.find((t) => /萬\/坪$/.test(t)) || '',
       floor: lv.find((t) => /樓$/.test(t) && (t.includes('/共') || t.includes('全棟'))) || '',
       age: lv.find((t) => /^[\d.]+年$/.test(t)) || '',
       layout: lv.find((t) => /房.*廳.*衛/.test(t)) || '',
@@ -258,7 +260,7 @@
      放標題會把同一間當成新物件、誤標 NEW。價格變了仍算新的（降價可能剛進到客人預算內） */
   const fingerprint = (p) => {
     const s = p.querySelector('fd-property-summary');
-    return s ? [addrOf(s), T(s, '.highlight')].join('¦') : '';
+    return s ? [addrOf(s), priceOf(s)].join('¦') : '';
   };
   /* 舊版指紋是「標題¦地址¦價格」三段，比對前一律砍成後兩段，換格式後第一次跑才不會整批變 NEW */
   const normFp = (x) => String(x || '').split('¦').slice(-2).join('¦');
