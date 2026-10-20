@@ -246,8 +246,8 @@
            套卡片價會讓每家都顯示同一價、降價偵測亂跳 */
         community: s.community || h.community || '',
         totalPrice: h.price ? Number(h.price).toLocaleString() + '萬' : s.totalPrice,
-        unitPrice: h.unit_price ? h.unit_price + '萬/坪' : s.unitPrice, ping: +h.building_area || 0,
-        floor: s.floor, age: s.age, layout: s.layout,
+        unitPrice: h.unit_price ? h.unit_price + '萬/坪' : s.unitPrice, ping: +h.building_area || 0, landPing: +h.land_area || 0,
+        floor: s.floor, age: s.age || (h.age > 0 ? h.age + '年' : ''), layout: s.layout,
         name: h.title || s.title || '', badge: '永慶', url: 'https://buy.yungching.com.tw/house/' + h.url,
         when: d === 0 ? '今天刊登' : d + '天前刊登', whenDays: d, store: h.store_name || '',
       });
