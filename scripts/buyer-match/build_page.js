@@ -14,7 +14,7 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':
 
 /* 複製訊息格式
  * 大樓  : 案名 / 社區名稱 路名 / 樓層/總樓高 / 總價（單價）/ 屋齡 / 網址
- * 其餘  : 案名 / 路名+類型(樓層) / 總價（單價）/ 地坪（透天才有）/ 屋齡 / 網址
+ * 其餘  : 案名 / [社區名稱 ]路名+類型(樓層)（社區名稱只有社區型透天有） / 總價（單價）/ 地坪（透天才有）/ 屋齡 / 網址
  * 每欄一行，開頭加 "- "
  * 單價＝總價÷總建坪（10-20 使用者定），算不出來才用刊登的單價。地坪是 KEIS land_area，10-20 之前存的舊物件沒有
  */
@@ -31,7 +31,8 @@ function copyText(it) {
     if (it.floor) L.push(it.floor);
   } else {
     const floor = it.floor ? '(' + it.floor + ')' : '';
-    L.push((it.road || '') + (it.kind || '') + floor);
+    const comm = it.kind === '透天' && it.community ? it.community + ' ' : ''; // 社區型透天才有社區名稱
+    L.push(comm + (it.road || '') + (it.kind || '') + floor);
   }
   L.push(priceLine(it));
   if (it.kind === '透天' && it.landPing > 0) L.push('地坪 ' + it.landPing + '坪');
