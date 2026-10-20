@@ -249,7 +249,7 @@
         unitPrice: h.unit_price ? h.unit_price + '萬/坪' : s.unitPrice, ping: +h.building_area || 0, landPing: +h.land_area || 0,
         floor: s.floor, age: s.age || (h.age > 0 ? h.age + '年' : ''), layout: s.layout,
         name: h.title || s.title || '', badge: '永慶', url: 'https://buy.yungching.com.tw/house/' + h.url,
-        when: d === 0 ? '今天刊登' : d + '天前刊登', whenDays: d, store: h.store_name || '',
+        when: d === 0 ? '今天刊登' : d + '天前刊登', whenDays: d, posted: h.created_at || '', store: h.store_name || '',
       });
     });
     R.cards++;
@@ -335,6 +335,7 @@
       floor: s?.floor || '', age: s?.age || '', layout: s?.layout || '',
       name: o.name || s?.title || '', badge: o.badge, url: o.url,
       when: o.when, whenDays: o.whenDays, store: o.store || '',
+      posted: o.whenDays >= 0 ? new Date(Date.now() - o.whenDays * 86400000).toISOString() : '',
     }));
     R.cards++; R.expanded++;
   }

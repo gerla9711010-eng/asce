@@ -148,6 +148,15 @@ if (MASK) {
   }
 }
 
+/* 幾天前刊登：when/whenDays 是收集當下算好存起來的，舊物件一直沿用就會停在第一次看到那天（10-20 發現）。
+   有 posted（刊登日，KEIS created_at）就照產頁當下重算；沒有的是 10-20 之前存的，只能照舊顯示 */
+const daysSince = (t) => Math.max(0, Math.floor((Date.now() - new Date(String(t).replace(' ', 'T')).getTime()) / 86400000)) || 0;
+const freshWhen = (it) => {
+  if (!it.posted || isNaN(new Date(String(it.posted).replace(' ', 'T')))) return it;
+  const d = daysSince(it.posted);
+  return Object.assign({}, it, { whenDays: d, when: d === 0 ? '今天刊登' : d + '天前刊登' });
+};
+
 /* 攤平成 folder > client > demand > items */
 const folders = {};
 for (const o of R.out || []) {
@@ -155,7 +164,7 @@ for (const o of R.out || []) {
   const f = (folders[o.folder] = folders[o.folder] || {});
   const c = (f[o.client] = f[o.client] || {});
   const items = (o.items || []).map((it) => {
-    const t = track(o.rawClient, o.rawDemand, it);
+    const t = track(o.rawClient, o.rawDemand, freshWhen(it));
     return Object.assign(t, { k: copyKey(o.rawClient, it) + (t.relist ? ' ' + copyKey(o.rawClient, { url: '/house/' + t.relist }) : '') });
   });
   c[o.demand] = (c[o.demand] || []).concat(items);
@@ -185,7 +194,7 @@ for (const fname of ORDER) {
       const rows = items.map((it) => {
         const t = copyText(it);
         return `<li class="item${it.isNew ? ' isnew' : ''}" data-k="${it.k}" data-copy="${esc(t)}">
-  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}${it.chg ? `<span class="chg${it.chg.down ? ' down' : ''}">${it.chg.down ? '降價' : '漲價'} ${esc(it.chg.from)}→${esc(it.chg.to)}</span>` : ''}${it.relist ? '<span class="chg relist">重新刊登</span>' : ''}<span class="sent" hidden></span><span class="when">${esc(it.when)}</span></div>
+  <div class="ihead"><label class="pickw"><input type="checkbox" class="pick" aria-label="選取這筆"></label><div class="badge b-${esc(it.badge)}">${esc(it.badge)}</div>${it.isNew ? '<span class="new">NEW</span>' : ''}${it.chg ? `<span class="chg${it.chg.down ? ' down' : ''}">${it.chg.down ? '降價' : '漲價'} ${esc(it.chg.from)}→${esc(it.chg.to)}</span>` : ''}${it.relist ? '<span class="chg relist">重新刊登</span>' : ''}<span class="when">${esc(it.when)}</span></div>
   <div class="meta">
     <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name || '(無案名)')}</a>
     <div class="sub">${esc([it.district, it.road, it.community].filter(Boolean).join(' · '))}</div>
@@ -317,10 +326,9 @@ body.hasbar{padding-bottom:80px}
 .pv .ph a{font-size:13px;color:var(--accent);white-space:nowrap}
 .pv iframe{flex:1 1 auto;width:100%;border:0;background:#fff}
 .when{margin-left:auto}
-/* 複製過的物件：綠色「已複製 N 次」＋整張卡淡一點，一眼看出哪些傳過了 */
-.sent{background:#2b8a3e;color:#fff;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;white-space:nowrap}
+/* 複製過的物件整張卡淡一點，一眼看出哪些傳過了（卡片上的「已複製 N 次」10-20 拿掉）；客戶列的「已複製 x/y」保留 */
 .sentn{white-space:nowrap;display:inline-block;background:#2b8a3e;color:#fff;font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:8px}
-.sent[hidden],.sentn[hidden]{display:none}
+.sentn[hidden]{display:none}
 .item.done{opacity:.6}
 .chg{background:#c92a2a;color:#fff;font-size:10.5px;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap}
 .chg.down{background:#1971c2}
@@ -384,8 +392,8 @@ document.querySelectorAll('.tile').forEach(t=>t.onclick=()=>openFolder(t.dataset
    本機直接開檔案時沒有 /api，失敗就不顯示，不影響複製 */
 let counts={};
 function paint(){
- document.querySelectorAll('.item').forEach(li=>{const n=Math.max(0,...li.dataset.k.split(' ').map(k=>counts[k]||0)),b=li.querySelector('.sent');
-  b.hidden=!n;b.textContent='已複製 '+n+' 次';li.classList.toggle('done',n>0)});
+ document.querySelectorAll('.item').forEach(li=>{const n=Math.max(0,...li.dataset.k.split(' ').map(k=>counts[k]||0));
+  li.classList.toggle('done',n>0)});  /* 卡片不顯示次數（10-20 使用者要求），只留複製過變淡 */
  document.querySelectorAll('.client').forEach(c=>{const all=[...new Set([...c.querySelectorAll('.item')].map(li=>li.dataset.k))];
   const done=all.filter(ks=>ks.split(' ').some(k=>counts[k])).length,b=c.querySelector('.sentn');b.hidden=!done;b.textContent='已複製 '+done+'/'+all.length})}
 function loadCounts(){fetch('api/copies',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{if(j){counts=j;paint()}}).catch(()=>{})}
