@@ -94,7 +94,7 @@ class Keis:
             self.fails = 0
             self.n += 1
             keep = ("url", "title", "price", "unit_price", "type", "community", "store_name", "created_at",
-                    "floor_start", "total_floors", "building_area")
+                    "floor_start", "total_floors", "building_area", "land_area", "age")
             res = {"houses": [{k: h.get(k) for k in keep} for h in r.json().get("houses", []) if h.get("url")]}
             self.cache[ck] = res
             return res
