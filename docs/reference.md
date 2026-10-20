@@ -580,6 +580,7 @@ GUI 會印 collect.js 的 note。10-07 改每 10 個客需重整頁面（worker 
 **10-15 兩台共用記錄**：state（已看過的物件，原本只在各電腦 browser-profile 的 localStorage）和 `seen.json` 現存 `OneDrive\桌面\買方配案資料\`，`worker.py` 開跑前逐客需合併（取 `at` 較新）、跑完寫回。起因：公司那台記錄停在 10-02，被當全新物件全展開，38 客需/約 404 筆就撞房地上限。家裡驗證 57/57、展開 0 張卡、27 分鐘。找不到 OneDrive 資料夾時靜默不同步。房地查詢額度是帳號共用，不分電腦。
 10-07：**手機網址 https://yc-buyer-match.pages.dev/**（公開、全名：使用者 10-07 看過約 20 位真實全名後決定不打碼，`build_page.js --mask` 留著可恢復），**只留網址一份**（不再產桌面 html）＋點案名頁內預覽。
 worker.py 跑完自動 `upload.py`（`build_page.js` → wrangler 發布）。n8n 版試過已刪（sandbox 擋 iframe）。待驗（使用者自己看）：iPhone 預覽、客戶兩欄卡、點名字只複製名字。
+10-20：頂部加「搜尋買方」框，A/B/C 一起找、比對客戶名＋客需名、部分符合就留，空格分開＝每個詞都要對到；清空或點左邊資料夾＝回單一資料夾。
 ⚠️ 含客戶姓名，`state-*.json`/`data.json`/`*.html`/`browser-profile/` 已 gitignore。
 
 **10-19 改用 KEIS 比對，新卡片不點開**（collect.js v7）：點開卡片會扣房地查詢次數，改成讀卡片摘要

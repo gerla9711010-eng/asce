@@ -215,7 +215,9 @@ for (const fname of ORDER) {
     fCount += cCount;
     fNew += cNew;
     totalNew += cNew;
-    fHtml += `<details class="client${cNew ? ' hasnew' : ''}">
+    /* 搜尋框比對用：客戶名＋客需名，部分符合就算 */
+    const sKey = [cname, ...Object.keys(demands)].join(' ').toLowerCase().replace(/\s+/g, '');
+    fHtml += `<details class="client${cNew ? ' hasnew' : ''}" data-s="${esc(sKey)}">
   <summary><span class="cname" title="點名字複製客戶名稱">${esc(cname)}</span> <span class="n">${cCount}</span>${newBadge(cNew)}<span class="sentn" hidden></span></summary>
   <div class="cbody">
     ${cHtml}
@@ -335,6 +337,14 @@ body.hasbar{padding-bottom:80px}
 .chg.relist{background:#7048e8}
 .more{color:var(--accent)}
 .item.done:hover,.item.done.sel{opacity:1}
+/* 跨資料夾搜尋買方：有字時三個資料夾一起攤開，只留名字/客需有對到的客戶 */
+.find{display:flex;gap:6px;align-items:center;margin-top:7px}
+.find input{flex:1 1 auto;min-width:0;max-width:360px;font:inherit;font-size:16px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+.find input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.find .n{white-space:nowrap}
+.searching .folder{margin-bottom:14px}
+.searching .tile.on{background:var(--card);border-color:var(--line);color:var(--fg)}
+.searching .tile.on .n{color:var(--dim)}
 </style>
 <div class="app">
 <nav class="side">${nav}</nav>
@@ -343,8 +353,10 @@ body.hasbar{padding-bottom:80px}
   <h1>買方配案</h1>
   <div class="stat">${totalClients} 位客戶 · ${totalDemands} 個客需 · <b>${totalItems}</b> 筆官網連結${totalNew ? ' · <span class="newn" style="margin-left:0">本次新增 ' + totalNew + '</span>' : ''}　|　更新 ${esc(localTime(R.finishedAt || R.startedAt))}</div>
   <div style="margin-top:7px"><button class="cp primary" type="button" data-copy="${esc(allText.join('\n\n'))}">一鍵全部複製</button></div>
+  <div class="find"><input type="search" id="q" placeholder="搜尋買方（A/B/C 一起找，打部分名字就好）" autocomplete="off" enterkeyhint="search"><span class="n" id="qn"></span></div>
 </div>
 ${body || '<p class="stat">沒有抓到任何官網連結。</p>'}
+<p class="stat" id="qnone" hidden>找不到符合的買方。</p>
 </main>
 </div>
 <div class="toast" id="t">已複製</div>
@@ -385,9 +397,22 @@ function openFolder(f){let hit=false;
  document.querySelectorAll('.tile').forEach(t=>t.classList.toggle('on',t.dataset.f===f));
  try{localStorage.setItem('bm-folder',f)}catch(e){}
  scrollTo(0,0);return true}
-document.querySelectorAll('.tile').forEach(t=>t.onclick=()=>openFolder(t.dataset.f));
-{let last=null;try{last=localStorage.getItem('bm-folder')}catch(e){}
+document.querySelectorAll('.tile').forEach(t=>t.onclick=()=>{if(q.value){q.value='';find()}openFolder(t.dataset.f)});
+function lastFolder(){let last=null;try{last=localStorage.getItem('bm-folder')}catch(e){}
  const first=document.querySelector('.tile');if(!(last&&openFolder(last))&&first)openFolder(first.dataset.f)}
+/* 跨 A/B/C 搜尋買方：比對客戶名＋客需名（不分大小寫），部分符合就留；空格分開的每個詞都要對到；清空＝回到原本看的資料夾 */
+const q=document.getElementById('q'),qn=document.getElementById('qn'),qnone=document.getElementById('qnone');
+function find(){const ws=q.value.toLowerCase().split(/\\s+/).filter(Boolean);
+ document.body.classList.toggle('searching',!!ws.length);
+ if(!ws.length){document.querySelectorAll('.client').forEach(c=>c.hidden=false);qn.textContent='';qnone.hidden=true;lastFolder();return}
+ let total=0;
+ document.querySelectorAll('.folder').forEach(f=>{let n=0;
+  f.querySelectorAll('.client').forEach(c=>{const ok=ws.every(w=>c.dataset.s.includes(w));c.hidden=!ok;if(ok)n++});
+  f.hidden=!n;total+=n});
+ qn.textContent=total?'找到 '+total+' 位':'';qnone.hidden=!!total}
+q.addEventListener('input',find);
+q.addEventListener('keydown',e=>{if(e.key==='Escape'){q.value='';find()}});
+lastFolder();
 /* 複製次數：存在 Cloudflare（functions/api/copies.js），電腦和手機看到同一份。
    本機直接開檔案時沒有 /api，失敗就不顯示，不影響複製 */
 let counts={};
