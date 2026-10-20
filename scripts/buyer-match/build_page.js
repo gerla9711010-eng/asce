@@ -13,7 +13,7 @@ const R = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /* 複製訊息格式
- * 大樓  : 案名 / 社區名稱 / 總價（單價）/ 屋齡 / 網址
+ * 大樓  : 案名 / 社區名稱 路名 / 樓層/總樓高 / 總價（單價）/ 屋齡 / 網址
  * 其餘  : 案名 / 路名+類型(樓層) / 總價（單價）/ 地坪（透天才有）/ 屋齡 / 網址
  * 每欄一行，開頭加 "- "
  * 單價＝總價÷總建坪（10-20 使用者定），算不出來才用刊登的單價。地坪是 KEIS land_area，10-20 之前存的舊物件沒有
@@ -27,7 +27,8 @@ function copyText(it) {
   const L = [];
   L.push(it.name || '(無案名)');
   if (it.kind === '大樓') {
-    if (it.community) L.push(it.community);
+    L.push([it.community, it.road].filter(Boolean).join(' '));
+    if (it.floor) L.push(it.floor);
   } else {
     const floor = it.floor ? '(' + it.floor + ')' : '';
     L.push((it.road || '') + (it.kind || '') + floor);
