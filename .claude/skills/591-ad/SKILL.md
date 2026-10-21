@@ -12,7 +12,7 @@ description: 用 KEIS／houseol 案件資料自動刊登 591 售屋廣告全流�
 ## 前置檢查
 
 1. 591 後台已登入；houseol（＝展售系統）已登入——只用來查聯絡人＋大樓名稱（`houseol_contact.js`）。
-2. KEIS API 憑證在 `桌面\keis\.env`。`keis.py` 登入 token 暫存 20 分鐘重用（10-21 連登十幾次被回 429，也是紅線 360）。
+2. KEIS API 憑證在 `桌面\keis\.env`。`keis.py` 登入 token 照效期重用約 2 小時、重用時不另外打請求（10-21 連登十幾次被回 429，也是紅線 360）。
 3. 瀏覽器：**第一步就開自己的新分頁，之後每個 navigate／javascript_tool 都帶 tabId**（10-21 沒帶，蓋掉填好的編輯頁）。
    剛 navigate 完第一次 javascript_tool 常回「unparseable URL」，再呼叫一次就好。
 
