@@ -8,7 +8,7 @@
 const DATA = { /* 貼 fill591.js 用的那份 */ };
 
 const EXPECT_BROKER = '凱璿誼峰不動產有限公司';
-const CONTACT_MARK = 'line.me/ti/p/kg1pMk4vX8';
+const CONTACT_MARK = '0912877583';   // 2026-10-21 起 591 文案不放 LINE 網址，只驗電話
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 await (async () => {
@@ -49,7 +49,7 @@ await (async () => {
   chk('裝潢', '簡易裝潢', after('裝潢程度'));
   chk('文案有存進去', true, desc.length > 30 && !desc.includes('暫未添加'));
   chk('文案開頭', D.desc && D.desc[0], desc.split('\n')[0].trim());
-  chk('LINE／電話', true, desc.includes(CONTACT_MARK) && desc.includes('0912877583'));
+  chk('電話', true, desc.includes(CONTACT_MARK));
   chk('經紀業名稱', EXPECT_BROKER, after('經紀業名稱'));
 
   return JSON.stringify({

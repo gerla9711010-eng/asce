@@ -47,9 +47,14 @@ const DATA = {
   tags: [],                   // 特色標籤，prep.py 產（'明星學區'／'制震宅'／'重劃區'）
 };
 
-/* 文案結尾固定加聯絡方式，比照臉書發文（docs/reference.md「聯絡人固定」那條）。
-   2026-10-14 使用者要求。腳本自動補，DATA.desc 不用自己寫這兩行；已經有了就不重複加。 */
-const CONTACT = ['', '📞 薛先生 0912877583（同 LINE）', 'LINE：https://line.me/ti/p/kg1pMk4vX8'];
+/* 修改既有廣告（換物件，編輯頁 post/two/sale/{編號}）時改成 { shape: '電梯大樓' }（型態不用換就 {}）。
+   新刊（空白表單）留 null。修改模式會：先換房屋型態 → DATA 裡空字串/null 的格子清掉（新刊時是跳過，
+   舊案的「之7」、土地坪數會殘留）→ 生活機能/特色標籤不在清單裡的取消勾。2026-10-21 EG0517920 換進 S20698894 踩出來的。 */
+const EDIT = null;
+
+/* 文案結尾固定加電話（2026-10-14 使用者要求）。腳本自動補，DATA.desc 不用自己寫；已經有了就不重複加。
+   2026-10-21 使用者要求：591 文案不要放 LINE 網址（臉書那邊照舊）。 */
+const CONTACT = ['', '📞 薛先生 0912877583（同 LINE）'];
 
 /* ---------- 以下不用改 ---------- */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -225,6 +230,32 @@ async function pickStreet(sel, name) {
 }
 
 // 特色描述是 ProseMirror，innerText= 沒用，要 execCommand 一行一行打
+/* 編輯頁的房屋型態要先點「變更現況/法定用途」才會長出下拉（住宅／型態／用途三個） */
+async function changeShape(name) {
+  const SHAPES = ['別墅', '透天厝', '公寓', '華廈', '電梯大樓'];
+  const find = () => [...document.querySelectorAll('.ant-select')]
+    .find(x => SHAPES.includes(((x.querySelector('.ant-select-selection-item') || {}).innerText || '').trim()));
+  let sel = find();
+  if (!sel) {
+    const a = [...document.querySelectorAll('a')].find(x => x.innerText.trim() === '變更現況/法定用途');
+    if (a) { a.click(); await sleep(700); }
+    sel = find();
+  }
+  if (!sel) return '找不到房屋型態下拉';
+  if (sel.innerText.trim() === name) return name;
+  const r = await pickSelect(sel, name, '房屋型態');
+  await closePopups(); await sleep(800);   // 換型態會重繪（大樓長出社區必填、車位列等）
+  return r;
+}
+function clearVal(el) {
+  const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement : HTMLInputElement;
+  Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(el, '');
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+const selNowEarly = s => s ? ((s.querySelector('.ant-select-selection-item') || {}).innerText || '').trim() : '';
+
 function fillDesc(lines) {
   const pm = document.querySelector('[contenteditable=true].ProseMirror');
   if (!pm) return '找不到富文本框';
@@ -243,8 +274,10 @@ function fillDesc(lines) {
   return pm.innerText.slice(0, 40) + '…';
 }
 
-(async () => {
+/* ⚠️ 一定要 await：不 await 的話工具回傳 {} 就收工，腳本跑到一半被切斷（2026-10-21 下拉做完、文字格全沒填） */
+await (async () => {
   const D = DATA;
+  const rShape = EDIT && EDIT.shape ? await changeShape(EDIT.shape) : 'skip';
   // 1. 會讓版面多長格子的單選先點，後面的格子才找得到（車位面積列、管理費金額格）
   pickRadio(D.areaParking ? '含車位面積' : '不含車位面積', '權狀坪數');
   pickRadio(D.mgmtFee ? '有' : '無', '管理費');
@@ -263,7 +296,7 @@ function fillDesc(lines) {
   await closePopups();
 
   // 3. 純文字欄位：每次都現場用標籤找，重繪後不會對錯格
-  const spec = [
+  const allSpec = [
     ['巷', () => field('出售地址', '巷'), D.lane],
     ['弄', () => field('出售地址', '弄'), D.alley],
     ['號', () => field('出售地址', '號'), D.no],
@@ -289,8 +322,13 @@ function fillDesc(lines) {
     ['管理費', () => field('管理費', '元/月'), D.mgmtFee],
     ['捷運站', () => field('附近交通', '捷運站'), D.mrt],
     ['標題', () => field('廣告標題'), D.title],
-  ].filter(s => s[2] !== null && s[2] !== undefined && s[2] !== '');
+  ];
+  const isEmpty = v => v === null || v === undefined || v === '';
+  const spec = allSpec.filter(s => !isEmpty(s[2]));
   for (const [, f, v] of spec) setVal(f(), v);
+  const cleared = [];
+  if (EDIT) for (const [name, f, v] of allSpec)
+    if (isEmpty(v)) { const el = f(); if (el && el.value) { cleared.push(name + '(' + el.value + ')'); clearVal(el); } }
 
   // 4. 其他單選（限定列，避免「是／否」對到別列）
   pickRadio('成屋', '建築完工時間');
@@ -309,8 +347,17 @@ function fillDesc(lines) {
     await sleep(300);
   }
 
+  const unchecked = [];
+  if (EDIT) for (const [list, rowName] of [[D.amenities || [], '生活機能'], [D.tags || [], '特色標籤']]) {
+    const r = row(rowName);
+    if (r) for (const lb of r.querySelectorAll('label.ant-checkbox-wrapper-checked'))
+      if (!list.includes(norm(lb.innerText))) { unchecked.push(norm(lb.innerText)); lb.click(); await sleep(250); }
+  }
+  if (EDIT && !D.orientation && selNowEarly(selectIn(row('朝向'))))
+    log.push('朝向還留著舊值「' + selNowEarly(selectIn(row('朝向'))) + '」，新案沒有朝向，人工清掉');
+
   // 5. 文案（結尾自動補聯絡方式）
-  const desc = D.desc.some(l => l.includes('line.me/ti/p/')) ? D.desc : D.desc.concat(CONTACT);
+  const desc = D.desc.some(l => l.includes('0912877583')) ? D.desc : D.desc.concat(CONTACT);
   const rDesc = fillDesc(desc);
 
   /* 社區名稱大樓案必填：591 沒自動帶出、DATA 也沒給時填「無」（591 自己的提示就這樣寫）。
@@ -340,7 +387,7 @@ function fillDesc(lines) {
   ].concat(D.hideNo ? [['隱藏門號', '出售地址']] : [])
    .concat((D.amenities || []).map(t => [t, '生活機能']), (D.tags || []).map(t => [t, '特色標籤']));
   return JSON.stringify({
-    下拉: { 縣市: rCity, 鄉鎮: rDist, 街道: rStreet, 出售型態: rFloorType, 朝向: rOrient, 車位類型: rPark },
+    下拉: { 房屋型態: rShape, 縣市: rCity, 鄉鎮: rDist, 街道: rStreet, 出售型態: rFloorType, 朝向: rOrient, 車位類型: rPark },
     現況: {
       縣市: selNow(addr()[0]), 鄉鎮: selNow(addr()[1]), 街道: selNow(addr()[2]),
       出售型態: selNow(selectIn(floorRow())), 朝向: selNow(selectIn(row('朝向'))),
@@ -351,6 +398,8 @@ function fillDesc(lines) {
     單選: radios.map(([t, r]) => t + (isPicked(t, r) ? '✓' : '✗')),
     文案: rDesc,
     補填過: missed,
+    清掉舊值: EDIT ? cleared : '-',
+    取消勾選: EDIT ? unchecked : '-',
     對不上: bad,          // 空陣列＝全部正確，非空就要人工看
     警告: log,
   }, null, 1);
