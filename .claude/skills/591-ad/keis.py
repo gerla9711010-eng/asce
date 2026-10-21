@@ -83,6 +83,51 @@ def find_property(c, contract_no):
     return hits[-1]
 
 
+def mark_floorplan(p):
+    """KEIS 只有專員標過的格局圖檔名才帶「格局圖」。沒標的（AA1084264 的 002.jpg：白底黑線的建物測量成果圖）
+    會被當一般照片傳到 591「房屋照片」。用「白色佔 60% 以上＋幾乎沒彩度」認出來，改名加 _格局圖。
+    兩張已知格局圖實測：白 82%／85%、彩度 0；一般照片白 ≤8%。"""
+    if "格局" in p.stem or p.suffix.lower() not in (".jpg", ".jpeg", ".png"):
+        return p
+    try:
+        from PIL import Image, ImageStat
+        im = Image.open(p).convert("RGB")
+        small = im.convert("L").resize((80, 80))
+        white = sum(1 for v in small.getdata() if v > 235) / 6400.0
+        sat = ImageStat.Stat(im.convert("HSV")).mean[1]
+    except Exception:
+        return p
+    if white < 0.6 or sat > 8:
+        return p
+    q = p.with_name(p.stem + "_格局圖" + p.suffix)
+    p.rename(q)
+    print("[格局圖] %s 白底無彩度（白 %.0f%%），改名 %s，傳到 591「格局圖」欄" % (p.name, white * 100, q.name))
+    return q
+
+
+def contact_sheet(files, dest, cols=5, w=240, h=180):
+    """縮圖總覽：一張圖看完全部照片，左上角標檔名（001、002_格局圖…）。總覽檔不會被當照片上傳（_ 開頭）。"""
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        return None
+    pics = [p for p in files if p.suffix.lower() in (".jpg", ".jpeg", ".png")]
+    if not pics:
+        return None
+    rows = (len(pics) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * w, rows * h), "white")
+    d = ImageDraw.Draw(sheet)
+    for i, p in enumerate(pics):
+        im = Image.open(p).convert("RGB")
+        im.thumbnail((w - 6, h - 6))
+        x, y = (i % cols) * w + 3, (i // cols) * h + 3
+        sheet.paste(im, (x, y))
+        d.rectangle([x, y, x + 70, y + 16], fill="black")
+        d.text((x + 3, y + 2), p.stem[:3] + ("*" if "格局" in p.stem else ""), fill="yellow")
+    sheet.save(dest, quality=80)
+    return dest
+
+
 def cmd_photos(args):
     c = keis_client()
     prop = find_property(c, args.contract_no)
@@ -100,6 +145,14 @@ def cmd_photos(args):
         names = [n for n in z.namelist() if not n.endswith("/")]
         z.extractall(out)
     files = sorted(p for p in out.rglob("*") if p.is_file())
+    labeled = any("格局" in p.stem for p in files)
+    files = [mark_floorplan(p) for p in files]
+    if not labeled:
+        # 第二道防線（2026-10-21 使用者要求）：KEIS 沒標格局圖時，自動判斷可能漏（彩色格局圖、手機翻拍），
+        # 拼一張縮圖總覽，Claude 上傳前一定 Read 看一眼，順便確認被判成格局圖的那張真的是。
+        sheet = contact_sheet(files, out / "_總覽.jpg")
+        if sheet:
+            print("[必看] KEIS 沒標格局圖，上傳前先 Read %s 看一眼（編號＝檔名）" % sheet)
     total = sum(p.stat().st_size for p in files)
     print("解壓 %d 個檔到 %s（合計 %.1f MB）" % (len(files), out.resolve(), total / 1048576.0))
     for p in files:
