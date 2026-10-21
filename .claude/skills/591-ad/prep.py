@@ -223,8 +223,9 @@ def main():
     if data["parkingType"] and "其他" in data["parkingType"]:
         warn.append("停車方式「%s」看不出平面/機械，車位類型跟使用者確認" % park_desc)
     if a.type in ("電梯大樓", "華廈") and not data["community"]:
-        # 換物件時空社區會把舊社區名清掉、最後被填成「無」；新刊時 591 依地址帶的也常是空的（AA1084264 案名才有「恆上君悅」）
-        warn.append("來源沒有大樓名稱：從案名找社區名填進 DATA.community（例：案名「…恆上君悅3房平車」→ 恆上君悅），真的沒有才留空")
+        # 591 依地址會自己帶社區（使用者 2026-10-21 提醒），這裡只提醒看一眼結果
+        warn.append("來源沒有大樓名稱：community 留空，fill591 會讀 591 依地址帶出的社區名（在 placeholder）；"
+                    "回傳「社區來源」是「無」才自己查：案名（…恆上君悅3房平車）→ WebSearch「路名＋門牌 社區」（只查到門牌號，不帶樓層）")
     for k in ("city", "district", "street", "no", "totalFloors", "rooms", "builtY", "price"):
         if not data[k]:
             warn.append("必填欄位 %s 沒抓到，手動補" % k)

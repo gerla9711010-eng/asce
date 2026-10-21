@@ -278,6 +278,7 @@ function fillDesc(lines) {
 await (async () => {
   const D = DATA;
   const rShape = EDIT && EDIT.shape ? await changeShape(EDIT.shape) : 'skip';
+  const oldComm = (field('社區名稱') || {}).value || '';   // 換物件前的社區名，用來判斷 591 有沒有依新地址重帶
   // 1. 會讓版面多長格子的單選先點，後面的格子才找得到（車位面積列、管理費金額格）
   pickRadio(D.areaParking ? '含車位面積' : '不含車位面積', '權狀坪數');
   pickRadio(D.mgmtFee ? '有' : '無', '管理費');
@@ -327,8 +328,21 @@ await (async () => {
   const spec = allSpec.filter(s => !isEmpty(s[2]));
   for (const [, f, v] of spec) setVal(f(), v);
   const cleared = [];
+  /* 社區名稱沒給時：591 會依地址查它的社區庫，但結果放在 placeholder（提示文字），**不是 value**
+     （2026-10-21 AA1084264：value 空、placeholder「恆上君悅大樓」；以前以為它沒帶，結果被補成「無」）。
+     所以讀 placeholder，不是預設提示字就拿來填；換物件時舊社區名還留著也一併換掉。 */
+  let commFrom = D.community ? 'DATA' : '';
+  if (isEmpty(D.community)) {
+    await sleep(1200);
+    const c = field('社區名稱');
+    const ph = c ? (c.placeholder || '').trim() : '';
+    if (c && ph && !/請輸入|社區名或地址/.test(ph)) { clearVal(c); setVal(c, ph); commFrom = '591依地址帶出'; }
+    else if (EDIT && c && c.value && c.value === oldComm) {
+      log.push('社區名還是舊案的「' + oldComm + '」，591 也沒依新地址帶出，已清掉——從案名找社區名'); clearVal(c);
+    }
+  }
   if (EDIT) for (const [name, f, v] of allSpec)
-    if (isEmpty(v)) { const el = f(); if (el && el.value) { cleared.push(name + '(' + el.value + ')'); clearVal(el); } }
+    if (isEmpty(v) && name !== '社區') { const el = f(); if (el && el.value) { cleared.push(name + '(' + el.value + ')'); clearVal(el); } }
 
   // 4. 其他單選（限定列，避免「是／否」對到別列）
   pickRadio('成屋', '建築完工時間');
@@ -393,7 +407,7 @@ await (async () => {
       出售型態: selNow(selectIn(floorRow())), 朝向: selNow(selectIn(row('朝向'))),
       車位類型: D.areaParking ? selNow(selectIn(row('車位面積'))) : '-',
       管理費週期: D.mgmtFee ? selNow(selectIn(row('管理費'))) : '-',
-      社區: (field('社區名稱') || {}).value,   // 591 可能自動改成它資料庫的名字，人工看一眼
+      社區: (field('社區名稱') || {}).value, 社區來源: commFrom || '無（補「無」）', 舊社區: EDIT ? oldComm : '-',   // 591 可能自動改成它資料庫的名字，人工看一眼
     },
     單選: radios.map(([t, r]) => t + (isPicked(t, r) ? '✓' : '✗')),
     文案: rDesc,
