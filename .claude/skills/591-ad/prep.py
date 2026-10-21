@@ -150,8 +150,12 @@ def main():
     m = re.search(r"座\s*向：\s*座\s*(\S*)\s*朝\s*(\S*)\s", t)
     if m and m.group(1) and m.group(2) and m.group(1) not in ("朝",):
         ori = "坐%s朝%s" % (m.group(1), m.group(2))
-    selling = re.search(r"訴\s*求\s*重\s*點(.*?)(?:凱璿不動產事業股份有限公司|本表單係)", t, re.S)
-    points = [p.strip() for p in re.findall(r"◎([^◎]+)", selling.group(1))] if selling else []
+    # 結尾是「該店公司名＋本表單係…」，別店公司名不同（EG0517920 是凱璿文山不動產有限公司），所以停在任何「凱璿…公司」
+    selling = re.search(r"訴\s*求\s*重\s*點(.*?)(?:凱璿\S*公司|本表單係)", t, re.S)
+    body = selling.group(1) if selling else ""
+    points = [p.strip() for p in re.findall(r"◎([^◎]+)", body)]
+    if not points:   # 沒用◎條列、一行一條的寫法（EG0517920）
+        points = [ln.strip() for ln in body.splitlines() if ln.strip()]
 
     pts = "\n".join(points)
     market = grab(r"市\s*場：[ \t]*(\S*)", t, "")
