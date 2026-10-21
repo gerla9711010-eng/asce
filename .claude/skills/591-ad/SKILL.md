@@ -13,6 +13,7 @@ description: 用 KEIS／houseol 案件資料自動刊登 591 售屋廣告全流�
 
 1. 591 後台已登入；houseol（＝展售系統）已登入——只用來查聯絡人＋大樓名稱（`houseol_contact.js`）。
 2. KEIS API 憑證在 `桌面\keis\.env`。`keis.py` 登入 token 照效期重用約 2 小時、重用時不另外打請求（10-21 連登十幾次被回 429，也是紅線 360）。
+   **請求上限 10 分鐘 40 次**（超過腳本自己拒絕）。**改 prep.py／ping.py 後跑 `test_prep.py`（離線、不連 KEIS）**，不要拿真案號反覆跑。
 3. 瀏覽器：**第一步就開自己的新分頁，之後每個 navigate／javascript_tool 都帶 tabId**（10-21 沒帶，蓋掉填好的編輯頁）。
    剛 navigate 完第一次 javascript_tool 常回「unparseable URL」，再呼叫一次就好。
 
@@ -342,6 +343,7 @@ KEIS 慣例是一物件一筆，所以要**重開舊那筆**而不是新開：�
 - `pay0.js`（同資料夾）：第 3 頁取消加購＋0 元才送出、第 4 頁拿網址。不在第 3 頁時會列出第 2 頁的表單紅字（保存被擋的原因）。
 - `verify591.js`（同資料夾）：刊登後前台驗收，跟 DATA 比 16 項；`參考.有效期` 拿去記 ledger。
 - `submit591.js`（同資料夾）：編輯頁送出（三個確認框＋關推銷，送出前檢查照片/文案）。換物件用。
+- `test_prep.py`（同資料夾）：prep.py 離線回歸測試（fixtures/ 有個資不進 git；新案例用 `prep.py <案號> --save-fixture` 存一次）。
 - `houseol_contact.js`（同資料夾）：houseol 來源頁只抓承辦人/手機/分店/大樓名稱，可一次多筆。
 - `ledger591.py`（同資料夾）：591 版位對照檔（到期日倒數），看門狗判斷六的資料來源。
 - `save591.js`（同資料夾）：第 2 頁等照片數對上才按「保存資料，下一步」。2026-10-14 AG1918099 實跑過。

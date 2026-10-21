@@ -63,6 +63,8 @@ TOKEN_CACHE = ENV_PATH.parent / ".keis_token_591ad.json"
 TOKEN_TTL = 20 * 60
 COOLDOWN_FILE = ENV_PATH.parent / ".keis_cooldown_591ad"
 COOLDOWN = 30 * 60
+BUDGET_FILE = ENV_PATH.parent / ".keis_reqlog_591ad.json"
+BUDGET, BUDGET_WINDOW = 40, 10 * 60
 
 
 def keis_client():
@@ -78,13 +80,30 @@ def keis_client():
     except (OSError, ValueError):
         pass
 
+    def on_request(req):
+        # 請求上限（2026-10-21）：10 分鐘內超過 BUDGET 次就拒絕，不要等被 429 才停。
+        # 正常一整套換物件約 15 次；超過代表在迴圈測試或重試，停下來想，測試改用 prep.py --offline。
+        now = time.time()
+        try:
+            log = [t for t in json.loads(BUDGET_FILE.read_text(encoding="utf-8")) if now - t < BUDGET_WINDOW]
+        except (OSError, ValueError):
+            log = []
+        if len(log) >= BUDGET:
+            sys.exit("KEIS 請求上限：%d 分鐘內已送 %d 次，拒絕再送。停下來想為什麼這麼多；測試用 prep.py --offline。"
+                     % (BUDGET_WINDOW // 60, len(log)))
+        log.append(now)
+        try:
+            BUDGET_FILE.write_text(json.dumps(log), encoding="utf-8")
+        except OSError:
+            pass
+
     def on_response(resp):
         if resp.status_code == 429:
             COOLDOWN_FILE.write_text(str(time.time()), encoding="utf-8")
             sys.exit("KEIS 回 429 限流，已停手並冷卻 %d 分鐘。不要重試（使用者規定）。" % (COOLDOWN // 60))
     c = httpx.Client(timeout=120, follow_redirects=True,
                      headers={"user-agent": "Mozilla/5.0", "referer": BASE + "/login"},
-                     event_hooks={"response": [on_response]})
+                     event_hooks={"request": [on_request], "response": [on_response]})
     # token 是 JWT，效期 2 小時（10-21 解出來看的）。照它自己的 exp 用到前 5 分鐘，不另外打請求驗證
     try:
         tok = json.loads(TOKEN_CACHE.read_text(encoding="utf-8"))

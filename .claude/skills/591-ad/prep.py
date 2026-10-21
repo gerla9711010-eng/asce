@@ -117,7 +117,18 @@ def infer_type(form, elevators, above):
 
 # ---------------- 兩種來源 → 同一份 facts ----------------
 
-def from_keis(key):
+FIXTURES = HERE / "fixtures"   # 離線測試資料（有地址/承辦人，個資，.gitignore 掉）
+
+
+def from_keis(key, offline=False, save=False):
+    """offline：只讀 fixtures/{案號}.json，不連 KEIS（改 prep.py 測試用，2026-10-21 測試連打 KEIS 被限流後加的）。
+    save：連 KEIS 後把回應存成 fixture。"""
+    if offline:
+        p = FIXTURES / ("%s.json" % key)
+        if not p.exists():
+            sys.exit("沒有離線資料 %s（先用 --save-fixture 連一次 KEIS 存下來）" % p)
+        fx = json.loads(p.read_text(encoding="utf-8"))
+        return keis_facts(fx["prop"], fx["detail"])
     import keis
     c = keis.keis_client()
     prop = keis.find_property(c, key)
@@ -128,6 +139,15 @@ def from_keis(key):
             sys.exit("KEIS 用 %s 查到 %d 筆，停手：%s" % (key, len(items), [i.get("contract_no") for i in items]))
         prop = items[0]
     x = c.get(keis.API + "/property-management/%s/" % prop["id"]).json()
+    if save:
+        FIXTURES.mkdir(exist_ok=True)
+        (FIXTURES / ("%s.json" % prop["contract_no"])).write_text(
+            json.dumps({"prop": prop, "detail": x}, ensure_ascii=False, indent=1), encoding="utf-8")
+        print("[fixture] 存到 %s" % (FIXTURES / ("%s.json" % prop["contract_no"])))
+    return keis_facts(prop, x)
+
+
+def keis_facts(prop, x):
     feats = "\n".join(x.get("feature_%d" % i) or "" for i in range(1, 6))
     cd = x.get("construction_date") or ""
     built = None
@@ -243,9 +263,13 @@ def main():
     ap.add_argument("--title", help="廣告標題（6～30 字）")
     ap.add_argument("--hl", action="append", default=[], help="亮點一條（2～5 條，只能改寫訴求重點）")
     ap.add_argument("--emit", metavar="PREFIX", help="產 PREFIX_fill.js、PREFIX_verify.js（要一起帶 --head --title --hl）")
+    ap.add_argument("--offline", action="store_true", help="只讀 fixtures/，不連 KEIS（改這支程式時測試用）")
+    ap.add_argument("--save-fixture", action="store_true", help="連 KEIS 後把回應存進 fixtures/")
     a = ap.parse_args()
 
-    f = from_houseol(a.src) if Path(a.src).is_file() else from_keis(a.src)
+    if a.offline and a.photos:
+        sys.exit("--offline 不能下載照片（會連 KEIS）")
+    f = from_houseol(a.src) if Path(a.src).is_file() else from_keis(a.src, a.offline, a.save_fixture)
     warn = []
 
     typ, why = (a.type, "手動 --type") if a.type else infer_type(f["form"], f["elevators"], f["above"])
