@@ -291,10 +291,8 @@ def main():
         if not f_from:
             warn.append("沒有樓層資料，floorFrom 要手動補")
 
-    contract = {"一般委託": "有簽訂", "專任委託": "有簽訂專任約"}.get(f["contract_type"])
-    if not contract:
-        warn.append("委託書沒值（%s）：591 必填，一般委託選「有簽訂」、專任選「有簽訂專任約」，DATA.contract 手動補"
-                    % ("houseol 備案不查" if f["src"] == "houseol" else "KEIS 委託類型 %r" % f["contract_type"]))
+    # 能上架就一定有委託書（使用者 2026-10-21），預設「有簽訂」不問；KEIS 順便帶回專任才選專任約
+    contract = "有簽訂專任約" if f["contract_type"] == "專任委託" else "有簽訂"
 
     pts = "\n".join(f["points"])
     amenities = [n for n, pat in AMENITY if re.search(pat, pts)]
