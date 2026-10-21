@@ -14,3 +14,4 @@ scripts/buyer-match/.wrangler/
 scripts/buyer-match/state-backup*.json
 scripts/buyer-match/browser-profile/
 scripts/buyer-match/seen.json
+.claude/skills/591-ad/fixtures/
