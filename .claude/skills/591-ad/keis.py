@@ -271,7 +271,7 @@ def cmd_sync(args):
         return
 
     title = args.title or note.get("title") or ""
-    member = args.member or note.get("member") or ""
+    member = args.member or "薛力瑜"   # 2026-10-21 使用者：廣告專員一律填薛力瑜（臉書 v3、出租線本來就是）
     # 價格、路段比照臉書發文線（yc-v3-scan-publish 的「KEIS 新增廣告」節點）自己帶：
     # API 不會依官網連結自動帶入（那是 KEIS 網頁前端做的），沒帶就是空的。2026-10-14 前四筆都漏了。
     prop = find_property(c, args.contract_no) or {}
@@ -317,7 +317,7 @@ def main():
     p2.add_argument("--url591", required=True, help="591 廣告完整網址")
     p2.add_argument("--yc-url", dest="yc_url", help="永慶官網連結（Notion 查不到時手動帶）")
     p2.add_argument("--title", help="新建時的廣告標題（Notion 查不到才需要）")
-    p2.add_argument("--member", help="新建時的承辦專員（Notion 查不到才需要）")
+    p2.add_argument("--member", help="新建時的廣告專員（預設薛力瑜，一律是使用者本人）")
     p2.add_argument("--reopen", action="store_true",
                     help="既有廣告已關閉時，一併把 is_expired 改回 False 重新啟用")
     p2.add_argument("--price", type=float, help="順便更新廣告總價（萬元）")

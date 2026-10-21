@@ -91,7 +91,7 @@ Get-ChildItem "$env:USERPROFILE\OneDrive\桌面\H888_*.zip" | Sort-Object LastWr
    ③「確認修改？…2次修改機會…將扣除1次」點「確認修改」→ 出「出售資訊修改成功！」＋付費「定時更新」推銷，點右上 X 關掉，**不要按立即支付**。
 8. 送出後（2026-10-21 實跑過）：
    - 開 `sale.591.com.tw/home/house/detail/2/{編號}.html` 跑 `verify591.js`（S20698894 16/16）
-   - KEIS 新案：`keis.py sync B --url591 … --member 薛力瑜`（**專員填薛力瑜**，是使用者刊的，不是來源承辦人；先 dry-run 再 `--apply`）
+   - KEIS 新案：`keis.py sync B --url591 …`（專員預設薛力瑜；先 dry-run 再 `--apply`）
    - KEIS 舊案：A 那筆 GET 整筆 → `adcase_url591=''`、平台拿掉 591；平台變空就 `is_expired=True` → PUT 整筆 → 回讀
      （A 有臉書時只拿掉 591，不關閉）
    - `ledger591.py swap S{編號} --case B --adcase {新 adcase} --title …`（到期日不變）
@@ -109,7 +109,7 @@ python .claude/skills/591-ad/prep.py <scratchpad>/page.txt --photos <scratchpad>
 ```
 
 `prep.py` 一次吐出：第 2 頁網址（直接跳過第 1 頁）、`fill591.js` 要的 DATA（坪數走 `ping.py` 同一套 `solve()`，
-委託書去 KEIS 查）、訴求重點原文、照片清單、KEIS 同步指令（承辦人＝來源頁第一承辦人）、`[注意]` 清單。
+委託書去 KEIS 查）、訴求重點原文、照片清單、KEIS 同步指令（**廣告專員一律薛力瑜**，不是來源承辦人——2026-10-21 使用者決定，KEIS 專員名單只有本店 4 人）、`[注意]` 清單。
 坪數算不出來 exit 1、來源只寫「大樓」exit 2——都是停下來問使用者（後者問完帶 `--type` 重跑）。
 `[注意]` 有東西就逐條處理，不要直接貼。title / desc 留空，由 Claude 依 Step 4 寫。
 
