@@ -530,8 +530,10 @@ def check_591_offline(state: dict, now: datetime, dry: bool) -> None:
             advice = "→ 這期改址次數用完了，不能換物件，只能關閉"
         else:
             advice = f"→ 還能換物件刊登（改址剩 {edits_left} 次）"
+        # 使用者要知道下架的案子該聯絡誰（ledger591.py 記的承辦人，2026-10-21 起）
+        who = f"\n  聯絡：{e['agent']} {e.get('phone') or ''}（{e.get('store') or ''}）" if e.get("agent") else ""
         lines.append(f"• {e.get('title') or e.get('case')}（{e.get('case')}）\n"
-                     f"  591 {sid} 剩 {days} 天（{e['expires']} 到期）{advice}")
+                     f"  591 {sid} 剩 {days} 天（{e['expires']} 到期）{advice}{who}")
     lines.append("換物件跟 Claude 說「591換物件 S… 改 案件編號」，關閉的話記得也跟它說一聲更新對照檔。")
     text = "\n".join(lines)
     log("591 下架檢查：" + text.replace("\n", " / "))

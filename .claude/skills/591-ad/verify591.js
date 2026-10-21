@@ -15,7 +15,12 @@ await (async () => {
   const D = DATA;
   if (!/sale\.591\.com\.tw\/home\/house\/detail/.test(location.href))
     return JSON.stringify({ 錯誤: '不在 591 廣告頁：' + location.href });
-  for (let t = 0; t < 20 && !document.body.innerText.includes('屋況特色'); t++) await sleep(500);
+  /* 上下兩半分開載：只等「屋況特色」不夠，上半部（標題 h1、售價、坪數）可能還沒出來，
+     2026-10-21 S21079307 第一次驗收就誤報 9 項、等 3 秒重跑 16/16。三樣都到齊才比對，最多等 15 秒。 */
+  const ready = () => { const T = document.body.innerText, h = document.querySelector('h1');
+    return T.includes('屋況特色') && T.includes('權狀坪數') && h && h.innerText.trim(); };
+  for (let t = 0; t < 30 && !ready(); t++) await sleep(500);
+  await sleep(500);
   const T = document.body.innerText;
   // 「標籤\n：\n值」或「值\n標籤」兩種排法
   const after = label => { const m = T.match(new RegExp(label + '\\s*[:：]?\\s*\\n\\s*[:：]?\\s*([^\\n]+)')); return m ? m[1].trim() : null; };
