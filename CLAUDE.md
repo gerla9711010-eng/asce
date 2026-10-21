@@ -6,8 +6,7 @@
 git fetch origin main && git rebase origin/main
 ```
 
-Claude Code 每次開 session 會自動建新 branch，基礎點不一定是最新的 main。
-不做這步，STATUS.md 和 workflows/ 都會是舊的，你會重做別人已經完成的事。
+每個 session 的 branch 基礎點不一定是最新 main，不做這步 STATUS.md 和 workflows/ 都是舊的，會重做別人做完的事。
 
 ## 開工前必讀
 1. 跑 `python scripts/n8n_sync.py --check`（10 秒，看 git 跟 n8n 有沒有分岔）
@@ -18,9 +17,7 @@ Claude Code 每次開 session 會自動建新 branch，基礎點不一定是最�
 - `docs/reference.md`：查表用（系統入口、credentials、Notion 欄位、LINE 指令、架構、桌面工具）
 - `docs/incidents.md`：事故完整經過。動到紅線相關的東西之前一定要看
 
-⚠️ STATUS.md 記的是「當時的計畫」，`n8n-live.md` 記的是「現在的事實」。兩邊打架時信後者，
-並且**當場把 STATUS.md 改對**——2026-07-23 就是因為沒人回頭驗證，「專員電話卡在帳密」這句
-錯了好幾天沒被發現。
+⚠️ STATUS.md＝當時的計畫、`n8n-live.md`＝現在的事實。打架信後者，並**當場把 STATUS.md 改對**（07-23 錯了好幾天沒人發現）。
 
 ## 交接規則（每個 session 結束前必做）
 1. **跑 `python scripts/n8n_sync.py`**：把 n8n 上的 workflow 全部拉回 `workflows/`，
@@ -48,8 +45,7 @@ Claude Code 每次開 session 會自動建新 branch，基礎點不一定是最�
 **KEIS 合規現況（2026-09-05 使用者親自查證）**：KEIS 站上找不到任何使用條款／自動化相關規範，兩個帳號皆經當事人同意授權。所以「違反使用條款」這條沒有明文可違反——不用再重問，但也不等於明示允許，公司事後訂規則或同業投訴仍是風險。
 
 ## 禁止事項
-- 不要讓 STATUS.md 越來越長（目標 ~120 行；**超過 150 行 session-start hook 會當場叫**，
-  當次就要把事故經過搬去 incidents.md、查表搬去 reference.md，不要留給下一個 session）
+- 不要讓 STATUS.md 越來越長（**超過 150 行 hook 會當場叫**，當次就搬去 incidents.md／reference.md，不留給下一個 session）
 - 新增 Telegram 節點不要用預設 parse_mode（＝Markdown，客戶姓名一個 `*` 就整包推不出去，
   2026-09-23 踩過）：一律 `parse_mode=HTML` ＋ 讀上游 code 節點轉義過的 `$json._tg`；
   體檢跑 `python scripts/n8n_telegram_html.py`（`--fix` 直接修）
