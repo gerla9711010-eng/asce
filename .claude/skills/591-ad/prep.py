@@ -243,8 +243,8 @@ def main():
         except SystemExit as e:
             warn.append("照片下載失敗：%s" % e)
     print("\n刊登後 KEIS 同步（先 dry-run，對了再加 --apply）：")
-    print("  python .claude/skills/591-ad/keis.py sync %s --url591 <廣告網址> --member %s"
-          % (contract_no, agent or "<承辦人>"))
+    # 廣告專員一律薛力瑜（2026-10-21 使用者決定）：KEIS 專員名單只有本店 4 人，填來源承辦人（別店案）會掛在名單外
+    print("  python .claude/skills/591-ad/keis.py sync %s --url591 <廣告網址> --member 薛力瑜" % contract_no)
     for w in warn:
         print("[注意] " + w)
 
