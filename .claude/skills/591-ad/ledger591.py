@@ -16,6 +16,12 @@
   python ledger591.py renew S20935627 --expires 2027-01-17   # 續刊
   python ledger591.py swap S20935627 --case AG1234567 --adcase 441100 --title …   # 換物件
   python ledger591.py remove S20873427                 # 591 上已關閉
+  python ledger591.py add S20698894 --edits 1          # 手動校正已用掉的改址次數
+
+改址次數（2026-10-21 起）：591 規定「現況、出售地址、出售樓層、總樓層」一個刊期只能改 2 次，
+換物件一定會扣 1 次。591 頁面上查不到剩幾次（只在送出時的確認框說「將扣除1次」），所以自己記：
+swap 自動 +1，用完了 swap 會擋。使用者自己在 591 改過地址/樓層要用 --edits 校正。
+續刊後次數會不會重算沒驗證過，renew 不動次數，下次在確認框看到再校正。
 """
 import argparse
 import json
@@ -23,6 +29,8 @@ import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+EDIT_LIMIT = 2   # 591：一個刊期內地址/樓層/總樓層/現況可改 2 次
 
 LEDGER = Path(os.environ.get("AD591_LEDGER") or
               Path(os.path.expanduser("~")) / "OneDrive" / "桌面" / "keis" / "ad591_ledger.json")
@@ -67,6 +75,7 @@ def main():
         p.add_argument("--title")
         p.add_argument("--expires", help="YYYY-MM-DD（廣告頁「有效期」）")
         p.add_argument("--left", type=int, help="會員中心「剩餘 N 天」，換算成到期日")
+        p.add_argument("--edits", type=int, help="已用掉的改址次數（手動校正用）")
     p = sub.add_parser("remove")
     p.add_argument("sid")
     a = ap.parse_args()
@@ -74,9 +83,9 @@ def main():
 
     if a.cmd == "list":
         for sid, e in sorted(d.items(), key=lambda kv: kv[1]["expires"]):
-            print("%-10s 剩 %3d 天（%s）%-10s KEIS %-7s %s"
-                  % (sid, left(e["expires"]), e["expires"], e.get("case") or "-",
-                     e.get("adcase") or "-", e.get("title") or ""))
+            print("%-10s 剩 %3d 天（%s）改址剩 %d/%d  %-10s KEIS %-7s %s"
+                  % (sid, left(e["expires"]), e["expires"], EDIT_LIMIT - e.get("edits", 0), EDIT_LIMIT,
+                     e.get("case") or "-", e.get("adcase") or "-", e.get("title") or ""))
         print("（%s，共 %d 筆）" % (LEDGER, len(d)))
         return
 
@@ -95,16 +104,21 @@ def main():
     if a.cmd == "swap":
         if not a.case:
             sys.exit("換物件要帶 --case（新案件編號）")
+        if e.get("edits", 0) >= EDIT_LIMIT and a.edits is None:
+            sys.exit("%s 這個刊期的改址次數已用完（%d/%d），591 不會讓你換物件。真的還有次數就帶 --edits 校正"
+                     % (sid, e.get("edits", 0), EDIT_LIMIT))
         e["prev"] = (e.get("prev") or []) + [e.get("case")]   # 留換過的紀錄
+        e["edits"] = e.get("edits", 0) + 1
     if a.cmd == "add" and not (exp or e.get("expires")):
         sys.exit("新增要帶 --expires 或 --left")
-    for k, v in (("case", a.case), ("adcase", a.adcase), ("title", a.title), ("expires", exp)):
+    for k, v in (("case", a.case), ("adcase", a.adcase), ("title", a.title), ("expires", exp), ("edits", a.edits)):
         if v is not None:
             e[k] = v
     e["updated"] = str(date.today())
     d[sid] = e
     save(d)
-    print("%s：%s → 剩 %d 天" % (a.cmd, sid, left(e["expires"])), json.dumps(e, ensure_ascii=False))
+    print("%s：%s → 剩 %d 天，改址剩 %d/%d" % (a.cmd, sid, left(e["expires"]), EDIT_LIMIT - e.get("edits", 0), EDIT_LIMIT),
+          json.dumps(e, ensure_ascii=False))
 
 
 if __name__ == "__main__":

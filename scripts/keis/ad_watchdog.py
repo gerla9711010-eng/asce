@@ -474,6 +474,7 @@ def check_grab_alive(state: dict, now: datetime, dry: bool) -> None:
 AD591_LEDGER = Path(os.environ.get("AD591_LEDGER") or HERE / "ad591_ledger.json")
 AD591_FROM_HOUR = 9        # 一天看一次，等門市網路通了、KEIS 夜間巡檢跑完再看
 AD591_SWAP_DAYS = 30       # 剩幾天以上建議「換物件」沿用版位（591 一期 60 天）
+AD591_EDIT_LIMIT = 2       # 591 一期內地址/樓層可改 2 次，用完就不能換物件（2026-10-21 送出確認框看到）
 KEIS_API = "https://keis.kshouse.com.tw/api/v1"
 
 
@@ -524,8 +525,13 @@ def check_591_offline(state: dict, now: datetime, dry: bool) -> None:
         return
     lines = ["🏠 物件下架了，591 廣告還開著："]
     for days, sid, e in sorted(hits):
-        advice = ("→ 還能換物件刊登" if days >= AD591_SWAP_DAYS
-                  else "→ 不到 30 天，直接關閉就好")
+        edits_left = AD591_EDIT_LIMIT - e.get("edits", 0)   # 換物件一定扣 1 次改址（ledger591.py 記）
+        if days < AD591_SWAP_DAYS:
+            advice = "→ 不到 30 天，直接關閉就好"
+        elif edits_left <= 0:
+            advice = "→ 這期改址次數用完了，不能換物件，只能關閉"
+        else:
+            advice = f"→ 還能換物件刊登（改址剩 {edits_left} 次）"
         lines.append(f"• {e.get('title') or e.get('case')}（{e.get('case')}）\n"
                      f"  591 {sid} 剩 {days} 天（{e['expires']} 到期）{advice}")
     lines.append("換物件跟 Claude 說「591換物件 S… 改 案件編號」，關閉的話記得也跟它說一聲更新對照檔。")
