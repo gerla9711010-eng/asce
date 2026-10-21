@@ -17,6 +17,10 @@
   python ledger591.py swap S20935627 --case AG1234567 --adcase 441100 --title …   # 換物件
   python ledger591.py remove S20873427                 # 591 上已關閉
   python ledger591.py add S20698894 --edits 1          # 手動校正已用掉的改址次數
+  python ledger591.py add S21079307 --agent 劉宸伶 --phone 0913710277 --store 博愛凱璿店   # 該聯絡誰
+
+聯絡人（2026-10-21 起）：使用者要「每個廣告位都知道該聯絡誰」。KEIS 只有承辦人姓名，電話在 houseol 來源頁，
+用 houseol_contact.js 一次查好寫進來。換物件（swap）時舊聯絡人會跟著換掉，記得一起帶新的。
 
 改址次數（2026-10-21 起）：591 規定「現況、出售地址、出售樓層、總樓層」一個刊期只能改 2 次，
 換物件一定會扣 1 次。591 頁面上查不到剩幾次（只在送出時的確認框說「將扣除1次」），所以自己記：
@@ -76,6 +80,9 @@ def main():
         p.add_argument("--expires", help="YYYY-MM-DD（廣告頁「有效期」）")
         p.add_argument("--left", type=int, help="會員中心「剩餘 N 天」，換算成到期日")
         p.add_argument("--edits", type=int, help="已用掉的改址次數（手動校正用）")
+        p.add_argument("--agent", help="承辦人（物件的聯絡人，不是 KEIS 廣告專員）")
+        p.add_argument("--phone", help="承辦人手機")
+        p.add_argument("--store", help="承辦人分店")
     p = sub.add_parser("remove")
     p.add_argument("sid")
     a = ap.parse_args()
@@ -86,6 +93,8 @@ def main():
             print("%-10s 剩 %3d 天（%s）改址剩 %d/%d  %-10s KEIS %-7s %s"
                   % (sid, left(e["expires"]), e["expires"], EDIT_LIMIT - e.get("edits", 0), EDIT_LIMIT,
                      e.get("case") or "-", e.get("adcase") or "-", e.get("title") or ""))
+            if e.get("agent"):
+                print("           聯絡：%s %s（%s）" % (e["agent"], e.get("phone") or "電話未記", e.get("store") or "-"))
         print("（%s，共 %d 筆）" % (LEDGER, len(d)))
         return
 
@@ -102,6 +111,8 @@ def main():
     if a.cmd == "renew" and not exp:
         sys.exit("續刊要帶 --expires 或 --left")
     if a.cmd == "swap":
+        for k in ("agent", "phone", "store"):   # 換了案件，舊的聯絡人不能留著誤導
+            e.pop(k, None)
         if not a.case:
             sys.exit("換物件要帶 --case（新案件編號）")
         if e.get("edits", 0) >= EDIT_LIMIT and a.edits is None:
@@ -111,7 +122,8 @@ def main():
         e["edits"] = e.get("edits", 0) + 1
     if a.cmd == "add" and not (exp or e.get("expires")):
         sys.exit("新增要帶 --expires 或 --left")
-    for k, v in (("case", a.case), ("adcase", a.adcase), ("title", a.title), ("expires", exp), ("edits", a.edits)):
+    for k, v in (("case", a.case), ("adcase", a.adcase), ("title", a.title), ("expires", exp), ("edits", a.edits),
+                 ("agent", a.agent), ("phone", a.phone), ("store", a.store)):
         if v is not None:
             e[k] = v
     e["updated"] = str(date.today())

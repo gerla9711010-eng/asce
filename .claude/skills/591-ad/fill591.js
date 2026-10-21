@@ -393,6 +393,29 @@ await (async () => {
     if (!el || el.value !== String(v))
       bad.push(name + ' 想填' + v + ' 實際' + (el ? el.value : '(找不到這格)'));
   }
+  /* 7. 修改模式順便清舊照片（原本是另一支 photos591.js，2026-10-21 併進來省一次呼叫）。
+     「全選→刪除選中」只動表單，按確認修改前不生效；格局圖只有一張，用卡片上的垃圾桶。
+     清完新照片用 file_upload 傳，submit591.js 送出前會檢查張數不是 0。 */
+  let photos = '-';
+  if (EDIT && EDIT.clearPhotos !== false) {
+    const sec = n => [...document.querySelectorAll('.ant-form-item')]
+      .find(it => (it.querySelector('.ant-form-item-label')?.innerText || '').includes(n));
+    const p = sec('房屋照片'), fp = sec('格局圖');
+    const before = p ? p.querySelectorAll('img').length : 0;
+    if (before) {
+      const all = [...p.querySelectorAll('label.ant-checkbox-wrapper')].find(l => l.innerText.trim() === '全選');
+      if (all && !all.querySelector('.ant-checkbox-checked')) all.click();
+      await sleep(400);
+      const del = [...p.querySelectorAll('a')].find(a => a.innerText.trim() === '刪除選中');
+      if (del) { del.click(); await sleep(1200); } else log.push('照片區找不到「刪除選中」');
+    }
+    if (fp && fp.querySelectorAll('img').length) {
+      const bin = fp.querySelector('[class*=delete],[class*=remove],.anticon-delete');
+      if (bin) { bin.click(); await sleep(800); } else log.push('格局圖有舊圖但找不到刪除鈕，人工刪');
+    }
+    photos = '舊照片 ' + before + ' 張 → 剩 ' + (p ? p.querySelectorAll('img').length : '?') +
+             '，格局圖剩 ' + (fp ? fp.querySelectorAll('img').length : '?');
+  }
   const selNow = s => s ? ((s.querySelector('.ant-select-selection-item') || {}).innerText || '(空)') : '(找不到)';
   const radios = [
     ['成屋', '建築完工時間'], [D.areaParking ? '含車位面積' : '不含車位面積', '權狀坪數'],
@@ -413,6 +436,7 @@ await (async () => {
     文案: rDesc,
     補填過: missed,
     清掉舊值: EDIT ? cleared : '-',
+    照片: photos,
     取消勾選: EDIT ? unchecked : '-',
     對不上: bad,          // 空陣列＝全部正確，非空就要人工看
     警告: log,

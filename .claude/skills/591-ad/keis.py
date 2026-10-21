@@ -9,6 +9,10 @@
   python keis.py sync AA1072565 --url591 https://sale.591.com.tw/home/house/detail/2/xxxx.html
       預設 dry-run，只印出「會怎麼改」。確認沒問題再加 --apply 真的寫進去。
 
+  python keis.py swap S21079307 AA1084264 [--title 591標題 --agent 劉宸伶 --phone 09… --store 博愛凱璿店] [--apply]
+      換物件後一次做完：新案 sync（有既有廣告就併、沒有就建）→ 舊案拿掉 591、平台空了就關閉
+      → ledger591 swap（改址次數 +1、換聯絡人）。同樣預設 dry-run。
+
 憑證：讀桌面 keis 資料夾的 .env
   KEIS_USERNAME / KEIS_PASSWORD（KEIS 本體）
   KEIS_NOTION_TOKEN（查永慶官網連結用，沒有就得自己帶 --yc-url）
@@ -55,15 +59,50 @@ def load_env():
             os.environ.setdefault(k.strip(), v.strip())
 
 
+TOKEN_CACHE = ENV_PATH.parent / ".keis_token_591ad.json"
+TOKEN_TTL = 20 * 60
+COOLDOWN_FILE = ENV_PATH.parent / ".keis_cooldown_591ad"
+COOLDOWN = 30 * 60
+
+
 def keis_client():
+    """登入 token 暫存 20 分鐘重用。2026-10-21 測試時每支腳本都重新登入，短時間連登十幾次被回 429，
+    也碰到法律紅線（刑法 360：不要洪水式請求）。token 失效（401）才重登。暫存檔跟 .env 同一個資料夾，不進 git。"""
     load_env()
+    import json, time
+    # 被限流就不要再去碰（使用者 2026-10-21）：任何請求回 429 → 記冷卻時間、立刻停；冷卻期內連一個請求都不送
+    try:
+        left = COOLDOWN - (time.time() - float(COOLDOWN_FILE.read_text(encoding="utf-8")))
+        if left > 0:
+            sys.exit("KEIS 限流冷卻中，還要 %d 分鐘，不送任何請求。不要重試（使用者規定）。" % (left // 60 + 1))
+    except (OSError, ValueError):
+        pass
+
+    def on_response(resp):
+        if resp.status_code == 429:
+            COOLDOWN_FILE.write_text(str(time.time()), encoding="utf-8")
+            sys.exit("KEIS 回 429 限流，已停手並冷卻 %d 分鐘。不要重試（使用者規定）。" % (COOLDOWN // 60))
     c = httpx.Client(timeout=120, follow_redirects=True,
-                     headers={"user-agent": "Mozilla/5.0", "referer": BASE + "/login"})
+                     headers={"user-agent": "Mozilla/5.0", "referer": BASE + "/login"},
+                     event_hooks={"response": [on_response]})
+    try:
+        tok = json.loads(TOKEN_CACHE.read_text(encoding="utf-8"))
+        if time.time() - tok["at"] < TOKEN_TTL:
+            c.headers["Authorization"] = "Bearer " + tok["token"]
+            if c.get(API + "/property-management/", params={"search": "__ping__", "page_size": 1}).status_code != 401:
+                return c
+    except Exception:
+        pass
+    c.headers.pop("Authorization", None)
     r = c.post(API + "/auth/login",
                data={"username": os.environ["KEIS_USERNAME"],
                      "password": os.environ["KEIS_PASSWORD"]})
     r.raise_for_status()
     c.headers["Authorization"] = "Bearer " + r.json()["access_token"]
+    try:
+        TOKEN_CACHE.write_text(json.dumps({"token": r.json()["access_token"], "at": time.time()}), encoding="utf-8")
+    except OSError:
+        pass
     return c
 
 
@@ -299,7 +338,7 @@ def cmd_sync(args):
             print("[注意] 這筆已經有別的 591 連結了，會被覆蓋——確定要換再 --apply")
         if not args.apply:
             print("\n== dry-run，沒有寫入。確認上面沒問題就加 --apply ==")
-            return
+            return aid
         body = dict(full)
         body["adcase_url591"] = args.url591
         body["adcase_platforms"] = ",".join(newplats)
@@ -321,7 +360,7 @@ def cmd_sync(args):
                  after.get("adcase_urlfacebook") or "(空)"))
         print("✓ 同步完成" if ok
               else "✗ 回讀對不上，人工到 ad-tracker 檢查 adcase_id=%s" % aid)
-        return
+        return aid
 
     title = args.title or note.get("title") or ""
     member = args.member or "薛力瑜"   # 2026-10-21 使用者：廣告專員一律填薛力瑜（臉書 v3、出租線本來就是）
@@ -347,7 +386,7 @@ def cmd_sync(args):
         sys.exit("title 或 member 是空的，KEIS 新增必填。用 --title / --member 補上再跑。")
     if not args.apply:
         print("\n== dry-run，沒有寫入。確認上面沒問題就加 --apply ==")
-        return
+        return None
     r = c.post(API + "/adcases/", json={
         "adcase_title": title, "adcase_url": yc_url, "adcase_member": member,
         "adcase_url591": args.url591, "adcase_platforms": PLATFORM_591,
@@ -356,6 +395,68 @@ def cmd_sync(args):
     print("POST ->", r.status_code, r.text[:250])
     r.raise_for_status()
     print("✓ 新增完成，到 ad-tracker 確認列表出現「新上架」標籤")
+    return r.json().get("adcase_id")
+
+
+def cmd_swap(args):
+    """換物件後的 KEIS＋對照檔，一個指令做完（2026-10-21 S20698894、S21079307 兩次都是手寫這三段）。
+    舊案那筆：拿掉 591 連結與平台，平台空了就關閉；臉書還在就只拿掉 591。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import ledger591
+    sid = ledger591.norm_sid(args.sid)
+    e = ledger591.load().get(sid)
+    if not e:
+        sys.exit("%s 不在對照檔裡（ledger591.py list 看一下）" % sid)
+    if not sid.startswith("S"):
+        sys.exit("出租版位的換物件還沒做過，先手動")
+    if e.get("case") == args.new_case:
+        sys.exit("%s 已經掛 %s 了，不用 swap（再跑會多扣一次改址次數）" % (sid, args.new_case))
+    url591 = "https://sale.591.com.tw/home/house/detail/2/%s.html" % sid[1:]
+    print("== 新案 %s ==" % args.new_case)
+    new_id = cmd_sync(argparse.Namespace(contract_no=args.new_case, url591=url591, yc_url=args.yc_url,
+                                         title=None, member=None, reopen=args.reopen, price=None,
+                                         apply=args.apply))
+    old_id = e.get("adcase")
+    print("\n== 舊案 %s（adcase %s）==" % (e.get("case"), old_id))
+    c = keis_client()
+    if not old_id or old_id == new_id:
+        print("沒有要動的舊廣告")
+    else:
+        full = c.get(API + "/adcases/%s" % old_id).json()
+        if (full.get("adcase_url591") or "") != url591:
+            print("[注意] 舊廣告的 591 連結是 %r，不是這個版位，不動它" % full.get("adcase_url591"))
+        else:
+            plats = [p for p in (full.get("adcase_platforms") or "").split(",") if p and p != PLATFORM_591]
+            close = not plats
+            print("  adcase_url591   : %s  ->  (空)" % url591)
+            print("  adcase_platforms: %s  ->  %s" % (full.get("adcase_platforms"), ",".join(plats) or "(空)"))
+            print("  is_expired      : %s  ->  %s" % (full.get("is_expired"), True if close else full.get("is_expired")))
+            if args.apply:
+                body = dict(full)
+                body["adcase_url591"] = ""
+                body["adcase_platforms"] = ",".join(plats)
+                if close:
+                    body["is_expired"] = True
+                c.put(API + "/adcases/%s" % old_id, json=body).raise_for_status()
+                after = c.get(API + "/adcases/%s" % old_id).json()
+                ok = (not after.get("adcase_url591") and (after.get("is_expired") or not close)
+                      and (after.get("adcase_urlfacebook") or "") == (full.get("adcase_urlfacebook") or ""))
+                print("✓ 舊案已更新" if ok else "✗ 舊案回讀對不上，人工到 ad-tracker 看 adcase %s" % old_id)
+    cmd = [sys.executable, str(Path(__file__).resolve().parent / "ledger591.py"), "swap", sid,
+           "--case", args.new_case]
+    if new_id:
+        cmd += ["--adcase", str(new_id)]
+    for k in ("title", "agent", "phone", "store"):
+        if getattr(args, k):
+            cmd += ["--" + k, getattr(args, k)]
+    print("\n== 對照檔 ==")
+    if not args.apply:
+        print("會跑：ledger591.py " + " ".join(cmd[2:]))
+        if not args.agent:
+            print("[注意] 沒帶 --agent/--phone/--store：換完對照檔的聯絡人會是空的（houseol_contact.js 查）")
+        print("\n== dry-run，三段都沒寫入。確認上面沒問題就加 --apply ==")
+        return
+    subprocess.run(cmd, check=True)
 
 
 def main():
@@ -376,6 +477,17 @@ def main():
     p2.add_argument("--price", type=float, help="順便更新廣告總價（萬元）")
     p2.add_argument("--apply", action="store_true", help="真的寫入；不加就只是 dry-run")
     p2.set_defaults(func=cmd_sync)
+    p3 = sub.add_parser("swap", help="換物件後：新案 sync、舊案拿掉 591、對照檔 swap")
+    p3.add_argument("sid", help="591 版位編號（S21079307）")
+    p3.add_argument("new_case", help="新案件編號")
+    p3.add_argument("--title", help="對照檔記的 591 廣告標題")
+    p3.add_argument("--agent", help="新案承辦人（聯絡人，houseol_contact.js 查）")
+    p3.add_argument("--phone")
+    p3.add_argument("--store")
+    p3.add_argument("--yc-url", dest="yc_url")
+    p3.add_argument("--reopen", action="store_true")
+    p3.add_argument("--apply", action="store_true", help="真的寫入；不加就只是 dry-run")
+    p3.set_defaults(func=cmd_swap)
     args = ap.parse_args()
     args.func(args)
 
