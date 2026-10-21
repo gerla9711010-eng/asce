@@ -66,7 +66,7 @@ COOLDOWN = 30 * 60
 
 
 def keis_client():
-    """登入 token 暫存 20 分鐘重用。2026-10-21 測試時每支腳本都重新登入，短時間連登十幾次被回 429，
+    """登入 token 暫存，照 JWT exp 重用到前 5 分鐘（約 2 小時）。2026-10-21 測試時每支腳本都重新登入，短時間連登十幾次被回 429，
     也碰到法律紅線（刑法 360：不要洪水式請求）。token 失效（401）才重登。暫存檔跟 .env 同一個資料夾，不進 git。"""
     load_env()
     import json, time
@@ -85,12 +85,12 @@ def keis_client():
     c = httpx.Client(timeout=120, follow_redirects=True,
                      headers={"user-agent": "Mozilla/5.0", "referer": BASE + "/login"},
                      event_hooks={"response": [on_response]})
+    # token 是 JWT，效期 2 小時（10-21 解出來看的）。照它自己的 exp 用到前 5 分鐘，不另外打請求驗證
     try:
         tok = json.loads(TOKEN_CACHE.read_text(encoding="utf-8"))
-        if time.time() - tok["at"] < TOKEN_TTL:
+        if time.time() < tok.get("exp", tok["at"] + TOKEN_TTL) - 300:
             c.headers["Authorization"] = "Bearer " + tok["token"]
-            if c.get(API + "/property-management/", params={"search": "__ping__", "page_size": 1}).status_code != 401:
-                return c
+            return c
     except Exception:
         pass
     c.headers.pop("Authorization", None)
@@ -100,8 +100,15 @@ def keis_client():
     r.raise_for_status()
     c.headers["Authorization"] = "Bearer " + r.json()["access_token"]
     try:
-        TOKEN_CACHE.write_text(json.dumps({"token": r.json()["access_token"], "at": time.time()}), encoding="utf-8")
-    except OSError:
+        import base64
+        token = r.json()["access_token"]
+        exp = json.loads(base64.urlsafe_b64decode(token.split(".")[1] + "==")).get("exp")
+    except Exception:
+        exp = None
+    try:
+        TOKEN_CACHE.write_text(json.dumps({"token": token, "at": time.time(), "exp": exp or time.time() + TOKEN_TTL}),
+                               encoding="utf-8")
+    except (OSError, NameError):
         pass
     return c
 
