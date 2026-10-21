@@ -77,7 +77,7 @@ Get-ChildItem "$env:USERPROFILE\OneDrive\桌面\H888_*.zip" | Sort-Object LastWr
 
 1. **案號只給數字** → 直接查 KEIS，不要去永慶官網、不要在 houseol 猜前綴（AA/AG 之外還有 EG 等，別店案也是）：
    `python -c "import sys;sys.path.insert(0,'.claude/skills/591-ad');import keis;c=keis.keis_client();print([(r['contract_no'],r['case_name']) for r in c.get(keis.API+'/property-management/',params={'search':'0517920'}).json()['items']])"`
-2. **哪個版位**：`ledger591.py list` 拿 591 編號（使用者講路名就去 `ware/open` 用 JS 撈「區-路」對照，一次呼叫）。
+2. **哪個版位**：`ledger591.py list` 拿 591 編號，**看「改址剩 N/2」**（591 頁面查不到，只能靠對照檔；`swap` 會自動 +1、用完會擋）（使用者講路名就去 `ware/open` 用 JS 撈「區-路」對照，一次呼叫）。
 3. houseol 頁 `get_page_text` → 存檔 → `prep.py --photos <dir>`（同新刊）。**別店／別的承辦人的案子先問使用者**（同團隊可以，EG0517920 文山青年店就是）。
 4. 直接開編輯頁 `https://user.591.com.tw/post/two/sale/{編號}`（不用從列表點「修改資訊」，那會開新分頁跑出 tab group）。
 5. `fill591.js`：DATA 貼 prep 的，**`EDIT = { shape: '電梯大樓' }`**（型態不換就 `{}`）。修改模式會先換型態、把舊案殘留清掉、取消多勾的生活機能。
