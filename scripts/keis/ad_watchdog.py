@@ -473,7 +473,6 @@ def check_grab_alive(state: dict, now: datetime, dry: bool) -> None:
 
 AD591_LEDGER = Path(os.environ.get("AD591_LEDGER") or HERE / "ad591_ledger.json")
 AD591_FROM_HOUR = 9        # 一天看一次，等門市網路通了、KEIS 夜間巡檢跑完再看
-AD591_SWAP_DAYS = 30       # 剩幾天以上建議「換物件」沿用版位（591 一期 60 天）
 AD591_EDIT_LIMIT = 2       # 591 一期內地址/樓層可改 2 次，用完就不能換物件（2026-10-21 送出確認框看到）
 KEIS_API = "https://keis.kshouse.com.tw/api/v1"
 
@@ -481,8 +480,9 @@ KEIS_API = "https://keis.kshouse.com.tw/api/v1"
 def check_591_offline(state: dict, now: datetime, dry: bool) -> None:
     """判斷六：物件下架了，591 廣告還開著——剩幾天？（2026-10-14 加）
 
-    使用者要的是：物件下架時知道那則 591 廣告還剩幾天。591 一期 60 天，剩 30 天以上可以在同一個
-    版位「換物件」，不到 30 天直接關。為了不用天天去 591 看，到期日在刊登時記進本機對照檔
+    使用者要的是：物件下架時知道那則 591 廣告還剩幾天、還能不能換物件。591 一期 60 天，
+    一期內地址/樓層只能改 2 次（換物件扣 1 次）；改址次數還有就能換，用完只能關。
+    （舊版用「剩 30 天」當門檻，那是使用者當初猜的，2026-10-21 拿掉，換不換由使用者看天數決定。）為了不用天天去 591 看，到期日在刊登時記進本機對照檔
     （ad591_ledger.json，591-ad skill 的 ledger591.py 維護），這裡只做減法。
 
     「下架」不自己判斷，直接用 KEIS 廣告追蹤的結果：它會在官網連結失效時標「案件下架」。
@@ -526,9 +526,7 @@ def check_591_offline(state: dict, now: datetime, dry: bool) -> None:
     lines = ["🏠 物件下架了，591 廣告還開著："]
     for days, sid, e in sorted(hits):
         edits_left = AD591_EDIT_LIMIT - e.get("edits", 0)   # 換物件一定扣 1 次改址（ledger591.py 記）
-        if days < AD591_SWAP_DAYS:
-            advice = "→ 不到 30 天，直接關閉就好"
-        elif edits_left <= 0:
+        if edits_left <= 0:
             advice = "→ 這期改址次數用完了，不能換物件，只能關閉"
         else:
             advice = f"→ 還能換物件刊登（改址剩 {edits_left} 次）"
