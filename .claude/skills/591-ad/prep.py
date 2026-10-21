@@ -154,6 +154,9 @@ def main():
     selling = re.search(r"訴\s*求\s*重\s*點(.*?)(?:凱璿\S*公司|本表單係)", t, re.S)
     body = selling.group(1) if selling else ""
     points = [p.strip() for p in re.findall(r"◎([^◎]+)", body)]
+    # 「1. 2. 3.」編號寫法，可能兩條擠同一行（AA1084264 的 5./6.）；(?!\d) 防「路寬 8.5米」被切開
+    if not points and re.search(r"(?:^|\s)1[.、．](?!\d)", body):
+        points = [p.strip() for p in re.split(r"(?:^|\s)\d{1,2}[.、．](?!\d)", body) if p.strip()]
     if not points:   # 沒用◎條列、一行一條的寫法（EG0517920）
         points = [ln.strip() for ln in body.splitlines() if ln.strip()]
 
@@ -219,6 +222,9 @@ def main():
                     "售價選含車位、文案註明（AA1072556 使用者選後者）" % (has_space, park_desc))
     if data["parkingType"] and "其他" in data["parkingType"]:
         warn.append("停車方式「%s」看不出平面/機械，車位類型跟使用者確認" % park_desc)
+    if a.type in ("電梯大樓", "華廈") and not data["community"]:
+        # 換物件時空社區會把舊社區名清掉、最後被填成「無」；新刊時 591 依地址帶的也常是空的（AA1084264 案名才有「恆上君悅」）
+        warn.append("來源沒有大樓名稱：從案名找社區名填進 DATA.community（例：案名「…恆上君悅3房平車」→ 恆上君悅），真的沒有才留空")
     for k in ("city", "district", "street", "no", "totalFloors", "rooms", "builtY", "price"):
         if not data[k]:
             warn.append("必填欄位 %s 沒抓到，手動補" % k)

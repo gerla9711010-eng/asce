@@ -66,8 +66,10 @@ def solve(main, annex, public, park, total):
     # 回推檢查：主+附+共有部分+車位 應該等於總建坪
     # 注意：子集分支下這個檢查是「有沒有飄移」而不是獨立驗算——扣掉車位再加回來會互相抵消，
     # 所以負數那種錯它抓不到，要靠上面那道 guard。
+    # 四格各自捨去到 2 位，每格最多吃掉 0.01，加總最多差 0.04 是正常的（AA1084264：原始加總剛好 43.05，
+    # 捨去後各格相加 43.03，2026-10-21 誤報過）。超過這個才是真的飄移。
     check = tr(main + annex + out["共有部分"] + out["車位面積"])
-    if abs(check - tr(total)) > TOL:
+    if abs(check - tr(total)) > TOL + 0.04:
         warn.append("回推檢查不合：主+附+共有部分+車位 = %.2f ≠ 總建坪 %.2f，人工確認" % (check, total))
     return out, warn
 
