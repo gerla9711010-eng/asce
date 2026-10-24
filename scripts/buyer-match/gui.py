@@ -119,7 +119,7 @@ class App:
             self.append("登入確認，開始收集資料")
         elif line.startswith("PROGRESS|"):
             _, done, total, saved, cards = line.split("|")
-            self.append(f"進度 {done}/{total}，已存 {saved} 個客需，累計展開 {cards} 張卡")
+            self.append(f"進度 {done}/{total}，已存 {saved} 個客需，已處理 {cards} 張卡")  # 10-19 起卡片不點開，舊字「展開」會誤導
         elif line.startswith("DONE|"):
             import json
             d = json.loads(line.split("|", 1)[1])

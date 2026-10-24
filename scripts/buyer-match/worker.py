@@ -41,6 +41,10 @@ KEIS_ENV = Path.home() / "OneDrive" / "桌面" / "keis" / ".env"   # 跟 591-ad/
 KEIS_API = "https://keis.kshouse.com.tw/api/v1"
 
 
+class Stop(Exception):
+    """KEIS 說不要再來了（429／登入失敗）：整趟停，不走「失敗再試」"""
+
+
 class Keis:
     """collect.js 的 window.keisLookup 背後這支：拿房地卡片摘要去 KEIS houses/public 找同一戶。
 
@@ -67,7 +71,9 @@ class Keis:
                                                    "referer": "https://keis.kshouse.com.tw/case"})
         r = self.c.post(KEIS_API + "/auth/login", params={"device_type": "desktop"},
                         data={"username": env["KEIS_USERNAME"], "password": env["KEIS_PASSWORD"]})
-        r.raise_for_status()
+        if r.status_code != 200:
+            # 登入失敗不重試（密碼錯、被擋、限流重登只會更糟；10-21 就是一直重登被 429）
+            raise Stop("KEIS 登入失敗 HTTP %d，整趟停手不重試" % r.status_code)
         self.c.headers["authorization"] = "Bearer " + r.json()["access_token"]
 
     def lookup(self, q):
@@ -86,7 +92,11 @@ class Keis:
                 self._login()
             for attempt in (1, 2):
                 r = self.c.post(KEIS_API + "/houses/public", json=body)
-                if r.status_code == 401 and attempt == 1:
+                if r.status_code == 429:
+                    raise Stop("KEIS 回 429 限流，整趟停手不重試（10-21 規矩）")
+                if r.status_code == 401:
+                    if attempt == 2:  # 剛重登完還是 401：再登也沒用，別一張卡一次登入
+                        raise Stop("KEIS 重登後還是 401，整趟停手")
                     self._login()
                     continue
                 r.raise_for_status()
@@ -98,6 +108,9 @@ class Keis:
             res = {"houses": [{k: h.get(k) for k in keep} for h in r.json().get("houses", []) if h.get("url")]}
             self.cache[ck] = res
             return res
+        except Stop as e:
+            self.dead = str(e)
+            return {"fatal": self.dead}
         except Exception as e:
             self.fails += 1
             if self.fails >= 3 or isinstance(e, (FileNotFoundError, KeyError)):
@@ -281,6 +294,7 @@ def main():
         last_saved = -1
         seen_notes = set()
         kstat = {"keisHit": 0, "keisMiss": 0, "fallback": 0}  # collect.js 每批 run() 會歸零，這邊累加
+        base = {"saved": 0, "cards": 0}  # 同上，給 GUI 進度行用（不累加的話每批重整後又從 0 算）
 
         while True:
             # 不能用 time.sleep：sync Playwright 只有在呼叫 Playwright 時才會處理 keisLookup 回呼，
@@ -322,7 +336,7 @@ def main():
             if prog.get("saved", -1) != last_saved or True:
                 out("PROGRESS|%d|%d|%d|%d" % (
                     start + prog.get("done", 0), prog.get("total", 0),  # done 是這一批內的計數
-                    prog.get("saved", 0), prog.get("cards", 0),
+                    base["saved"] + prog.get("saved", 0), base["cards"] + prog.get("cards", 0),
                 ))
                 last_saved = prog.get("saved", -1)
 
@@ -340,6 +354,8 @@ def main():
                 stall_retries = 0
                 for k in kstat:
                     kstat[k] += prog.get(k, 0)
+                for k in base:
+                    base[k] += prog.get(k, 0)
                 for e in page.evaluate(ERRS_JS):
                     failed.append(e["key"])
                     out("STATUS|⚠️ 客需失敗：%s（%s）" % (e["key"], e["error"][:120]))
