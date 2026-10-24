@@ -10,6 +10,8 @@
  *
  * v7（2026-10-19）：新卡片不再點開，改拿摘要去 KEIS 比對（見 readCardKeis）。需要 worker.py 掛好
  * window.keisLookup；手動貼 Console 跑沒有它，會自動退回舊的點開方式。
+ * 10-24：切客需要等畫面寫出這個客需名才讀（防串到上一個客需）；KEIS 沒找到的卡存 miss 標記、下次重查、頁面列出來；
+ * 透天加比地坪；連續 12 張新卡都查不到就停手（KEIS 改版警報）。
  *
  * 設計重點（都是踩過坑才長這樣，改之前先看）：
  * 1. 只讀畫面上已渲染的 DOM。內部 API 回應是 foundiprotocol 加密的，不去解它。
@@ -54,7 +56,7 @@
 
   const R = {
     log: [], done: 0, total: 0, cards: 0, expanded: 0, skipped: 0,
-    hostsSeen: {}, out: [], running: false, mode: '', keisHit: 0, keisMiss: 0, fallback: 0,
+    hostsSeen: {}, out: [], running: false, mode: '', keisHit: 0, keisMiss: 0, keisStreak: 0, fallback: 0, loadOk: false,
     startedAt: null, finishedAt: null, cur: '', idx: 0, stop: false, limitText: '', lag: 0,
   };
 
@@ -141,14 +143,46 @@
     return { tree: t, miss };
   }
 
-  async function load(id) {
+  /* 切客需後畫面上方會寫「您上次搜尋 Sabina Wu透天 為昨天，共 3 筆搜尋結果」——拿這句確認畫面真的換成這個客需了。
+     舊寫法只等「畫面上有任一張卡」，上一個客需的卡本來就在 → 立刻放行，10-23 Sabina Wu 整組存成前一位吳蓁蓁的 4 張卡。 */
+  const squash = (x) => String(x || '').replace(/\s+/g, '');
+  function shownDemand() {
+    const s = squash(T(document, '.result-summary'));
+    return /搜尋.+為/.test(s) ? s : null;
+  }
+  /* 整句比對「搜尋<客需名>為」，客需名本身含「為」也不會切錯；房地有時在名字後面掛數字（見 readTree） */
+  const sameDemand = (shown, name) =>
+    new RegExp('搜尋' + squash(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*為').test(shown);
+  const screenSig = () => squash(T(document, '.result-summary')) + '#' +
+    [...document.querySelectorAll('fd-property-panel')].slice(0, 3).map(fingerprint).join('|');
+
+  /* name 有給 → R.loadOk = 畫面上的客需名對得上；沒給（切去 alt 重置用）就不檢查 */
+  async function load(id, name) {
     await openPanel();
     const n = document.getElementById(id);
     if (!n) return false;
     const b = n.querySelector('button.entry-title');
     if (!b) return false;
-    b.click();
-    for (let i = 0; i < 24; i++) { await sleep(500); if (document.querySelector('fd-property-panel')) break; }
+    R.loadOk = !name;
+    /* 上一個客需跟這個同名（很多客需都叫「透天」）→ 上方那句點下去前就已經對得上，名字當不了證據，交給後面卡片比對 */
+    const pre = shownDemand();
+    const preMatch = !!(name && pre && sameDemand(pre, name));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const before = screenSig();
+      b.click();
+      for (let i = 0; i < 30; i++) {
+        await sleep(500);
+        const sd = shownDemand();
+        if (name && !preMatch && sd != null && sd !== pre) { R.loadOk = sameDemand(sd, name); break; }
+        /* 讀不到「您上次搜尋…」（0 筆時沒有摘要，或房地改了字）→ 退而求其次：畫面有變就放行，最後再靠上一個客需比對擋 */
+        if ((!name || preMatch || sd == null) && screenSig() !== before &&
+          (document.querySelector('fd-property-panel') || resultCount() === 0)) break;
+      }
+      /* 只有「上方那句還是上一個客需」＝真的沒切過去才再點一次；每點一次都是一次房地搜尋，別亂點 */
+      if (R.loadOk || !name || preMatch || pre == null || shownDemand() !== pre) break;
+    }
+    /* 「您上次搜尋…」這句是 10-24 看截圖才用上的，每趟前 3 個客需把原文記下來，萬一房地改字一眼看得出來 */
+    if (name && R.diag < 3) { R.diag++; note('切客需確認 ' + name + '：' + (R.loadOk ? '對上' : '沒對上') + '（畫面「' + String(shownDemand() || '沒有那句').slice(0, 40) + '」）'); }
     await sleep(700);
     return true;
   }
@@ -170,7 +204,9 @@
   /* 「高雄市 新興區 忠孝一路」。房地 10-16~19 之間改版（10-19 實際開頁確認，30 張卡全部）：
      地址 .subtitle → .summary-line、價格 .highlight → .orange。都找不到才從整段文字抓。
      格式要跟舊指紋一樣——指紋靠它，格式不同的話舊記錄全對不上，每張卡都變新卡 */
-  const priceOf = (s) => T(s, '.highlight') || T(s, '.orange') || (leaves(s).find((t) => /^[\d,]+萬$/.test(t)) || '');
+  /* .highlight 偶爾是社區名（故事、京典、萬興）不是價格 → 先挑長得像「…萬」的，都沒有才照舊 */
+  const priceOf = (s) => [T(s, '.highlight'), T(s, '.orange')].find((t) => /^[\d,]+萬/.test(t)) ||
+    leaves(s).find((t) => /^[\d,]+萬$/.test(t)) || T(s, '.highlight') || T(s, '.orange') || '';
   function addrOf(s) {
     const sub = (T(s, '.summary-line') || T(s, '.subtitle')).replace(/\s+/g, ' ');
     if (/[市縣] /.test(sub)) return sub;
@@ -196,6 +232,7 @@
       /* 卡片上是「總 85.12坪」「主 44.56坪」；字跟數字可能拆在不同節點，所以對整段 textContent 找 */
       buildPing: num((s.textContent.match(/總\s*([\d.]+)\s*坪/) || [])[1]),
       mainPing: num((s.textContent.match(/主\s*([\d.]+)\s*坪/) || [])[1]),
+      landPing: num((s.textContent.match(/地\s*([\d.]+)\s*坪/) || [])[1]),   // 卡片「地 36.3坪」，透天才比
     };
   }
   const num = (x) => { const n = parseFloat(String(x || '').replace(/,/g, '')); return isNaN(n) ? NaN : n; };
@@ -224,7 +261,8 @@
   }
   const daysSince = (t) => Math.max(0, Math.floor((Date.now() - new Date(String(t).replace(' ', 'T')).getTime()) / 86400000)) || 0;
 
-  async function readCardKeis(p, items) {
+  /* retrying：上次就沒找到、這次重查的卡。它們本來就大多查不到，不算進「連續查不到」警報 */
+  async function readCardKeis(p, items, retrying) {
     const s = summary(p);
     if (!canKeis(s)) { R.fallback++; return readCard(p, items); } // 摘要缺區域/路名/總坪才退回舊方法點開
     R.lag = 0; // lag 只量點開的卡；不歸零的話上一張退回點開的慢卡會害後面每張都提早換批
@@ -234,10 +272,22 @@
     /* 只比物件所在樓層（大樓/公寓「9樓/共24樓」的 9），總樓層不比（使用者 10-19 定）：各家仲介總樓層填法不一
        （哈爾濱街同一戶有填共2樓也有共3樓）。「全棟」「1~4樓」不比；KEIS 樓層 ≤0 視為沒填 */
     const f1 = /^\d+樓/.test(String(s.floor || '')) ? parseInt(s.floor, 10) : 0;
-    const ok = (h) => !f1 || !(h.floor_start > 0) || +h.floor_start === f1;
+    /* 透天再比地坪（同一批建商透天建坪屋齡都一樣，只有地坪分得出來）。規則同其他數字：卡片取整數 ~ +1，不拿小數硬比 */
+    const th = /透天|別墅/.test(s.kind) || /^全棟/.test(s.floor || '');
+    const [l0, l1] = th && s.landPing > 0 ? span(s.landPing).map(Number) : [0, 0];
+    const ok = (h) => (!f1 || !(h.floor_start > 0) || +h.floor_start === f1) &&
+      (!l1 || !(h.land_area > 0) || (+h.land_area >= l0 && +h.land_area <= l1));
     const all = await keisFind(s), hs = all.filter(ok);
-    if (all.length > hs.length) note('樓層不符略過 ' + (all.length - hs.length) + ' 筆：' + s.road + ' ' + s.floor);
-    if (hs.length) R.keisHit++; else R.keisMiss++;
+    if (all.length > hs.length) note('樓層/地坪不符略過 ' + (all.length - hs.length) + ' 筆：' + s.road + ' ' + s.floor + (l1 ? ' 地' + s.landPing : ''));
+    if (hs.length) { R.keisHit++; R.keisStreak = 0; } else { R.keisMiss++; if (!retrying) R.keisStreak++; }
+    /* 平常 9 成卡都比得到；連續一大串都 0 筆＝KEIS 改了欄位/參數（7-23 砍過欄位），別把整批存成「找不到」 */
+    if (R.keisStreak >= 12) throw new Error('KEIS 連續 ' + R.keisStreak + ' 張卡都查不到，可能 KEIS 改版了，請找 Claude 看');
+    /* 查不到也留一筆：頁面才看得到「房地有、KEIS 沒找到」，下次增量也靠 miss 標記重查（不然一次沒找到就永遠漏掉） */
+    if (!hs.length) items.push({
+      fp, miss: true, kind: s.kind || '', road: s.road, district: s.district, community: s.community || '',
+      totalPrice: s.totalPrice, floor: s.floor, age: s.age, layout: s.layout, ping: s.buildPing || 0, landPing: s.landPing || 0,
+      name: s.title || '', badge: '', url: '', when: '', whenDays: 99999,
+    });
     hs.forEach((h) => {
       const d = daysSince(h.created_at);
       items.push({
@@ -353,7 +403,8 @@
     R.running = true; R.stop = false;
     R.mode = opts.full ? 'full' : 'incremental';
     R.startedAt = new Date().toISOString();
-    R.out = []; R.done = 0; R.cards = 0; R.expanded = 0; R.skipped = 0; R.keisHit = 0; R.keisMiss = 0; R.fallback = 0;
+    R.out = []; R.done = 0; R.cards = 0; R.expanded = 0; R.skipped = 0; R.keisHit = 0; R.keisMiss = 0; R.keisStreak = 0; R.fallback = 0; R.diag = 0;
+    let lastFps = '';   // 上一個客需的卡片清單，擋「畫面還沒換」
 
     try {
     await openPanel();
@@ -391,7 +442,7 @@
       let total = null, fps = [], items = [];
 
       try {
-        if (!(await load(t.id))) throw new Error('客需不見了');
+        if (!(await load(t.id, t.demand))) throw new Error('客需不見了');
         /* load() 只等「畫面出現任一張卡」或逾時，不保證卡片/摘要真的已經換成這個客需的資料——
            所以 total 故意晚一步，等 ensureCards() 的穩定判斷跑完才讀，縮小讀到舊客需殘留畫面的機率。 */
         let N = await ensureCards(999);
@@ -424,13 +475,28 @@
         /* 指紋沒有地址＝讀卡片的方式跟房地版面對不上了（10-19 房地改版拿掉 .subtitle 就是這樣）。
            這時存檔會把共用記錄寫壞（每張卡都變新卡、同價不同物件被併），寧可停手 */
         if (fps.length && fps.every((x) => x.startsWith('¦'))) throw new Error('讀不到卡片地址，房地版面可能改了，請找 Claude 看');
+        /* 卡片跟上一個客需一模一樣，而且「客需名沒對上」或「畫面卡數比上方寫的筆數還多」（名字換了、舊卡還沒清）
+           → 幾乎確定是舊畫面，這個客需不存檔（不停整趟，worker 最後會補跑）。
+           名字對上、筆數也合：同一位客戶開兩個條件差不多的客需，結果本來就可能一樣，放行 */
+        if (fps.length && fps.join('\n') === lastFps && (!R.loadOk || N > total)) {
+          const e = new Error('畫面還停在上一個客需（卡片一模一樣、客需名對不上），這個客需不存檔，下次再跑');
+          e.soft = true; throw e;
+        }
         const fpSet = new Set(fps);
 
-        /* 上次已經看過的物件 → 只留下這次還在清單裡的（不在的 = 下架） */
-        const kept = prev ? (prev.items || []).filter((i) => fpSet.has(normFp(i.fp))).map((i) => Object.assign({}, i, { fp: normFp(i.fp), isNew: false })) : [];
+        /* 上次已經看過的物件 → 只留下這次還在清單裡的（不在的 = 下架）。
+           上次 KEIS 沒找到的卡（只有 miss 那筆、沒有官網連結）這次重查——只重查拿得到摘要走 KEIS 的，
+           退回點開那條路會扣房地查詢次數，不重查 */
+        const prevItems = prev ? prev.items || [] : [];
+        const hitFp = new Set(prevItems.filter((i) => !i.miss).map((i) => normFp(i.fp)));
         const known = new Set(prev ? (prev.cards || []).map(normFp) : []);
-        const targets = [];
-        fps.forEach((fp, i) => { if (!known.has(fp)) targets.push(i); });
+        const targets = [], retry = new Set();
+        fps.forEach((fp, i) => {
+          if (!known.has(fp)) targets.push(i);
+          else if (!hitFp.has(fp) && canKeis(summary(panels0[i]))) { targets.push(i); retry.add(fp); }
+        });
+        const kept = prevItems.filter((i) => fpSet.has(normFp(i.fp)) && !retry.has(normFp(i.fp)))
+          .map((i) => Object.assign({}, i, { fp: normFp(i.fp), isNew: false }));
 
         if (prev && targets.length === 0) {
           /* 沒有新物件 → 整個客需跳過，不展開任何卡 */
@@ -442,7 +508,10 @@
           for (let ti = 0; ti < targets.length; ) {
             if (R.stop) throw new Error('已停止，此客需不存檔');
             const chunk = 20 + Math.floor(Math.random() * 9); // 20~28，別用固定值
-            if (ti > 0 && openCount() > 0) { await load(alt); await load(t.id); } // 沒點開任何卡就不用重置（重置＝多搜尋兩次）
+            if (ti > 0 && openCount() > 0) { // 沒點開任何卡就不用重置（重置＝多搜尋兩次）
+              await load(alt); await load(t.id, t.demand);
+              if (!R.loadOk && shownDemand() != null) { const e = new Error('重置後畫面沒切回這個客需，不存檔'); e.soft = true; throw e; }
+            }
             const end = Math.min(ti + chunk, targets.length);
             const need = targets[end - 1] + 1;
             await ensureCards(need);
@@ -451,7 +520,7 @@
             for (; j < end; j++) {
               const p = panels[targets[j]];
               if (!p) continue;
-              await readCardKeis(p, fresh);
+              await readCardKeis(p, fresh, retry.has(fps[targets[j]]));
               if (openCount() >= MAXOPEN || R.lag > LAG_MS) { j++; break; }
             }
             ti = j;
@@ -461,7 +530,7 @@
         }
 
         const seen = new Set();
-        items = items.filter((i) => { const kk = i.url + '|' + i.badge; if (seen.has(kk)) return false; seen.add(kk); return true; });
+        items = items.filter((i) => { const kk = i.miss ? 'miss|' + i.fp : i.url + '|' + i.badge; if (seen.has(kk)) return false; seen.add(kk); return true; });
         items.sort((a, b) => a.whenDays - b.whenDays);
 
         state.demands[keyOf(t)] = { folder: t.folder, client: t.client, demand: t.demand, total, cards: fps, items, at: new Date().toISOString() };
@@ -469,9 +538,11 @@
       } catch (e) {
         R.out.push(Object.assign({}, t, { error: String((e && e.message) || e), cards: fps, items: [] }));
         note('客需失敗 ' + t.demand + ': ' + e);
-        if (/KEIS|版面/.test(String((e && e.message) || e))) { R.stop = true; note('自動停手（此客需不存檔）：' + String((e && e.message) || e)); }
+        if (e && e.soft) { /* 只跳過這個客需，不停整趟 */ }
+        else if (/KEIS|版面/.test(String((e && e.message) || e))) { R.stop = true; note('自動停手（此客需不存檔）：' + String((e && e.message) || e)); }
         else if (total == null || /上限|展不開/.test(String((e && e.message) || e))) { R.stop = true; note('疑似撞查詢上限，自動停手（此客需不存檔）'); }
       }
+      if (fps.length) lastFps = fps.join('\n');
       R.done++;
       saveState(state);
     }

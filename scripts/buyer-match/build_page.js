@@ -159,11 +159,16 @@ const freshWhen = (it) => {
 
 /* 攤平成 folder > client > demand > items */
 const folders = {};
+/* collect.js 10-24 起：房地有這張卡、KEIS 比不到的也存一筆（miss:true、沒有網址）。
+   不進物件清單、不算 NEW、不能複製，只在客需底下列一行讓人知道「房地有、這邊沒連結」 */
+const MISSES = {};
 for (const o of R.out || []) {
   /* 0 筆的客需也要留一張卡（顯示「無物件」），不然客戶整個從頁面消失，看起來像漏跑 */
   const f = (folders[o.folder] = folders[o.folder] || {});
   const c = (f[o.client] = f[o.client] || {});
-  const items = (o.items || []).map((it) => {
+  const mk = o.folder + '/' + o.client + '/' + o.demand;
+  MISSES[mk] = (MISSES[mk] || []).concat((o.items || []).filter((it) => it.miss));
+  const items = (o.items || []).filter((it) => !it.miss).map((it) => {
     const t = track(o.rawClient, o.rawDemand, freshWhen(it));
     return Object.assign(t, { k: copyKey(o.rawClient, it) + (t.relist ? ' ' + copyKey(o.rawClient, { url: '/house/' + t.relist }) : '') });
   });
@@ -175,6 +180,8 @@ const ORDER = ['A買', 'B買', 'C買'];
 
 let totalItems = 0, totalDemands = 0, totalClients = 0, totalNew = 0;
 const newBadge = (n) => n ? `<span class="newn">NEW ${n}</span>` : '';
+const missLine = (ms) => ms && ms.length ? `<p class="miss">房地有、KEIS 沒找到 ${ms.length} 筆：${ms.map((m) =>
+  esc([m.road, m.totalPrice, m.floor, m.ping ? '總' + m.ping + '坪' : ''].filter(Boolean).join(' '))).join('；')}</p>` : '';
 let body = '', nav = '';
 for (const fname of ORDER) {
   const f = folders[fname];
@@ -209,6 +216,7 @@ for (const fname of ORDER) {
   <h4>${esc(dname)} <span class="n">${items.length}</span>${newBadge(dNew)}
     ${items.length ? `<button class="cp grp" type="button" data-copy="${esc(items.map(copyText).join('\n\n'))}">複製這組</button>` : ''}</h4>
   ${items.length ? `<ul class="items">${rows}</ul>` : '<p class="none">無物件</p>'}
+  ${missLine(MISSES[fname + '/' + cname + '/' + dname])}
 </section>`;
     }
     totalItems += cCount;
@@ -287,6 +295,7 @@ summary{cursor:pointer;padding:11px 13px;font-size:15px;user-select:none}
 .cbody{padding:4px 11px 12px}
 .demand{margin:10px 0}
 .none{color:var(--dim);font-size:13px;margin:4px 0 0}
+.miss{color:var(--dim);font-size:12px;margin:6px 0 0;line-height:1.5}
 .demand h4{font-size:14px;margin:0 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--accent)}
 .items{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .item{display:flex;flex-direction:column;gap:5px;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
