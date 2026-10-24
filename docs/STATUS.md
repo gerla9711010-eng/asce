@@ -113,8 +113,8 @@
 
 - 🔴 「疑似同業每日網頁比對」（08:30）**查無≠乾淨**：WebSearch 查不到手機 Google 秒出的仲介名片頁
   （驗收基準＝0989808766/許聖賢）。09-04 已申請 Google CSE（key/cx 進兩份 `keis/.env`），
-  **但一律 403 `does not have the access`**，10-24 重測仍 403（申請已 7 週，不是生效延遲）
-  → 要使用者到 Google Cloud Console 看該專案有沒有啟用 Custom Search JSON API／新申請者還收不收。
+  **但一律 403 `does not have the access`**：10-24 查 Console，專案 `xueliyu-realestate` API 已啟用，
+  403 是 Google 對新客戶關閉此 API（2027-01-01 全面停用），**修不好，別再重測**。要換搜尋來源待使用者決定。
   另待解：①雲端 routine 讀不到本機 .env ②搜尋範圍 2027-01-01 起只能指定網站，待問落在哪個網域。
 - **待核對**：08-26 那批 36 筆「新進池」記成 grab.py 停機 6 天漏記的舊單，跟 `incidents.md`
   「腳本其實一直活著」矛盾，確認哪份記錯
