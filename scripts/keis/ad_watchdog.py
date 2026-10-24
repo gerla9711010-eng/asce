@@ -66,7 +66,7 @@ NO_PUBLISH_UNTIL = 23     # 保底檢查只在這個鐘點前做，深夜不吵
 DB_WARN_PCT = 70          # Postgres 佔 volume 幾成就告警（2026-08-09 撐爆過一次，見 incidents.md）
 DB_VOLUME_BYTES = int(4.4 * 1024 ** 3)   # volume 實際可用量（5GB 標稱、df 看到 4.4GiB）
 GRAB_STALE_MINUTES = 25   # grab.py 的觀測檔多久沒動就算它死了（白天輪詢間隔 60 秒，25 分很寬鬆）
-GRAB_FROM_HOUR = 8        # 幾點之後才檢查（門市網路 00:00~約07:22 斷、電腦 00:30 關機 07:30 才開）
+GRAB_FROM_HOUR = 8        # 幾點之後才檢查（門市網路 00:00~約07:22 斷、電腦 00:00 關機 07:30 才開）
 GRAB_UNTIL_HOUR = 23      # 幾點之後不再檢查（接近關機時間，不吵）
 GRAB_REALERT_HOURS = 6    # 還是死的話，每幾小時再提醒一次
 # =====================
