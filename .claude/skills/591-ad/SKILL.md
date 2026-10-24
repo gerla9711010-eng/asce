@@ -11,6 +11,8 @@ description: 用 KEIS／houseol 案件資料自動刊登 591 售屋廣告全流�
 
 ## 前置檢查
 
+0. **先跑 `bash .claude/hooks/stale-check.sh`**。印出「落後」（exit 1）就**停手**，不准填表／刊登——代表 skill 與腳本是舊版（2026-10-24 因此用到舊版 fill591，多貼了 LINE 連結）。先 rebase 到最新 main 再繼續。
+
 1. 591 後台已登入；houseol（＝展售系統）已登入——只用來查聯絡人＋大樓名稱（`houseol_contact.js`）。
 2. KEIS API 憑證在 `桌面\keis\.env`。`keis.py` 登入 token 照效期重用約 2 小時、重用時不另外打請求（10-21 連登十幾次被回 429，也是紅線 360）。
    **請求上限 10 分鐘 40 次**（超過腳本自己拒絕）。**改 prep.py／ping.py 後跑 `test_prep.py`（離線、不連 KEIS）**，不要拿真案號反覆跑。

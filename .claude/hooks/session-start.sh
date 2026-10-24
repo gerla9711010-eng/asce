@@ -8,6 +8,11 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
   git rebase origin/main || echo "⚠️ git rebase 失敗，需要手動處理衝突"
 fi
 
+# 本機只通報不 rebase（避免夾到平行 session 的未提交改動）；落後就大聲講。
+if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
+  bash "$(dirname "$0")/stale-check.sh" || true
+fi
+
 # 每次 session 開場都自動跑一次分岔檢查，不用再靠人記得。
 #
 # 但這支要跑 ~90 秒，而開機會同時開 3 個助理視窗（assistant1/2/3），

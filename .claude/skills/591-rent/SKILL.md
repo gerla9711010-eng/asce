@@ -17,6 +17,8 @@ description: 用 houseol 出租委託資料自動刊登 591 出租廣告全流�
 
 ## 前置檢查
 
+0. **先跑 `bash .claude/hooks/stale-check.sh`**。印出「落後」（exit 1）就**停手**，不准填表／刊登——代表 skill 與腳本是舊版（2026-10-24 因此用到舊版 fill591，多貼了 LINE 連結）。先 rebase 到最新 main 再繼續。
+
 1. 591 後台已登入：`https://user.591.com.tw/post/first?type=rent&redirect_from=old` 沒被導去登入頁。
 2. houseol 已登入。
 3. KEIS API 通（照片要用）。
