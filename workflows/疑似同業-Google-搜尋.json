@@ -67,7 +67,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  filter: { and: [\n    { property: '已搜尋', checkbox: { equals: false } },\n    { property: '疑似同業', checkbox: { equals: false } },\n    { property: '搶到時間', date: { on_or_after: new Date(Date.now() - 3 * 864e5).toISOString() } }\n  ] },\n  sorts: [{ property: '搶到時間', direction: 'ascending' }],\n  page_size: 100\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  filter: { and: [\n    { property: '已搜尋', checkbox: { equals: false } },\n    { property: '同業', checkbox: { equals: false } },\n    { property: '搶到時間', date: { on_or_after: new Date(Date.now() - 3 * 864e5).toISOString() } }\n  ] },\n  sorts: [{ property: '搶到時間', direction: 'ascending' }],\n  page_size: 100\n}) }}",
         "options": {}
       },
       "id": "9bd8e5fc-d9d6-4db1-ba03-9757f7677185",
@@ -87,7 +87,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 挑今天要拿去搜的電話。安全閥（2026-10-25 建，見 reference.md「疑似同業 Google 搜尋」）：\n//   ・查不到 SerpApi 剩餘額度（key 失效、服務掛了）→ 一筆都不搜，交給「額度檢查」推告警\n//   ・每班最多 MAX_PER_RUN 筆，且一定留 RESERVE 次給人手動排查\n//   ・同一支電話只搜一次（重複搶到的同一人不重花額度）\n// ⚠️ Notion 篩選偶爾回索引沒更新的舊值（2026-09-05 事故），payload 這裡一定再驗一次\nconst MAX_PER_RUN = 10, RESERVE = 10;\nconst acct = $('查 SerpApi 剩餘額度').first().json;\nconst left = Number(acct.total_searches_left ?? acct.plan_searches_left);\nif (!Number.isFinite(left)) return [];\nconst budget = Math.max(0, Math.min(MAX_PER_RUN, left - RESERVE));\nconst seen = new Set(), out = [];\nfor (const p of ($input.first().json.results || [])) {\n  const pr = p.properties || {};\n  if (pr['已搜尋']?.checkbox || pr['疑似同業']?.checkbox) continue;\n  const phone = String(pr['電話']?.phone_number || '').replace(/\\D/g, '');\n  if (!/^0\\d{8,9}$/.test(phone) || seen.has(phone)) continue;  // 只收台灣手機/市話格式\n  seen.add(phone);\n  out.push({ json: { pageId: p.id, phone } });\n}\nreturn out.slice(0, budget);\n"
+        "jsCode": "// 挑今天要拿去搜的電話。安全閥（2026-10-25 建，見 reference.md「疑似同業 Google 搜尋」）：\n//   ・查不到 SerpApi 剩餘額度（key 失效、服務掛了）→ 一筆都不搜，交給「額度檢查」推告警\n//   ・每班最多 MAX_PER_RUN 筆，且一定留 RESERVE 次給人手動排查\n//   ・同一支電話只搜一次（重複搶到的同一人不重花額度）\n// ⚠️ Notion 篩選偶爾回索引沒更新的舊值（2026-09-05 事故），payload 這裡一定再驗一次\nconst MAX_PER_RUN = 10, RESERVE = 10;\nconst acct = $('查 SerpApi 剩餘額度').first().json;\nconst left = Number(acct.total_searches_left ?? acct.plan_searches_left);\nif (!Number.isFinite(left)) return [];\nconst budget = Math.max(0, Math.min(MAX_PER_RUN, left - RESERVE));\nconst seen = new Set(), out = [];\nfor (const p of ($input.first().json.results || [])) {\n  const pr = p.properties || {};\n  if (pr['已搜尋']?.checkbox || pr['同業']?.checkbox) continue;\n  const phone = String(pr['電話']?.phone_number || '').replace(/\\D/g, '');\n  if (!/^0\\d{8,9}$/.test(phone) || seen.has(phone)) continue;  // 只收台灣手機/市話格式\n  seen.add(phone);\n  out.push({ json: { pageId: p.id, phone } });\n}\nreturn out.slice(0, budget);\n"
       },
       "id": "c7950d6a-e3a0-438f-9449-32ac509f4e16",
       "name": "挑要搜的電話",
@@ -100,7 +100,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 額度／名單檢查：正常就回空陣列（不推）；有狀況才組一則 Telegram\nconst esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\nconst MAX_PER_RUN = 10, RESERVE = 10;  // 跟「挑要搜的電話」保持一致\nconst acct = $('查 SerpApi 剩餘額度').first().json;\nconst left = Number(acct.total_searches_left ?? acct.plan_searches_left);\nconst pending = ($input.first().json.results || []).filter(p => {\n  const pr = p.properties || {};\n  return !pr['已搜尋']?.checkbox && !pr['疑似同業']?.checkbox && pr['電話']?.phone_number;\n}).length;\nlet text = '';\nif (!Number.isFinite(left)) {\n  text = '⚠️ 疑似同業 Google 搜尋：查不到 SerpApi 剩餘額度（key 失效或服務異常），今天一筆都沒搜。\\n'\n       + '原因：' + String(acct.error?.message || acct.error || '未知').slice(0, 150);\n} else if (left - RESERVE < Math.min(pending, MAX_PER_RUN)) {\n  text = `⚠️ 疑似同業 Google 搜尋：SerpApi 本月剩 ${left} 次（保留 ${RESERVE} 次），待搜 ${pending} 筆，`\n       + '今天搜不完，額度下個月才會重置。';\n}\nreturn text ? [{ json: { text, _tg: esc(text) } }] : [];\n"
+        "jsCode": "// 額度／名單檢查：正常就回空陣列（不推）；有狀況才組一則 Telegram\nconst esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Telegram HTML 轉義，見 incidents.md 2026-09-23\nconst MAX_PER_RUN = 10, RESERVE = 10;  // 跟「挑要搜的電話」保持一致\nconst acct = $('查 SerpApi 剩餘額度').first().json;\nconst left = Number(acct.total_searches_left ?? acct.plan_searches_left);\nconst pending = ($input.first().json.results || []).filter(p => {\n  const pr = p.properties || {};\n  return !pr['已搜尋']?.checkbox && !pr['同業']?.checkbox && pr['電話']?.phone_number;\n}).length;\nlet text = '';\nif (!Number.isFinite(left)) {\n  text = '⚠️ 疑似同業 Google 搜尋：查不到 SerpApi 剩餘額度（key 失效或服務異常），今天一筆都沒搜。\\n'\n       + '原因：' + String(acct.error?.message || acct.error || '未知').slice(0, 150);\n} else if (left - RESERVE < Math.min(pending, MAX_PER_RUN)) {\n  text = `⚠️ 疑似同業 Google 搜尋：SerpApi 本月剩 ${left} 次（保留 ${RESERVE} 次），待搜 ${pending} 筆，`\n       + '今天搜不完，額度下個月才會重置。';\n}\nreturn text ? [{ json: { text, _tg: esc(text) } }] : [];\n"
       },
       "id": "bff52264-4758-4d70-b1df-b06cc740d3b5",
       "name": "額度檢查",
@@ -169,7 +169,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 把每支電話的 Google 結果，篩出「看起來跟房地產有關」的當候選，寫進 Notion 給 Cowork 確認\n// 這裡只負責挑候選，絕不勾「疑似同業」——要不要勾由 Cowork 打開網頁確認電話吻合才決定\nconst KW = ['仲介','房仲','不動產','代書','地政士','地產','房屋','房產','售屋','賣屋','買屋','購屋','租屋',\n            '出租','出售','招租','委售','開價','建案','預售','透天','華廈','店面','土地','經紀人','營業員'];\nconst SITES = ['591.com.tw','rakuya.com.tw','sinyi.com.tw','yungching.com.tw','hbhousing.com.tw',\n               'etwarm.com.tw','twhg.com.tw','cthouse.com.tw','century21.com.tw','housefun.com.tw','leju.com.tw'];\nconst src = $('挑要搜的電話').all();\nreturn $input.all().map((it, i) => {\n  const { pageId, phone } = src[i].json;\n  const j = it.json;\n  if (j.error || !j.search_metadata || j.search_metadata.status !== 'Success') {\n    return { json: { pageId, phone, ok: false, why: String(j.error?.message || j.error || j.search_metadata?.status || '無回應').slice(0, 120) } };\n  }\n  const lines = [];\n  for (const r of (j.organic_results || [])) {\n    const blob = [r.title, r.snippet, ...(r.snippet_highlighted_words || [])].join(' ');\n    const link = String(r.link || '');\n    if (!KW.some(k => blob.includes(k)) && !SITES.some(s => link.includes(s))) continue;\n    const hit = blob.replace(/\\D/g, '').includes(phone) ? '☎摘要有電話' : '☎摘要沒電話';\n    lines.push(`${hit}｜${link}｜${String(r.title || '').slice(0, 50)}｜${String(r.snippet || '').slice(0, 90)}`);\n    if (lines.length >= 5) break;\n  }\n  return { json: { pageId, phone, ok: true, text: lines.join('\\n').slice(0, 1900) } };\n});\n"
+        "jsCode": "// 把每支電話的 Google 結果，篩出「看起來跟房地產有關」的當候選，寫進 Notion 給 Cowork 確認\n// 這裡只負責挑候選，絕不勾「同業」「疑似同業」——要不要勾由 Cowork 確認後決定\nconst KW = ['仲介','房仲','不動產','代書','地政士','地產','房屋','房產','售屋','賣屋','買屋','購屋','租屋',\n            '出租','出售','招租','委售','開價','建案','預售','透天','華廈','店面','土地','經紀人','營業員'];\nconst SITES = ['591.com.tw','rakuya.com.tw','sinyi.com.tw','yungching.com.tw','hbhousing.com.tw',\n               'etwarm.com.tw','twhg.com.tw','cthouse.com.tw','century21.com.tw','housefun.com.tw','leju.com.tw'];\nconst src = $('挑要搜的電話').all();\nreturn $input.all().map((it, i) => {\n  const { pageId, phone } = src[i].json;\n  const j = it.json;\n  if (j.error || !j.search_metadata || j.search_metadata.status !== 'Success') {\n    return { json: { pageId, phone, ok: false, why: String(j.error?.message || j.error || j.search_metadata?.status || '無回應').slice(0, 120) } };\n  }\n  const lines = [];\n  for (const r of (j.organic_results || [])) {\n    const blob = [r.title, r.snippet, ...(r.snippet_highlighted_words || [])].join(' ');\n    const link = String(r.link || '');\n    if (!KW.some(k => blob.includes(k)) && !SITES.some(s => link.includes(s))) continue;\n    const hit = blob.replace(/\\D/g, '').includes(phone) ? '☎摘要有電話' : '☎摘要沒電話';\n    lines.push(`${hit}｜${link}｜${String(r.title || '').slice(0, 50)}｜${String(r.snippet || '').slice(0, 90)}`);\n    if (lines.length >= 5) break;\n  }\n  return { json: { pageId, phone, ok: true, text: lines.join('\\n').slice(0, 1900) } };\n});\n"
       },
       "id": "0f14ee9d-6b7c-4a20-91ca-ec3902bf4333",
       "name": "篩房地產候選",
@@ -190,7 +190,7 @@
           },
           "conditions": [
             {
-              "id": "a40b071a-c4ee-4e23-b9e6-d1596905bb34",
+              "id": "a9c8fa82-1142-4d4a-b916-d954cf0f1111",
               "leftValue": "={{ $json.ok }}",
               "rightValue": true,
               "operator": {
