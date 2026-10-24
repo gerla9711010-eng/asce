@@ -111,8 +111,9 @@
 
 ## 其他待辦
 
-- 🟡 疑似同業改成「n8n 07:30 SerpApi 搜電話 → Cowork 08:35 確認」（10-25 上線，機制見 `reference.md`）。
-  ⏭️ 驗：10-25 兩班都要跑過——n8n execution success、Cowork 有沒有把台灣房屋那筆勾成疑似同業。
+- 🟡 同業偵測：n8n 07:30 SerpApi 搜電話 → Cowork 08:35 填「同業判定」（同業／疑似同業，機制見 `reference.md`）。
+  兩段都手動試跑過（台灣房屋那筆＝同業）。⏭️ 驗：10-25 兩班**排程自己有跑**（n8n execution＋Cowork list_runs）。
+  ⏭️ 分支 `claude/peer-two-level-1025`（欄位改兩級＋簡化）10-25 PR 額度已用完，**下個 session 先開 PR 合併**。
   門市那台 `keis/.env` 還留著 `GOOGLE_CSE_*`（已無用），下次到門市順手刪。
 - **待核對**：08-26 那批 36 筆「新進池」記成 grab.py 停機 6 天漏記的舊單，跟 `incidents.md`
   「腳本其實一直活著」矛盾，確認哪份記錯
