@@ -520,6 +520,21 @@ Cowork（`claude.ai/code/routines`）目前只有兩支在跑：「疑似同業�
 只要工作需要 n8n API key、Telegram bot token 這類本機才有的憑證，一律留在本機（Task Scheduler
 讀 `.env`），不要浪費時間想辦法把金鑰塞進 Cowork。
 
+## 疑似同業 Google 搜尋（2026-10-25 上線，n8n 搜＋Cowork 確認兩段式）
+
+為什麼這樣分：WebSearch 搜不到房仲頁；Google CSE 對新客戶關閉（403，2027-01-01 全面停用）；
+要搜真 Google 得用 SerpApi，但金鑰進不了 Cowork（見上一節）→ 搜尋放 n8n，確認留 Cowork。
+1. **n8n「疑似同業 Google 搜尋」**（每日 07:30）：Notion 搶單名單裡「搶到 3 天內、已搜尋=否、
+   疑似同業=否」的人，**只送電話**（不送姓名，使用者定案）搜 1 次 → 標題/摘要有房地產字眼或網域
+   是房仲平台的結果寫進「搜尋候選」，勾「已搜尋」。**這條線絕不勾疑似同業。**
+   安全閥：每班最多 10 筆、SerpApi 永遠留 10 次；查不到額度就一筆不搜＋推 Telegram；搜失敗不勾
+   已搜尋（明天重搜）。credential `SerpApi Key` 限定只能打 `serpapi.com`。
+2. **Cowork「疑似同業每日網頁比對」**（08:35，只有 WebFetch）：讀有候選的人，**電話完全吻合＋
+   房地產仲介/買賣/租賃內容**才勾疑似同業＋填同業來源連結；臉書打不開就不算（寧漏勿冤）。
+額度：SerpApi 免費版每月 250 次（`serpapi.com/manage-api-key`），近 30 天實測搶單 194 筆≈每月 200 次。
+本機手動排查用 `scripts/keis/.env` 的 `SERPAPI_KEY`（同一把，額度共用）。
+上線當晚手動試跑 10 筆：1 筆台灣房屋刊登頁電話吻合（真同業）、2 筆雜訊（摘要沒電話）。
+
 ---
 
 ## 獨立桌面工具（深度細節見各自 README）

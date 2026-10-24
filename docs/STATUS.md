@@ -111,11 +111,9 @@
 
 ## 其他待辦
 
-- 🔴 「疑似同業每日網頁比對」（08:30）**查無≠乾淨**：WebSearch 查不到手機 Google 秒出的仲介名片頁
-  （驗收基準＝0989808766/許聖賢）。09-04 已申請 Google CSE（key/cx 進兩份 `keis/.env`），
-  **但一律 403 `does not have the access`**：10-24 查 Console，專案 `xueliyu-realestate` API 已啟用，
-  403 是 Google 對新客戶關閉此 API（2027-01-01 全面停用），**修不好，別再重測**。要換搜尋來源待使用者決定。
-  另待解：①雲端 routine 讀不到本機 .env ②搜尋範圍 2027-01-01 起只能指定網站，待問落在哪個網域。
+- 🟡 疑似同業改成「n8n 07:30 SerpApi 搜電話 → Cowork 08:35 確認」（10-25 上線，機制見 `reference.md`）。
+  ⏭️ 驗：10-25 兩班都要跑過——n8n execution success、Cowork 有沒有把台灣房屋那筆勾成疑似同業。
+  門市那台 `keis/.env` 還留著 `GOOGLE_CSE_*`（已無用），下次到門市順手刪。
 - **待核對**：08-26 那批 36 筆「新進池」記成 grab.py 停機 6 天漏記的舊單，跟 `incidents.md`
   「腳本其實一直活著」矛盾，確認哪份記錯
 - **Notion v2 舊資料**：YC1868705 還在、不在 KEIS，線 B 掃到略過；`永慶官網連結` 已補上
