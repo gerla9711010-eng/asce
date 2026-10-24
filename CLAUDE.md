@@ -7,6 +7,7 @@ git fetch origin main && git rebase origin/main
 ```
 
 每個 session 的 branch 基礎點不一定是最新 main，不做這步 STATUS.md 和 workflows/ 都是舊的，會重做別人做完的事。
+**問問題也算開工**（10-24 兩次拿舊程式回答）。工作區有別的視窗未提交改動、rebase 不了時：查東西用 `git show origin/main:<路徑>`，要改就開 worktree 從 origin/main 起分支。每則訊息有 hook 檢查落後，看到 ⚠️ 照做。
 
 ## 開工前必讀
 1. 跑 `python scripts/n8n_sync.py --check`（10 秒，看 git 跟 n8n 有沒有分岔）

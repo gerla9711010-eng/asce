@@ -415,6 +415,13 @@ def main():
     except Exception as e:
         out("ERROR|發布失敗：%s（資料已存在 data.json，修好後跑 python upload.py 重發就好）" % e)
         return
+    # 發布成功就把本機副本刪掉：真資料在 OneDrive（兩台共用），本機這幾份只在「發布失敗要重發」時有用。
+    # 留著的話另一台跑過之後它就過時，10-24 Claude 讀了這裡 10-19 的 data.json 跟使用者雞同鴨講一輪。
+    for f in (DATA_JSON, STATE_BACKUP, BASE / "dist" / "index.html"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
 
     out("DONE|" + json.dumps({
         "demands": data["demands"],

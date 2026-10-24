@@ -13,6 +13,9 @@
 另外查出：KEIS 一次沒找到的卡永遠不重查、頁面上也看不到（368 張卡裡 34 張）；`priceOf()` 有時把社區名（故事、京典、萬興）當價格放進指紋。
 **怎麼修**：等畫面上方「您上次搜尋 <客需名> 為…」對上才讀（同名客需不算證據）；卡片跟上一個客需一模一樣又沒對上名字 → 不存檔、worker 補跑。miss 存標記、下次只重查 KEIS（不扣房地額度）、頁面列「房地有、KEIS 沒找到」。污染的兩筆下次增量自動洗掉（kept 以當下卡片過濾）。
 **學到**：查配案結果先讀 OneDrive `買方配案資料\state-auto.json`，repo 裡的 data.json 是那台電腦的舊副本；這次先看舊檔跟使用者雞同鴨講一輪。
+**同一天第二個烏龍**：使用者問 KEIS 重複登入，Claude 沒先同步 main 就拿 10-21 的舊分支回答，漏掉 10-21 的 429 事故和 PR #310。成因：本機開場不自動 rebase（怕夾到別的視窗未提交改動），全靠讀 CLAUDE.md 自律，「問問題」被當成不用開工。
+**修成機制**：`prompt-stale-check.sh`（UserPromptSubmit）每則訊息檢查落後、落後就把警告塞進上下文（3 視窗共用 fetch、10 分鐘一次、5 秒逾時、永不擋訊息）；worker.py 發布成功就刪本機 data.json／state-auto.json／dist，不留會過時的副本。
+⚠️ 測試時踩到：worktree 跟主 repo **共用 .git/config**，在 worktree 改 `remote.origin.url` 會改到主 repo（已改回）。測斷網別改 remote，用 `GIT_TERMINAL_PROMPT=0` 打假網址的 `git ls-remote` 之類。
 
 ---
 
